@@ -1,5 +1,9 @@
-﻿# Changelog
+# Changelog
 
+## 2026-07-10 - Bilingual README
+
+- Reworked README into a bilingual Chinese / English document with language jump links.
+- Preserved the full Chinese project introduction and added a complete English version for international readers.
 ## 2026-07-10 - Chinese README And Framework Positioning
 
 - Rewrote README in Chinese.
@@ -21,5 +25,6 @@
 - Added mathematical rendering plugins for function plots, JSXGraph geometry boards, and Chart.js data models.
 - Added backup inspection and restore support with path allowlists and safety backups.
 - Added Windows launch scripts and fixed-port restart behavior for local deployment.
+
 
 
