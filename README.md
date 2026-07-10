@@ -471,6 +471,38 @@ sudo git config --global --add safe.directory /opt/wikist
 
 随后重新运行更新命令。更推荐的长期方式是更新到包含该修复的新版 `tools/update.js`。
 
+如果更新时出现：
+
+```text
+Tracked working tree changes exist. Commit/stash them first
+```
+
+说明 Git 发现仓库里的已跟踪文件被本地改过。先查看：
+
+```bash
+cd /opt/wikist
+sudo git status --short
+```
+
+推荐处理顺序：
+
+- 如果改动是误操作或升级残留，先备份需要的文件，再恢复这些代码文件。
+- 如果改动是你有意修改的代码，先提交到自己的分支或 fork，再更新。
+- 如果只是想先完成升级并保留现场，使用新版更新器的自动暂存：
+
+```bash
+sudo node tools/update.js --strategy=git --remote=origin --branch=main --service=wikist --stash-dirty --yes
+```
+
+`--stash-dirty` 会执行 `git stash push --include-untracked`，并把 stash 信息写入 `data/updates/latest.json`。升级完成后可查看：
+
+```bash
+sudo git stash list
+sudo git stash show --stat stash@{0}
+```
+
+不要直接 `git reset --hard`，除非你已经确认这些本地改动不需要保留。
+
 #### 11. 卸载配置与初始化回滚
 
 当你需要重新走安装器、回滚错误站点配置、重新绑定域名/SMTP/SQLite 路径时，不要手动删除数据。推荐流程：
@@ -1032,6 +1064,38 @@ sudo git config --global --add safe.directory /opt/wikist
 ```
 
 Then run the update command again. The preferred long-term fix is to update to the version of `tools/update.js` that includes this handling.
+
+If the updater reports:
+
+```text
+Tracked working tree changes exist. Commit/stash them first
+```
+
+Git found local changes in tracked repository files. Inspect them first:
+
+```bash
+cd /opt/wikist
+sudo git status --short
+```
+
+Recommended order:
+
+- If the changes are accidental or left from a failed update, back up anything important and restore those code files.
+- If the changes are intentional code changes, commit them to your own branch or fork before updating.
+- If you want to finish the update while preserving the local state, use the newer updater's automatic stash mode:
+
+```bash
+sudo node tools/update.js --strategy=git --remote=origin --branch=main --service=wikist --stash-dirty --yes
+```
+
+`--stash-dirty` runs `git stash push --include-untracked` and records the stash information in `data/updates/latest.json`. After the update, inspect it with:
+
+```bash
+sudo git stash list
+sudo git stash show --stat stash@{0}
+```
+
+Avoid `git reset --hard` unless you have confirmed the local changes can be discarded.
 
 #### 11. Uninstall Config And Initialization Rollback
 

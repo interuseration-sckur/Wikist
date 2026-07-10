@@ -58,6 +58,7 @@ function parseArgs(argv) {
     install: true,
     check: true,
     allowDirty: false,
+    stashDirty: false,
   };
   for (const arg of argv) {
     if (arg === "--help" || arg === "-h") options.help = true;
@@ -67,6 +68,7 @@ function parseArgs(argv) {
     else if (arg === "--skip-install") options.install = false;
     else if (arg === "--skip-check") options.check = false;
     else if (arg === "--allow-dirty") options.allowDirty = true;
+    else if (arg === "--stash-dirty") options.stashDirty = true;
     else if (arg.startsWith("--strategy=")) options.strategy = arg.slice("--strategy=".length);
     else if (arg.startsWith("--source=")) options.source = arg.slice("--source=".length);
     else if (arg.startsWith("--remote=")) options.remote = arg.slice("--remote=".length);
@@ -83,6 +85,7 @@ Wikist update
 
 Usage:
   node tools/update.js --strategy=git --remote=origin --branch=main --service=wikist --yes
+  node tools/update.js --strategy=git --remote=origin --branch=main --service=wikist --stash-dirty --yes
   node tools/update.js --strategy=local --source=...your-path.../wikist-release --service=wikist --yes
   node tools/update.js --dry-run
 
@@ -167,11 +170,30 @@ function service(command, options) {
   run("systemctl", [command, options.service], options);
 }
 
-function ensureCleanGit(options) {
+function gitStatusLines() {
   if (!fs.existsSync(path.join(rootDir, ".git"))) throw new Error("Git strategy requires a .git directory.");
   const status = capture("git", gitArgs(["status", "--porcelain"]), { cwd: rootDir });
-  if (status && !options.allowDirty) {
-    throw new Error("Tracked working tree changes exist. Commit/stash them first, or use --allow-dirty after reviewing them.");
+  return status ? status.split(/\r?\n/).filter(Boolean) : [];
+}
+
+function stashDirtyGit(options, dirtyFiles) {
+  if (!dirtyFiles.length || !options.stashDirty) return null;
+  const message = `wikist-update-${stamp}`;
+  run("git", gitArgs(["stash", "push", "--include-untracked", "-m", message]), options);
+  return { message, files: dirtyFiles };
+}
+
+function ensureCleanGit(options, report) {
+  const dirtyFiles = gitStatusLines();
+  if (dirtyFiles.length) {
+    report.dirtyFiles = dirtyFiles;
+    if (options.stashDirty) {
+      report.stash = stashDirtyGit(options, dirtyFiles);
+      return;
+    }
+    if (!options.allowDirty) {
+      throw new Error(`Tracked working tree changes exist. Review git status, commit/stash them, or rerun with --stash-dirty. Dirty files: ${dirtyFiles.join("; ")}`);
+    }
   }
 }
 
@@ -183,8 +205,8 @@ function currentGitSha() {
   }
 }
 
-function updateFromGit(options) {
-  ensureCleanGit(options);
+function updateFromGit(options, report) {
+  ensureCleanGit(options, report);
   const before = currentGitSha();
   run("git", gitArgs(["fetch", options.remote, options.branch]), options);
   const target = capture("git", gitArgs(["rev-parse", `${options.remote}/${options.branch}`]), { cwd: rootDir });
@@ -278,6 +300,8 @@ function main() {
     service: options.service || "",
     backup: null,
     result: null,
+    dirtyFiles: [],
+    stash: null,
     protectedPaths: PROTECTED_PATHS,
   };
 
@@ -288,7 +312,7 @@ function main() {
     report.backup = createPreUpdateBackup(options);
     if (report.backup) log(options.dryRun ? `Backup would be: ${report.backup.path}` : `Backup: ${report.backup.path}`);
 
-    report.result = options.strategy === "git" ? updateFromGit(options) : updateFromLocal(options);
+    report.result = options.strategy === "git" ? updateFromGit(options, report) : updateFromLocal(options);
     installDependencies(options);
     runChecks(options);
 

@@ -1,5 +1,11 @@
 ﻿# Changelog
 
+## 2026-07-10 - Dirty Working Tree Update Handling
+
+- Added `--stash-dirty` to `tools/update.js` so cloud updates can preserve local tracked changes before syncing upstream code.
+- Update failure reports now include `dirtyFiles` and optional stash metadata.
+- Documented the `Tracked working tree changes exist` updater error and the recommended inspection, stash, and recovery commands.
+
 ## 2026-07-10 - Git Safe Directory Update Fix
 
 - Fixed `tools/update.js` Git strategy when the updater is run through `sudo` against a repository owned by the `wikist` user.
