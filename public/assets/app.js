@@ -2266,6 +2266,30 @@ function svgToDataUri(svg) {
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 }
 
+function setupAdminShell() {
+  return `<section class="auth-layout setup-admin-layout">
+    <div class="auth-copy setup-admin-copy">
+      <span class="system-kicker">Wikist Initial Setup</span>
+      <h1>创建首位管理员</h1>
+      <p>站点配置已经加载完成。为了让后台、用户管理、备份恢复和权限设置真正可用，请先创建第一个管理员账号。</p>
+      <div class="auth-signals"><span>首个账号自动成为 admin</span><span>SQLite 本地存储</span><span>HttpOnly 会话</span><span>创建后进入后台</span></div>
+    </div>
+    <form class="auth-panel setup-admin-panel" id="authForm">
+      <h2>管理员账号</h2>
+      <p class="muted-line">这个账号拥有完整后台权限。请使用长期可控的邮箱和强密码。</p>
+      <label>用户名<input name="username" autocomplete="username" placeholder="admin" required /></label>
+      <label>显示名称<input name="displayName" autocomplete="nickname" placeholder="站点管理员" required /></label>
+      <label>邮箱<input name="email" type="email" autocomplete="email" placeholder="name@example.com" required /></label>
+      <label>密码<input name="password" type="password" autocomplete="new-password" minlength="8" required /></label>
+      <label>确认密码<input name="confirmPassword" type="password" autocomplete="new-password" minlength="8" required /></label>
+      <input name="captchaId" type="hidden" />
+      <label>人机验证<span class="captcha-row"><img class="captcha-image" id="captchaImage" alt="验证码" /><button class="icon-button" id="refreshCaptcha" type="button" title="刷新验证码" aria-label="刷新验证码"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.34-5.66M20 4v6h-6"/></svg></button></span><input name="captchaAnswer" inputmode="numeric" autocomplete="off" placeholder="输入算式结果" required /></label>
+      <div class="editor-actions"><button class="command-button" type="submit">创建管理员并进入后台</button></div>
+      <div class="status-line" id="authStatus"></div>
+    </form>
+  </section>`;
+}
+
 async function loadCaptcha() {
   const form = document.querySelector("#authForm");
   if (!form) return;
@@ -2303,6 +2327,41 @@ async function renderAuth(mode) {
       } else {
         status.textContent = error.message;
       }
+      await loadCaptcha().catch(() => {});
+    }
+  });
+}
+
+async function renderInitialAdmin() {
+  if (!state.site?.setup?.needsAdmin) {
+    location.hash = "#/page/" + encodeSlug(state.site?.defaultPage || "home");
+    return;
+  }
+  setChromeTitle("创建管理员");
+  renderToc([]);
+  el.editLink.href = "#/new";
+  el.main.innerHTML = setupAdminShell();
+  await loadCaptcha();
+  document.querySelector("#refreshCaptcha")?.addEventListener("click", () => loadCaptcha().catch((error) => { document.querySelector("#authStatus").textContent = error.message; }));
+  document.querySelector("#authForm")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const status = document.querySelector("#authStatus");
+    const payload = Object.fromEntries(new FormData(event.currentTarget).entries());
+    if (payload.password !== payload.confirmPassword) {
+      status.textContent = "两次输入的密码不一致。";
+      return;
+    }
+    delete payload.confirmPassword;
+    status.textContent = "正在创建首位管理员...";
+    try {
+      const result = await api("/api/passport/register", { method: "POST", body: JSON.stringify(payload) });
+      state.user = result.user;
+      state.site.setup = { ...(state.site.setup || {}), needsAdmin: false, users: Math.max(1, Number(state.site.setup?.users || 0) + 1), admins: Math.max(1, Number(state.site.setup?.admins || 0) + 1) };
+      renderPassportLink();
+      await refreshChrome().catch(() => {});
+      location.hash = "#/admin/overview";
+    } catch (error) {
+      status.textContent = error.message;
       await loadCaptcha().catch(() => {});
     }
   });
@@ -3981,6 +4040,10 @@ function parseRoute() {
 
 async function route() {
   const { name, value } = parseRoute();
+  if (state.site?.setup?.needsAdmin && name !== "setup-admin" && name !== "reset-password" && name !== "verify-email") {
+    location.hash = "#/setup-admin";
+    return;
+  }
   document.body.classList.toggle("admin-mode", name === "admin");
   if (name !== "edit" && name !== "new") destroyVisualEditor();
   if (name === "search") await renderSearch(value);
@@ -3992,6 +4055,7 @@ async function route() {
   else if (name === "permissions") await renderPermissions(value);
   else if (name === "login") await renderAuth("login");
   else if (name === "register") await renderAuth("register");
+  else if (name === "setup-admin") await renderInitialAdmin();
   else if (name === "forgot-password") await renderForgotPassword();
   else if (name === "reset-password") await renderResetPassword(value);
   else if (name === "verify-email") await renderVerifyEmail(value);

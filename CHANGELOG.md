@@ -1,4 +1,11 @@
-# Changelog
+﻿# Changelog
+
+## 2026-07-10 - Cloud Deployment And First Admin Flow
+
+- Added a full Chinese / English cloud deployment guide covering clone, Node.js, systemd, Nginx, HTTPS, initialization, backups, updates, customization, and troubleshooting.
+- Added installer-first routing: an uninitialized site now redirects normal homepage access to `/install.html`.
+- Added the first-admin bootstrap flow: after installation and restart, a site with no administrator prompts for the first admin account from the homepage.
+- Changed the first registered account to receive the `admin` role automatically and avoid SMTP lockout during initial setup.
 
 ## 2026-07-10 - Bilingual README
 

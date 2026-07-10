@@ -1169,6 +1169,9 @@ class PassportStore {
     if (existing || this.findUser(username)) throw new Error("用户名或邮箱已被使用。");
 
     const now = nowIso();
+    const initialAdmin = this.needsInitialAdmin();
+    const role = initialAdmin ? "admin" : "member";
+    const emailVerifiedAt = initialAdmin ? now : "";
     const { salt, hash } = hashPassword(password);
     const pageMd = defaultUserPage(username, displayName);
     const result = this.db.prepare(`
@@ -1176,10 +1179,10 @@ class PassportStore {
         username, email, display_name, password_hash, password_salt,
         role, status, bio, page_md, email_verified_at, created_at, updated_at, password_updated_at, last_sync_at
       )
-      VALUES (?, ?, ?, ?, ?, 'member', 'active', '', ?, '', ?, ?, ?, ?)
-    `).run(username, email, displayName, hash, salt, pageMd, now, now, now, now);
+      VALUES (?, ?, ?, ?, ?, ?, 'active', '', ?, ?, ?, ?, ?, ?)
+    `).run(username, email, displayName, hash, salt, role, pageMd, emailVerifiedAt, now, now, now, now);
 
-    return this.createSession(userFromRow(this.findUserById(result.lastInsertRowid)), req);
+    return { ...this.createSession(userFromRow(this.findUserById(result.lastInsertRowid)), req), initialAdmin };
   }
 
   login(input, req) {
@@ -1298,6 +1301,14 @@ class PassportStore {
     const like = `%${q}%`;
     return this.db.prepare("SELECT count(*) AS n FROM users WHERE lower(username) LIKE ? OR lower(display_name) LIKE ? OR lower(coalesce(email, '')) LIKE ?")
       .get(like, like, like).n;
+  }
+
+  countAdmins() {
+    return this.db.prepare("SELECT count(*) AS n FROM users WHERE role = 'admin'").get().n;
+  }
+
+  needsInitialAdmin() {
+    return this.countAdmins() === 0;
   }
 
   updateUserById(userId, input) {

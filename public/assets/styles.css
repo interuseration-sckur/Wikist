@@ -1022,6 +1022,19 @@ th {
   object-fit: cover;
 }
 
+.setup-admin-copy {
+  border-color: rgba(255, 209, 102, .26);
+  background:
+    linear-gradient(135deg, rgba(255, 209, 102, .12), transparent 42%),
+    linear-gradient(225deg, rgba(56, 232, 255, .10), transparent 46%),
+    rgba(16, 21, 20, .78);
+}
+
+.setup-admin-panel h2,
+.setup-admin-panel .muted-line {
+  margin: 0;
+}
+
 .account-grid {
   display: grid;
   grid-template-columns: minmax(0, .85fr) minmax(320px, .7fr);

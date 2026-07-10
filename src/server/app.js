@@ -440,8 +440,10 @@ function assertImportOverwriteAllowed(pages, slug, overwrite) {
 function createWikistServer(options) {
   const rootDir = options.rootDir;
   const publicDir = path.join(rootDir, "public");
+  const configuredAtStartup = hasSiteConfig(rootDir);
   const config = loadConfig(rootDir);
   const installerForceMode = process.env.WIKIST_INSTALL_MODE === "1";
+  let installWroteConfig = false;
   const installerStatus = () => {
     const configured = hasSiteConfig(rootDir);
     const installedConfig = configured ? loadConfig(rootDir) : config;
@@ -449,18 +451,21 @@ function createWikistServer(options) {
       configured,
       setupAllowed: !configured || installerForceMode,
       forceMode: installerForceMode,
+      restartRequired: installWroteConfig || (configured && !configuredAtStartup),
       database: String(installedConfig.passport?.database || "data/wikist.sqlite"),
     };
   };
   const pages = new PageStore(rootDir, config);
   const search = new SearchIndex(pages, () => ({ plugins: pluginSettings(config, rootDir) }));
-  const passport = config.passport?.enabled ? new PassportStore(rootDir, config.passport) : null;
+  const passport = configuredAtStartup && config.passport?.enabled ? new PassportStore(rootDir, config.passport) : null;
 
   return http.createServer(async (req, res) => {
     try {
       const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
       const pathname = decodeURIComponent(url.pathname);
       const session = passport ? passport.authenticate(req) : null;
+      const installerAsset = pathname === "/assets/install.css" || pathname === "/assets/install.js" || pathname === "/assets/wikist-emblem.svg";
+      const installerRequest = pathname === "/install.html" || pathname.startsWith("/api/install/") || pathname === "/api/install" || installerAsset;
 
       if (pathname === "/api/install/status" && req.method === "GET") {
         sendJson(res, 200, installerStatus());
@@ -474,6 +479,7 @@ function createWikistServer(options) {
           return;
         }
         const result = writeInitialConfig(rootDir, await readJsonBody(req), { force: installerForceMode });
+        installWroteConfig = true;
         sendJson(res, 200, {
           ok: true,
           restartRequired: true,
@@ -484,6 +490,16 @@ function createWikistServer(options) {
             mailEnabled: result.config.mail.enabled,
           },
         });
+        return;
+      }
+
+      if (!configuredAtStartup && !installerRequest) {
+        if (req.method === "GET" || req.method === "HEAD") {
+          res.writeHead(302, { location: "/install.html", "cache-control": "no-store" });
+          res.end();
+        } else {
+          sendJson(res, 428, { error: "Wikist has not been initialized. Open /install.html first.", installUrl: "/install.html" });
+        }
         return;
       }
 
@@ -506,6 +522,12 @@ function createWikistServer(options) {
             enabled: Boolean(passport),
             captcha: Boolean(passport),
             sessionDays: config.passport?.sessionDays || 7,
+          },
+          setup: {
+            configured: configuredAtStartup,
+            needsAdmin: Boolean(passport?.needsInitialAdmin()),
+            users: passport ? passport.countUsers() : 0,
+            admins: passport ? passport.countAdmins() : 0,
           },
           comments: {
             provider: "wikist-local",
@@ -671,8 +693,8 @@ function createWikistServer(options) {
         }
         const created = passport.register(await readJsonBody(req), req);
         recordAudit(passport, req, { user: created.user }, { action: "user.register", targetType: "user", targetId: String(created.user.id), targetLabel: created.user.username, summary: "\u6ce8\u518c\u901a\u884c\u8bc1" });
-        let verification = { sent: false };
-        if (created.user.email) {
+        let verification = { sent: false, skipped: Boolean(created.initialAdmin) };
+        if (created.user.email && !created.initialAdmin) {
           try {
             const ticket = passport.createEmailVerificationToken(created.user.id);
             verification = { sent: true, expiresAt: ticket.expiresAt, mail: await sendEmailVerification(config, req, ticket) };
@@ -681,7 +703,7 @@ function createWikistServer(options) {
           }
         }
         setCookieHeader(res, sessionCookie(created.token, created.maxAgeSeconds));
-        sendJson(res, 200, { user: created.user, verification });
+        sendJson(res, 200, { user: created.user, verification, initialAdmin: Boolean(created.initialAdmin) });
         return;
       }
       if (pathname === "/api/passport/login" && req.method === "POST") {

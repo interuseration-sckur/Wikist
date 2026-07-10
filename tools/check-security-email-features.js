@@ -59,6 +59,18 @@ const store = new PassportStore(process.cwd(), {
   twoFactorIssuer: "Wikist Test",
 });
 
+const bootstrap = store.register({
+  username: "bootstrap_admin",
+  displayName: "Bootstrap Admin",
+  email: "bootstrap-admin@example.com",
+  password: "Passw0rd!",
+  ...captcha(store),
+}, req()).user;
+if (bootstrap.role !== "admin" || bootstrap.emailVerified !== true) {
+  console.error(JSON.stringify({ ok: false, failed: ["initialAdminBootstrap"] }, null, 2));
+  process.exit(1);
+}
+
 const created = store.register({
   username: "secure_user",
   displayName: "Secure User",
