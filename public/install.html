@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="dark light" />
+  <title>安装 Wikist</title>
+  <link rel="stylesheet" href="/assets/install.css" />
+</head>
+<body>
+  <main class="installer-shell">
+    <section class="installer-intro">
+      <a class="installer-brand" href="/">WIKIST <span>SETUP</span></a>
+      <p class="eyebrow">MATHEMATICAL KNOWLEDGE INFRASTRUCTURE</p>
+      <h1>建立你的<br>知识共同体。</h1>
+      <p class="intro-copy">这一步会写入站点基础配置。数据采用项目内 SQLite 文件，复制整个 Wikist 目录即可迁移词条、用户和附件。</p>
+      <dl class="installer-signals">
+        <div><dt>01</dt><dd>站点身份与语言</dd></div>
+        <div><dt>02</dt><dd>SQLite 数据路径</dd></div>
+        <div><dt>03</dt><dd>通行证与 SMTP</dd></div>
+      </dl>
+    </section>
+
+    <section class="installer-panel" aria-labelledby="installTitle">
+      <header class="installer-head">
+        <div>
+          <p class="eyebrow">CONFIGURATION</p>
+          <h2 id="installTitle">Wikist 初始配置</h2>
+        </div>
+        <span class="install-status" id="installState">正在检测</span>
+      </header>
+      <p class="installer-note" id="installNote">正在读取当前安装状态。</p>
+
+      <form id="installForm" novalidate>
+        <fieldset>
+          <legend>站点信息</legend>
+          <div class="field-grid two">
+            <label>站点标题<input name="name" maxlength="80" value="Wikist" required /></label>
+            <label>默认语言<select name="language"><option value="zh-CN">简体中文</option><option value="zh-TW">繁體中文</option><option value="en">English</option></select></label>
+          </div>
+          <label>站点简介<textarea name="tagline" maxlength="240">开放、严谨、可验证的数学知识共同体</textarea></label>
+          <div class="field-grid two">
+            <label>许可证<input name="license" value="CC BY-SA 4.0" /></label>
+            <label>资源 CDN 基址（可选）<input name="cdnBase" placeholder="https://cdn.example.com" /></label>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>数据与协作</legend>
+          <label>SQLite 数据库路径<input name="database" value="data/wikist.sqlite" spellcheck="false" required /><small>只能使用项目目录内的相对路径，例如 <code>data/wikist.sqlite</code>。</small></label>
+          <div class="field-grid two">
+            <label>会话有效期（天）<input name="sessionDays" type="number" min="1" max="90" value="7" required /></label>
+            <label>公开编辑策略<select name="openEditing"><option value="true">允许编辑</option><option value="false">暂时关闭</option></select></label>
+          </div>
+          <label class="toggle"><input name="requireLogin" type="checkbox" /><span><strong>编辑需要登录</strong><small>开启后，词条编辑只能由 Wikist 通行证用户提交。</small></span></label>
+        </fieldset>
+
+        <fieldset>
+          <legend>邮件与账户安全 <span>可选</span></legend>
+          <label class="toggle"><input name="mailEnabled" id="mailEnabled" type="checkbox" /><span><strong>启用 SMTP 邮件</strong><small>用于注册验证和密码找回；未配置时可稍后在后台补充。</small></span></label>
+          <div class="mail-fields" id="mailFields" hidden>
+            <div class="field-grid two">
+              <label>SMTP 主机<input name="smtpHost" placeholder="smtp.example.com" /></label>
+              <label>SMTP 端口<input name="smtpPort" type="number" min="1" max="65535" value="587" /></label>
+              <label>SMTP 用户名<input name="smtpUser" autocomplete="username" /></label>
+              <label>SMTP 密码<input name="smtpPass" type="password" autocomplete="new-password" /></label>
+              <label>发件人名称<input name="fromName" value="Wikist" /></label>
+              <label>发件人邮箱<input name="fromAddress" type="email" placeholder="no-reply@example.com" /></label>
+            </div>
+            <label>站点公开地址<input name="baseUrl" id="baseUrl" placeholder="https://wiki.example.com" /></label>
+            <label class="toggle minor"><input name="smtpSecure" type="checkbox" /><span><strong>使用 SSL/TLS 直连</strong><small>常见于 465 端口；587 通常使用 STARTTLS。</small></span></label>
+          </div>
+          <label class="toggle"><input name="requireEmailVerification" type="checkbox" /><span><strong>注册后必须验证邮箱</strong><small>建议先完成 SMTP 测试再开启。</small></span></label>
+        </fieldset>
+
+        <div class="installer-actions">
+          <button class="install-button" id="installButton" type="submit">写入配置并完成安装</button>
+          <a href="/" class="back-link">返回 Wikist</a>
+        </div>
+        <p class="form-status" id="formStatus" role="status"></p>
+      </form>
+    </section>
+  </main>
+  <script src="/assets/install.js"></script>
+</body>
+</html>

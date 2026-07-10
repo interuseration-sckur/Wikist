@@ -1,0 +1,18 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Wikist function-plot check</title>
+<div id="plot" style="width:680px;height:360px;background:#f7fbff"></div>
+<script src="https://cdn.jsdelivr.net/npm/function-plot@1.25.4/dist/function-plot.js"></script>
+<script>
+window.addEventListener('load', function () {
+  functionPlot({
+    target: '#plot',
+    width: 680,
+    height: 360,
+    grid: true,
+    xAxis: { domain: [-6.28, 6.28] },
+    yAxis: { domain: [-1.5, 1.5] },
+    data: [{ fn: 'sin(x)', graphType: 'polyline' }]
+  });
+});
+</script>

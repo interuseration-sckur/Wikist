@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#090d0d" />
+    <script>
+      try {
+        const savedTheme = localStorage.getItem("wikist-theme");
+        const prefersLight = window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches;
+        document.documentElement.dataset.theme = savedTheme || (prefersLight ? "light" : "dark");
+      } catch (_error) {
+        document.documentElement.dataset.theme = "dark";
+      }
+    </script>
+    <title>Wikist</title>
+    <link rel="icon" href="/assets/wikist-emblem.svg" />
+    <link rel="stylesheet" href="/assets/vendor/sweetalert2/sweetalert2.min.css?v=11.26.25" />
+    <link rel="stylesheet" href="/assets/styles.css?v=wikist-core-20260710-46" />
+  </head>
+  <body>
+    <div class="app-grid">
+      <aside class="sidebar" aria-label="Wikist 导航">
+        <a class="brand" href="#/page/home" aria-label="Wikist">
+          <img src="/assets/wikist-emblem.svg" alt="" width="40" height="40" />
+          <span>
+            <strong id="siteName">Wikist</strong>
+            <small id="siteTagline">开放、严谨、可验证的数学知识共同体</small>
+          </span>
+        </a>
+
+        <form class="search" id="searchForm">
+          <input id="searchInput" type="search" autocomplete="off" placeholder="搜索概念、定理、符号或英文术语" />
+          <button class="icon-button" type="submit" title="搜索" aria-label="搜索">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m21 21-4.7-4.7m2-5.3a7.3 7.3 0 1 1-14.6 0 7.3 7.3 0 0 1 14.6 0Z"/></svg>
+          </button>
+        </form>
+
+        <nav class="nav-section" id="primaryNav" aria-label="主导航"></nav>
+        <div class="sidebar-footer">
+          <a href="#/login">Wikist 通行证</a>
+          <a href="#/import-export">导入导出</a>
+          <a href="#/admin/overview">后台控制台</a>
+          <a href="#/page/contribution-guide">贡献规范</a>
+        </div>
+      </aside>
+
+      <main class="workspace">
+        <header class="topbar">
+          <div class="breadcrumbs" id="breadcrumbs">Wikist</div>
+          <form class="top-search" id="topSearchForm" role="search">
+            <input id="topSearchInput" type="search" autocomplete="off" placeholder="搜索 Wikist" />
+            <button class="icon-button" type="submit" title="搜索" aria-label="搜索" data-i18n-title="search">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m21 21-4.7-4.7m2-5.3a7.3 7.3 0 1 1-14.6 0 7.3 7.3 0 0 1 14.6 0Z"/></svg>
+            </button>
+          </form>
+          <nav class="top-quick-nav" id="topQuickNav" aria-label="快捷导航"></nav>
+          <div class="topbar-actions">
+            <select class="language-select" id="languageSelect" title="语言" aria-label="语言"></select>
+            <button class="icon-button theme-toggle" id="themeToggle" type="button" title="切换主题" aria-label="切换主题"></button>
+            <div class="message-menu" id="messageMenu" hidden>
+              <button class="icon-button message-button" id="messageLink" type="button" title="&#x6D88;&#x606F;" aria-label="&#x6D88;&#x606F;&#x4E2D;&#x5FC3;" aria-expanded="false" aria-controls="messagePopover">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6.5A2.5 2.5 0 0 1 6.5 4h11A2.5 2.5 0 0 1 20 6.5v7A2.5 2.5 0 0 1 17.5 16H9l-5 4v-13.5Z"/></svg>
+                <span class="message-badge" id="messageBadge" hidden>0</span>
+              </button>
+              <section class="message-popover" id="messagePopover" role="dialog" aria-label="&#x6D88;&#x606F;&#x9884;&#x89C8;" hidden></section>
+            </div>
+            <a class="passport-button" id="passportLink" href="#/login" aria-label="Wikist 通行证">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M15 12H3"/></svg>
+              <span id="passportText">登录</span>
+            </a>
+            <a class="icon-button" href="#/new" title="新建词条" aria-label="新建词条">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+            </a>
+            <a class="icon-button" id="editLink" href="#/edit/home" title="编辑词条" aria-label="编辑词条">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5Z"/></svg>
+            </a>
+          </div>
+        </header>
+        <section class="content-surface" id="mainContent" aria-live="polite"></section>
+      </main>
+
+      <aside class="right-rail" aria-label="词条详情">
+        <section class="rail-block">
+          <h2>目录</h2>
+          <div id="tocList" class="toc-list"></div>
+        </section>
+        <section class="rail-block">
+          <h2>最近更新</h2>
+          <div id="recentList" class="recent-list"></div>
+        </section>
+      </aside>
+    </div>
+    <script src="/assets/vendor/sweetalert2/sweetalert2.all.min.js?v=11.26.25" defer></script>
+    <script src="/assets/vendor/sweetalert2/wikist-adapter.js?v=11.26.25" defer></script>
+    <script src="/assets/app.js?v=wikist-core-20260710-46" defer></script>
+  </body>
+</html>

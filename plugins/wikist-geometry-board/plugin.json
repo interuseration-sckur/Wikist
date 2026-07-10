@@ -1,0 +1,32 @@
+{
+  "id": "geometryBoard",
+  "name": "交互几何建模",
+  "type": "render-block",
+  "version": "1.0.0",
+  "source": "jsxgraph/jsxgraph · MIT/LGPL",
+  "repository": "https://github.com/jsxgraph/jsxgraph",
+  "vendorDirectory": "jsxgraph",
+  "license": "MIT/LGPL-3.0",
+  "description": "使用 JSXGraph 渲染可拖拽点、线段、直线、圆与多边形，适合几何构造和动态演示。",
+  "syntax": [
+    "::: geometry",
+    "title: 勾股构造",
+    "bbox: -6, 6, 6, -6",
+    "point A: -3, -2",
+    "point B: 3, -2",
+    "point C: 0, 3",
+    "polygon A B C",
+    ":::"
+  ],
+  "configKeys": ["enabled", "cdn", "cssCdn", "defaultHeight", "axis", "grid"],
+  "defaultConfig": {
+    "enabled": true,
+    "cdn": "https://cdn.jsdelivr.net/npm/jsxgraph@1.10.1/distrib/jsxgraphcore.js",
+    "cssCdn": "https://cdn.jsdelivr.net/npm/jsxgraph@1.10.1/distrib/jsxgraph.css",
+    "defaultHeight": 380,
+    "axis": true,
+    "grid": true
+  },
+  "entry": "clientModule",
+  "clientModule": "geometry.mjs"
+}

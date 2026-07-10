@@ -1,0 +1,27 @@
+{
+  "id": "mathChart",
+  "name": "数据曲线建模",
+  "type": "render-block",
+  "version": "1.0.0",
+  "source": "chartjs/Chart.js · MIT",
+  "repository": "https://github.com/chartjs/Chart.js",
+  "vendorDirectory": "Chart.js",
+  "license": "MIT",
+  "description": "使用 Chart.js 渲染折线、散点和柱状数据模型，适合数值实验、统计结果与离散序列。",
+  "syntax": [
+    "::: math-chart",
+    "title: 迭代收敛",
+    "labels: 1, 2, 3, 4",
+    "series: a_n | 1, .5, .25, .125 | #38e8ff",
+    ":::"
+  ],
+  "configKeys": ["enabled", "cdn", "defaultHeight", "grid"],
+  "defaultConfig": {
+    "enabled": true,
+    "cdn": "https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.min.js",
+    "defaultHeight": 340,
+    "grid": true
+  },
+  "entry": "clientModule",
+  "clientModule": "chart.mjs"
+}

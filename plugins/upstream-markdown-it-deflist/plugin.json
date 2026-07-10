@@ -1,0 +1,22 @@
+{
+    "id":  "upstreamDeflist",
+    "name":  "上游 markdown-it-deflist",
+    "type":  "upstream",
+    "version":  "latest",
+    "source":  "https://github.com/markdown-it/markdown-it-deflist",
+    "description":  "定义列表插件，对应 Wikist 的术语/定义写法。",
+    "syntax":  [
+                   "Term",
+                   ": definition"
+               ],
+    "configKeys":  [
+                       "enabled"
+                   ],
+    "defaultConfig":  {
+                          "enabled":  false
+                      },
+    "entry":  "clone-ready",
+    "repository":  "https://github.com/markdown-it/markdown-it-deflist.git",
+    "vendorDirectory":  "markdown-it-deflist",
+    "license":  "MIT"
+}

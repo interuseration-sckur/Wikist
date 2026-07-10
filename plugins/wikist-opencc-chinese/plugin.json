@@ -1,0 +1,27 @@
+{
+  "id": "openccChinese",
+  "name": "OpenCC 简繁转换",
+  "type": "i18n",
+  "version": "1.0.0",
+  "source": "BYVoid/OpenCC / nk2028/opencc-js",
+  "repository": "https://github.com/nk2028/opencc-js",
+  "vendorDirectory": "opencc-js",
+  "description": "基于 opencc-js 的简体/繁体中文转换插件，用于 Wikist 前端显示层的 zh-CN / zh-TW 互换。",
+  "syntax": [
+    "zh-CN -> zh-TW",
+    "zh-TW -> zh-CN",
+    "后台插件配置 openccChinese.cdn"
+  ],
+  "configKeys": [
+    "enabled",
+    "cdn",
+    "autoConvert"
+  ],
+  "defaultConfig": {
+    "enabled": true,
+    "cdn": "https://cdn.jsdelivr.net/npm/opencc-js@1.0.5/dist/umd/full.js",
+    "autoConvert": true
+  },
+  "entry": "core:openccChinese",
+  "license": "MIT"
+}

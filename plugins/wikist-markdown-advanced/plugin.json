@@ -1,0 +1,22 @@
+{
+    "id":  "markdownAdvanced",
+    "name":  "Wikist 高级 Markdown",
+    "type":  "parser",
+    "version":  "1.0.0",
+    "source":  "core:markdown + curated markdown-it compatibility",
+    "description":  "内置任务列表、脚注、定义列表、标题属性、删除线、高亮、上下标、波浪线围栏与 MediaWiki 风格图片。",
+    "syntax":  [
+                   "- [x] 任务列表",
+                   "[^note]: 脚注",
+                   "术语\\n: 定义",
+                   "## 标题 {#id .class}",
+                   "[[File:/assets/a.png|right|thumb|320px|说明]]"
+               ],
+    "configKeys":  [
+                       "enabled"
+                   ],
+    "defaultConfig":  {
+                          "enabled":  true
+                      },
+    "entry":  "core:markdownAdvanced"
+}

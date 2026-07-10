@@ -1,0 +1,22 @@
+{
+    "id":  "upstreamTaskLists",
+    "name":  "上游 markdown-it-task-lists",
+    "type":  "upstream",
+    "version":  "latest",
+    "source":  "https://github.com/revin/markdown-it-task-lists",
+    "description":  "GitHub 风格任务列表插件，对应 - [x] 与 - [ ]。",
+    "syntax":  [
+                   "- [x] done",
+                   "- [ ] todo"
+               ],
+    "configKeys":  [
+                       "enabled"
+                   ],
+    "defaultConfig":  {
+                          "enabled":  false
+                      },
+    "entry":  "clone-ready",
+    "repository":  "https://github.com/revin/markdown-it-task-lists.git",
+    "vendorDirectory":  "markdown-it-task-lists",
+    "license":  "ISC"
+}

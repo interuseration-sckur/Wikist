@@ -1,0 +1,70 @@
+:root {
+  color-scheme: dark;
+  --bg: #07100f;
+  --panel: rgba(13, 26, 24, .90);
+  --line: rgba(123, 255, 180, .20);
+  --text: #eefaf4;
+  --muted: #9ab4ab;
+  --cyan: #3ceaff;
+  --green: #82ffb9;
+  --amber: #ffd36a;
+  --rose: #ff7f9f;
+  font-family: Inter, "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+}
+* { box-sizing: border-box; }
+body { min-height: 100vh; margin: 0; color: var(--text); background: linear-gradient(rgba(60,234,255,.045) 1px, transparent 1px), linear-gradient(90deg, rgba(130,255,185,.035) 1px, transparent 1px), var(--bg); background-size: 46px 46px, 46px 46px, auto; }
+body::before { content: ""; position: fixed; inset: 0; pointer-events: none; background: linear-gradient(110deg, transparent 0 48%, rgba(60,234,255,.04) 50%, transparent 52%); }
+.installer-shell { width: min(1180px, calc(100% - 40px)); min-height: 100vh; margin: 0 auto; padding: 48px 0; display: grid; grid-template-columns: minmax(290px, .84fr) minmax(0, 1.16fr); gap: clamp(28px, 7vw, 104px); align-items: center; }
+.installer-intro { padding: 24px 0; }
+.installer-brand { color: var(--text); font-size: 1rem; font-weight: 850; letter-spacing: .12em; }
+.installer-brand span { color: var(--cyan); }
+.eyebrow { margin: 42px 0 12px; color: var(--green); font-size: .73rem; font-weight: 800; letter-spacing: .13em; }
+h1, h2, p { margin-top: 0; }
+h1 { max-width: 520px; margin-bottom: 22px; font-size: clamp(2.8rem, 5.6vw, 5.35rem); line-height: .98; letter-spacing: 0; }
+h2 { margin: 0; font-size: clamp(1.45rem, 2.3vw, 2rem); letter-spacing: 0; }
+.intro-copy, .installer-note { color: var(--muted); line-height: 1.75; }
+.intro-copy { max-width: 520px; font-size: 1.03rem; }
+.installer-signals { display: grid; gap: 10px; margin: 40px 0 0; }
+.installer-signals div { display: grid; grid-template-columns: 42px 1fr; gap: 12px; align-items: center; border-top: 1px solid var(--line); padding-top: 12px; }
+.installer-signals dt { color: var(--cyan); font: 800 .8rem ui-monospace, Consolas, monospace; }
+.installer-signals dd { margin: 0; color: var(--muted); }
+.installer-panel { position: relative; border: 1px solid var(--line); border-radius: 10px; padding: clamp(22px, 3vw, 36px); background: linear-gradient(145deg, rgba(60,234,255,.075), transparent 34%), var(--panel); box-shadow: 0 30px 90px rgba(0,0,0,.30); backdrop-filter: blur(18px); }
+.installer-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.installer-head .eyebrow { margin: 0 0 8px; }
+.install-status { flex: 0 0 auto; border: 1px solid var(--line); border-radius: 999px; padding: 6px 10px; color: var(--amber); background: rgba(255,211,106,.08); font-size: .78rem; font-weight: 750; }
+.install-status.ready { color: var(--green); border-color: rgba(130,255,185,.34); background: rgba(130,255,185,.08); }
+.install-status.locked { color: var(--rose); border-color: rgba(255,127,159,.38); background: rgba(255,127,159,.08); }
+.installer-note { margin: 14px 0 26px; }
+form { display: grid; gap: 18px; }
+fieldset { min-width: 0; margin: 0; border: 1px solid rgba(60,234,255,.14); border-radius: 8px; padding: 16px; }
+legend { padding: 0 7px; color: var(--text); font-size: .9rem; font-weight: 800; }
+legend span { color: var(--muted); font-weight: 500; }
+label { display: grid; gap: 7px; color: var(--muted); font-size: .88rem; font-weight: 700; }
+label + label { margin-top: 12px; }
+.field-grid { display: grid; gap: 12px; }
+.field-grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+input, textarea, select { width: 100%; min-height: 43px; border: 1px solid rgba(131,191,174,.28); border-radius: 7px; padding: 0 11px; color: var(--text); background: rgba(3,10,9,.70); font: inherit; outline: none; }
+textarea { min-height: 78px; padding-top: 10px; resize: vertical; }
+select { color-scheme: dark; }
+select option { color: var(--text); background: #101b19; }
+input:focus, textarea:focus, select:focus { border-color: var(--cyan); box-shadow: 0 0 0 3px rgba(60,234,255,.12); }
+small { color: var(--muted); line-height: 1.45; font-weight: 500; }
+code { color: var(--cyan); }
+.toggle { grid-template-columns: auto 1fr; align-items: start; gap: 10px; margin-top: 14px; padding: 11px; border: 1px solid rgba(130,255,185,.13); border-radius: 7px; background: rgba(130,255,185,.035); }
+.toggle input { width: 17px; min-height: 17px; margin: 2px 0 0; accent-color: var(--green); }
+.toggle strong, .toggle small { display: block; }
+.toggle strong { color: var(--text); }
+.toggle small { margin-top: 3px; }
+.toggle.minor { margin-top: 12px; }
+.mail-fields { margin-top: 14px; padding-top: 14px; border-top: 1px solid rgba(60,234,255,.13); }
+.installer-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
+.install-button { min-height: 44px; border: 1px solid rgba(60,234,255,.58); border-radius: 7px; padding: 0 17px; color: #06201e; background: linear-gradient(135deg, var(--cyan), var(--green)); font: 800 .92rem inherit; cursor: pointer; }
+.install-button:hover { filter: brightness(1.06); }
+.install-button:disabled { cursor: not-allowed; opacity: .48; filter: grayscale(.3); }
+.back-link { color: var(--muted); font-size: .9rem; }
+.back-link:hover { color: var(--text); }
+.form-status { min-height: 22px; margin: 0; color: var(--muted); line-height: 1.55; }
+.form-status.error { color: #ffb0c4; }
+.form-status.success { color: var(--green); }
+@media (max-width: 880px) { .installer-shell { grid-template-columns: 1fr; padding: 32px 0; } .installer-intro { padding-bottom: 0; } .installer-intro .eyebrow { margin-top: 25px; } .installer-signals { margin-top: 26px; grid-template-columns: repeat(3, minmax(0, 1fr)); } .installer-signals div { grid-template-columns: 1fr; } }
+@media (max-width: 600px) { .installer-shell { width: min(100% - 26px, 620px); gap: 28px; } .field-grid.two, .installer-signals { grid-template-columns: 1fr; } .installer-panel { padding: 20px 16px; } .installer-head { display: grid; } .installer-head .install-status { justify-self: start; } }

@@ -1,0 +1,21 @@
+{
+  "id": "magicWords",
+  "name": "Wikist 魔法词",
+  "type": "parser",
+  "version": "1.0.0",
+  "source": "Wikist Core / MediaWiki-style magic words",
+  "description": "在渲染前替换 {{SITENAME}}、{{PAGENAME}}、{{CURRENTYEAR}} 等变量，并支持轻量解析函数。",
+  "syntax": [
+    "{{SITENAME}}",
+    "{{PAGENAME}}",
+    "{{CURRENTYEAR}}",
+    "{{#if: 条件 | 有内容 | 无内容 }}",
+    "{{#ifeq: A | B | 相等 | 不相等 }}"
+  ],
+  "configKeys": ["enabled", "custom"],
+  "defaultConfig": {
+    "enabled": true,
+    "custom": {}
+  },
+  "entry": "core:magicWords"
+}

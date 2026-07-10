@@ -1,0 +1,35 @@
+﻿{
+  "name": "Wikist",
+  "tagline": "Open mathematical knowledge",
+  "language": "zh-CN",
+  "defaultPage": "home",
+  "license": "CC BY-SA 4.0",
+  "math": {
+    "provider": "mathjax",
+    "cdn": "https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js"
+  },
+  "editing": {
+    "open": true,
+    "requireLogin": false,
+    "requireTokenEnv": "WIKIST_EDIT_TOKEN"
+  },
+  "passport": {
+    "enabled": true,
+    "database": "data/wikist.sqlite",
+    "sessionDays": 7,
+    "captchaTTLSeconds": 300
+  },
+  "mail": {
+    "enabled": false,
+    "fromName": "Wikist",
+    "fromAddress": "",
+    "baseUrl": "",
+    "smtp": {
+      "host": "",
+      "port": 587,
+      "secure": false,
+      "user": "",
+      "pass": ""
+    }
+  }
+}

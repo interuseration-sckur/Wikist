@@ -1,0 +1,4150 @@
+const THEME_KEY = "wikist-theme";
+const LANG_KEY = "wikist-language";
+const VDITOR_VERSION = "3.11.2";
+const VDITOR_CDN = `https://cdn.jsdelivr.net/npm/vditor@${VDITOR_VERSION}`;
+let activeEditor = null;
+let vditorAssetsPromise = null;
+let functionPlotAssetsPromise = null;
+let functionPlotAssetsKey = "";
+let functionPlotResizeObserver = null;
+let mathJsAssetsPromise = null;
+let mathJsAssetsKey = "";
+let messagePopoverRequestId = 0;
+let urgentMessageCheck = false;
+const urgentMessagePopupIds = new Set();
+let openccAssetsPromise = null;
+let openccConverter = null;
+let pluginModulePromises = new Map();
+
+const state = {
+  site: null,
+  user: null,
+  pages: [],
+  recent: [],
+  currentSlug: "home",
+  unreadMessages: 0,
+  messagePopoverOpen: false,
+  uiLanguage: "zh-CN",
+};
+
+const el = {
+  siteName: document.querySelector("#siteName"),
+  siteTagline: document.querySelector("#siteTagline"),
+  primaryNav: document.querySelector("#primaryNav"),
+  searchForm: document.querySelector("#searchForm"),
+  searchInput: document.querySelector("#searchInput"),
+  topSearchForm: document.querySelector("#topSearchForm"),
+  topSearchInput: document.querySelector("#topSearchInput"),
+  languageSelect: document.querySelector("#languageSelect"),
+  breadcrumbs: document.querySelector("#breadcrumbs"),
+  topQuickNav: document.querySelector("#topQuickNav"),
+  passportLink: document.querySelector("#passportLink"),
+  passportText: document.querySelector("#passportText"),
+  themeToggle: document.querySelector("#themeToggle"),
+  messageMenu: document.querySelector("#messageMenu"),
+  messageLink: document.querySelector("#messageLink"),
+  messageBadge: document.querySelector("#messageBadge"),
+  messagePopover: document.querySelector("#messagePopover"),
+  editLink: document.querySelector("#editLink"),
+  main: document.querySelector("#mainContent"),
+  toc: document.querySelector("#tocList"),
+  recent: document.querySelector("#recentList"),
+};
+
+function encodeSlug(slug) {
+  return String(slug || "home").split("/").map(encodeURIComponent).join("/");
+}
+
+async function api(path, options = {}) {
+  const response = await fetch(path, {
+    credentials: "same-origin",
+    headers: { "content-type": "application/json", ...(options.headers || {}) },
+    ...options,
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(payload.error || `请求失败（HTTP ${response.status}）`);
+  return payload;
+}
+
+function sweetAlertOptions(options = {}) {
+  const classes = options.customClass || {};
+  return {
+    ...options,
+    buttonsStyling: false,
+    customClass: {
+      popup: `wikist-swal-popup ${classes.popup || ""}`.trim(),
+      title: `wikist-swal-title ${classes.title || ""}`.trim(),
+      htmlContainer: `wikist-swal-copy ${classes.htmlContainer || ""}`.trim(),
+      input: `wikist-swal-input ${classes.input || ""}`.trim(),
+      actions: `wikist-swal-actions ${classes.actions || ""}`.trim(),
+      confirmButton: `wikist-swal-confirm ${classes.confirmButton || ""}`.trim(),
+      cancelButton: `wikist-swal-cancel ${classes.cancelButton || ""}`.trim(),
+    },
+  };
+}
+
+async function uiAlert(title, text = "", icon = "info") {
+  if (!window.Swal) return undefined;
+  return window.Swal.fire(sweetAlertOptions({ title, text, icon, confirmButtonText: "知道了" }));
+}
+
+async function uiConfirm({ title, text = "", icon = "question", confirmText = "确认", cancelText = "取消", danger = false } = {}) {
+  if (!window.Swal) return false;
+  const result = await window.Swal.fire(sweetAlertOptions({
+    title,
+    text,
+    icon,
+    showCancelButton: true,
+    focusCancel: danger,
+    reverseButtons: true,
+    confirmButtonText: confirmText,
+    cancelButtonText: cancelText,
+    customClass: { confirmButton: danger ? "is-danger" : "" },
+  }));
+  return Boolean(result.isConfirmed);
+}
+
+async function uiPrompt({ title, text = "", value = "", placeholder = "", confirmText = "确定", validator } = {}) {
+  if (!window.Swal) return null;
+  const result = await window.Swal.fire(sweetAlertOptions({
+    title,
+    text,
+    input: "text",
+    inputValue: value,
+    inputPlaceholder: placeholder,
+    showCancelButton: true,
+    reverseButtons: true,
+    confirmButtonText: confirmText,
+    cancelButtonText: "取消",
+    inputValidator: validator,
+  }));
+  return result.isConfirmed ? String(result.value || "").trim() : null;
+}
+
+function uiToast(title, icon = "success") {
+  if (!window.Swal) return Promise.resolve();
+  return window.Swal.fire(sweetAlertOptions({
+    title,
+    icon,
+    toast: true,
+    position: "top-end",
+    showConfirmButton: false,
+    timer: 2200,
+    timerProgressBar: true,
+    customClass: { popup: "wikist-swal-toast" },
+  }));
+}
+
+function fmtDate(value) {
+  if (!value) return "";
+  return new Intl.DateTimeFormat("zh-CN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(value));
+}
+
+function escapeHtml(value) {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+const GROUP_LABELS = {
+  member: "普通用户",
+  creator: "创作者",
+  editor: "编辑",
+  senior_editor: "资深编辑",
+  admin: "管理员",
+};
+const GROUP_RANK = { member: 0, creator: 1, editor: 2, senior_editor: 3, admin: 4 };
+function normalizeRole(role) {
+  const value = String(role || "member").trim();
+  if (value === "senior" || value === "senior-editor") return "senior_editor";
+  return GROUP_RANK[value] === undefined ? "member" : value;
+}
+function groupRank(role) { return GROUP_RANK[normalizeRole(role)] ?? 0; }
+function userCan(minRole) { return Boolean(state.user) && groupRank(state.user.role) >= groupRank(minRole); }
+function canAccessAdmin() { return Boolean(state.user?.capabilities?.staff || userCan("senior_editor")); }
+function canManageUsers() { return Boolean(state.user?.capabilities?.manageUsers || userCan("admin")); }
+function canManageContent() { return Boolean(state.user?.capabilities?.manageContent || userCan("senior_editor")); }
+function savedTheme() {
+  try {
+    const value = localStorage.getItem(THEME_KEY);
+    if (value === "dark" || value === "light") return value;
+  } catch (_error) {}
+  return document.documentElement.dataset.theme === "light" ? "light" : "dark";
+}
+
+function themeIcon(theme) {
+  if (theme === "dark") {
+    return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v2M12 19v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M3 12h2M19 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42M12 8a4 4 0 1 1 0 8 4 4 0 0 1 0-8Z"/></svg>';
+  }
+  return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12.8A8.5 8.5 0 1 1 11.2 3a6.6 6.6 0 0 0 9.8 9.8Z"/></svg>';
+}
+
+function vditorThemeName(theme = document.documentElement.dataset.theme) {
+  return theme === "light" ? "classic" : "dark";
+}
+
+function syncVisualEditorTheme(theme) {
+  if (!activeEditor?.setTheme) return;
+  try {
+    const editorTheme = vditorThemeName(theme);
+    activeEditor.setTheme(editorTheme, editorTheme, theme === "light" ? "github" : "native");
+  } catch (_error) {}
+}
+
+function applyTheme(theme, persist = true) {
+  const next = theme === "light" ? "light" : "dark";
+  document.documentElement.dataset.theme = next;
+  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", next === "light" ? "#f6fbfa" : "#090d0d");
+  if (persist) {
+    try { localStorage.setItem(THEME_KEY, next); } catch (_error) {}
+  }
+  if (el.themeToggle) {
+    el.themeToggle.innerHTML = themeIcon(next);
+    el.themeToggle.title = next === "dark" ? "切换浅色主题" : "切换暗黑主题";
+    el.themeToggle.setAttribute("aria-label", el.themeToggle.title);
+  }
+  syncVisualEditorTheme(next);
+  refreshFunctionPlots();
+}
+
+const UI_LABELS = {
+  "zh-CN": {
+    search: "搜索",
+    searchPlaceholder: "搜索 Wikist",
+    login: "登录",
+    messages: "消息",
+    newPage: "新建词条",
+    editPage: "编辑词条",
+    admin: "后台",
+  },
+  "zh-TW": {
+    search: "搜尋",
+    searchPlaceholder: "搜尋 Wikist",
+    login: "登入",
+    messages: "訊息",
+    newPage: "新增詞條",
+    editPage: "編輯詞條",
+    admin: "後台",
+  },
+  en: {
+    search: "Search",
+    searchPlaceholder: "Search Wikist",
+    login: "Sign in",
+    messages: "Messages",
+    newPage: "New page",
+    editPage: "Edit page",
+    admin: "Admin",
+  },
+};
+
+const COMMON_LANGUAGE_LABELS = {
+  "zh-CN": "简体中文",
+  "zh-TW": "繁體中文",
+  en: "English",
+  ja: "日本語",
+  ko: "한국어",
+  fr: "Français",
+  de: "Deutsch",
+  es: "Español",
+  ru: "Русский",
+  ar: "العربية",
+  pt: "Português",
+  it: "Italiano",
+  vi: "Tiếng Việt",
+};
+const DEFAULT_LANGUAGE_CODES = ["zh-CN", "zh-TW", "en"];
+
+function normalizeLanguageCode(value, fallback = "") {
+  const raw = String(value || "").trim().replace(/_/g, "-");
+  if (!raw) return fallback;
+  const lower = raw.toLowerCase();
+  if (lower === "zh" || lower === "zh-hans" || lower === "zh-cn" || lower === "cn") return "zh-CN";
+  if (lower === "zh-hant" || lower === "zh-tw" || lower === "tw" || lower === "zh-hk") return "zh-TW";
+  const parts = lower.split("-").filter(Boolean);
+  if (!parts.length || !/^[a-z]{2,3}$/.test(parts[0])) return fallback;
+  const normalized = [parts[0]];
+  for (const part of parts.slice(1, 3)) {
+    if (/^[a-z]{4}$/.test(part)) normalized.push(part[0].toUpperCase() + part.slice(1));
+    else if (/^([a-z]{2}|\d{3})$/.test(part)) normalized.push(part.toUpperCase());
+    else if (/^[a-z0-9]{2,8}$/.test(part)) normalized.push(part);
+    else return fallback;
+  }
+  return normalized.join("-");
+}
+
+function uniqueLanguages(list = []) {
+  return Array.from(new Set(list.map((item) => normalizeLanguageCode(item, "")).filter(Boolean)));
+}
+
+function supportedLanguages(extra = []) {
+  const languages = state.site?.languages || state.site?.site?.languages || DEFAULT_LANGUAGE_CODES;
+  return uniqueLanguages([...DEFAULT_LANGUAGE_CODES, ...languages, state.site?.language, state.uiLanguage, ...extra]);
+}
+
+function languageLabel(lang) {
+  const normalized = normalizeLanguageCode(lang, lang);
+  if (COMMON_LANGUAGE_LABELS[normalized]) return COMMON_LANGUAGE_LABELS[normalized];
+  try {
+    const label = new Intl.DisplayNames([state.uiLanguage || "zh-CN", "zh-CN"], { type: "language" }).of(normalized);
+    if (label) return `${label} · ${normalized}`;
+  } catch (_error) {}
+  return normalized;
+}
+
+function savedLanguage() {
+  try {
+    const value = localStorage.getItem(LANG_KEY);
+    const normalized = normalizeLanguageCode(value, "");
+    if (normalized) return normalized;
+  } catch (_error) {}
+  return normalizeLanguageCode(state.site?.language, "zh-CN");
+}
+
+function updateLanguageChrome() {
+  const lang = state.uiLanguage || "zh-CN";
+  const labels = UI_LABELS[lang] || UI_LABELS["zh-CN"];
+  document.documentElement.lang = lang;
+  document.documentElement.dataset.uiLanguage = lang;
+  if (el.languageSelect) {
+    const options = supportedLanguages([lang]);
+    el.languageSelect.innerHTML = options.map((item) => `<option value="${item}" ${item === lang ? "selected" : ""}>${languageLabel(item)}</option>`).join("");
+    el.languageSelect.insertAdjacentHTML("beforeend", '<option value="__custom">添加语言...</option>');
+    el.languageSelect.value = lang;
+    el.languageSelect.title = lang === "en" ? "Language" : "语言";
+  }
+  if (el.searchInput) el.searchInput.placeholder = lang === "en" ? "Search concepts, theorems, symbols or English terms" : labels.searchPlaceholder;
+  if (el.topSearchInput) el.topSearchInput.placeholder = labels.searchPlaceholder;
+  document.querySelectorAll("[data-i18n-title='search']").forEach((node) => {
+    node.title = labels.search;
+    node.setAttribute("aria-label", labels.search);
+  });
+  const messageLink = el.messageLink;
+  if (messageLink) {
+    messageLink.title = labels.messages;
+    messageLink.setAttribute("aria-label", labels.messages);
+  }
+  const passportText = el.passportText;
+  if (passportText && !state.user) passportText.textContent = labels.login;
+}
+
+const EN_UI_REPLACEMENTS = [
+  ["迁移 Wikist 词条、导入 Wikipedia 原始词条、同步来源，并把 Wikipedia 组件尽量转换为 Wikist 可继续编辑的 Markdown。", "Move Wikist pages, import Wikipedia source pages, sync upstream content, and convert Wikipedia components into editable Wikist Markdown."],
+  ["开放知识应该能自由迁移", "Open knowledge should move freely"],
+  ["导出不会要求后台权限；导入和同步需要登录，并会记录为你的贡献。Wikipedia 内链会保留为 Wikist 词条链接，图片、信息框与表格会尽量转成本站组件。", "Export does not require admin access. Import and sync require sign-in and are recorded as your contributions. Wikipedia links stay as Wikist page links; images, infoboxes and tables are converted into local components when possible."],
+  ["导入前请先登录通行证", "Sign in before importing"],
+  ["已登录", "Signed in"],
+  ["未登录", "Signed out"],
+  ["中文 Wikipedia", "Chinese Wikipedia"],
+  ["中文源 · 简体显示", "Chinese source · Simplified"],
+  ["中文源 · 繁体显示", "Chinese source · Traditional"],
+  ["粘贴 Wikist JSON，或 Markdown 正文", "Paste Wikist JSON or Markdown body"],
+  ["留空则自动生成", "Leave blank to generate automatically"],
+  ["仅支持保存了 Wikipedia 导入元信息的词条；同步会保留本地标题、slug 与顶部大图。", "Only pages with Wikipedia import metadata can be synced. Local title, slug and hero image are preserved."],
+  ["后台控制台", "Admin"],
+  ["Wikist 通行证", "Passport"],
+  ["贡献规范", "Contributing"],
+  ["首页", "Home"],
+  ["资讯", "News"],
+  ["标记规范", "Markup"],
+  ["语法文档", "Syntax"],
+  ["插件生态", "Plugin Ecosystem"],
+  ["语法测试", "Syntax Lab"],
+  ["协议", "Protocol"],
+  ["教程", "Tutorial"],
+  ["Wikist 起源", "Origin"],
+  ["导入导出", "Import / Export"],
+  ["导出词条", "Export Page"],
+  ["导入 Wikist 文件", "Import Wikist File"],
+  ["导入 Wikipedia", "Import Wikipedia"],
+  ["同步 Wikipedia 导入词条", "Sync Wikipedia Page"],
+  ["全站备份", "Site Backup"],
+  ["后台概览", "Overview"],
+  ["用户管理", "Users"],
+  ["词条管理", "Pages"],
+  ["评论管理", "Comments"],
+  ["消息管理", "Messages"],
+  ["归档页面", "Archives"],
+  ["站点设置", "Site Settings"],
+  ["插件管理", "Plugins"],
+  ["正文", "Page"],
+  ["编辑记录", "History"],
+  ["评论", "Comments"],
+  ["权限", "Permissions"],
+  ["编辑", "Edit"],
+  ["查询", "Search"],
+  ["搜索", "Search"],
+  ["导出", "Export"],
+  ["导入", "Import"],
+  ["同步", "Sync"],
+  ["保存", "Save"],
+  ["登录", "Sign in"],
+  ["注册", "Sign up"],
+  ["返回首页", "Back Home"],
+  ["返回 wiki", "Back to Wiki"],
+  ["最近更新", "Recent"],
+  ["目录", "Contents"],
+  ["词条", "Page"],
+  ["标题", "Title"],
+  ["摘要", "Summary"],
+  ["格式", "Format"],
+  ["语言", "Language"],
+  ["目标 slug", "Target slug"],
+  ["允许覆盖已有词条", "Allow overwrite"],
+  ["从 Wikipedia 导入", "Import from Wikipedia"],
+];
+
+function openccSource() {
+  return state.site?.plugins?.openccChinese?.cdn || "/plugins/vendor/opencc-js/full.js";
+}
+
+async function ensureOpenCC() {
+  if (window.OpenCC?.Converter) return window.OpenCC;
+  if (!openccAssetsPromise) openccAssetsPromise = loadScript(openccSource(), "OpenCC", "OpenCC 简繁转换插件加载失败。");
+  await openccAssetsPromise;
+  return window.OpenCC;
+}
+
+function textNodesUnder(root, options = {}) {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      const parent = node.parentElement;
+      if (!parent || !node.nodeValue.trim()) return NodeFilter.FILTER_REJECT;
+      if (parent.closest("script,style,textarea,input,select,code,pre,.vditor")) return NodeFilter.FILTER_REJECT;
+      if (options.skipArticle && parent.closest(".article-body,.comment-body,.math-block,.footnotes")) return NodeFilter.FILTER_REJECT;
+      return NodeFilter.FILTER_ACCEPT;
+    },
+  });
+  const nodes = [];
+  while (walker.nextNode()) nodes.push(walker.currentNode);
+  return nodes;
+}
+
+function hydrateEnglishUi(root = document.body) {
+  textNodesUnder(root, { skipArticle: true }).forEach((node) => {
+    if (!node._wikistOriginalText) node._wikistOriginalText = node.nodeValue;
+    let text = node._wikistOriginalText;
+    for (const [from, to] of EN_UI_REPLACEMENTS) {
+      text = text.split(from).join(to);
+    }
+    node.nodeValue = text;
+  });
+}
+
+async function hydrateLanguageConversion(root = document.body) {
+  const lang = state.uiLanguage || "zh-CN";
+  if (lang === "en") {
+    hydrateEnglishUi(root);
+    return;
+  }
+  if (lang !== "zh-TW") return;
+  const settings = state.site?.plugins?.openccChinese || {};
+  if (settings.enabled === false || settings.autoConvert === false) return;
+  try {
+    const OpenCC = await ensureOpenCC();
+    if (!openccConverter) openccConverter = OpenCC.Converter({ from: "cn", to: "tw" });
+    textNodesUnder(root).forEach((node) => {
+      if (!node._wikistOriginalText) node._wikistOriginalText = node.nodeValue;
+      node.nodeValue = openccConverter(node._wikistOriginalText);
+    });
+  } catch (error) {
+    console.warn("OpenCC conversion failed:", error);
+  }
+}
+
+function restoreLanguageConversion(root = document.body) {
+  textNodesUnder(root).forEach((node) => {
+    if (node._wikistOriginalText) node.nodeValue = node._wikistOriginalText;
+  });
+}
+
+function setUiLanguage(lang, persist = true) {
+  state.uiLanguage = normalizeLanguageCode(lang, "zh-CN");
+  if (persist) {
+    try { localStorage.setItem(LANG_KEY, state.uiLanguage); } catch (_error) {}
+  }
+  restoreLanguageConversion(document.body);
+  updateLanguageChrome();
+  hydrateLanguageConversion(document.body).catch(() => {});
+}
+
+function siteAssetValue(key) {
+  if (Object.prototype.hasOwnProperty.call(state.site || {}, key)) return state.site[key] || "";
+  return state.site?.assets?.[key] || "";
+}
+
+function applySiteCustomizations() {
+  const css = siteAssetValue("customCss");
+  let style = document.querySelector("style[data-wikist-custom-css]");
+  if (!style) {
+    style = document.createElement("style");
+    style.dataset.wikistCustomCss = "true";
+    document.head.appendChild(style);
+  }
+  style.textContent = css;
+
+  const js = siteAssetValue("customJs");
+  if (!js.trim()) return;
+  try {
+    window.WikistCustom = { site: state.site, api, route };
+    Function("window", "document", "Wikist", `"use strict";\n${js}`)(window, document, window.WikistCustom);
+  } catch (error) {
+    console.warn("Wikist custom JS failed:", error);
+  }
+}
+applyTheme(savedTheme(), false);
+
+function destroyVisualEditor() {
+  if (activeEditor?.destroy) {
+    try { activeEditor.destroy(); } catch (_error) {}
+  }
+  activeEditor = null;
+}
+
+function loadScript(src, globalName = "", errorMessage = "资源加载失败。") {
+  return new Promise((resolve, reject) => {
+    if (globalName && window[globalName]) { resolve(); return; }
+    const existing = document.querySelector(`script[src="${src}"]`);
+    if (existing) {
+      if (existing.dataset.loaded === "true") { resolve(); return; }
+      existing.addEventListener("load", resolve, { once: true });
+      existing.addEventListener("error", () => reject(new Error(errorMessage)), { once: true });
+      return;
+    }
+    const script = document.createElement("script");
+    script.src = src;
+    script.async = true;
+    script.onload = () => { script.dataset.loaded = "true"; resolve(); };
+    script.onerror = () => reject(new Error(errorMessage));
+    document.head.appendChild(script);
+  });
+}
+
+function ensureVisualEditorAssets() {
+  if (window.Vditor) return Promise.resolve();
+  if (!document.querySelector("link[data-vditor-css]")) {
+    const link = document.createElement("link");
+    link.rel = "stylesheet";
+    link.href = `${VDITOR_CDN}/dist/index.css`;
+    link.dataset.vditorCss = "true";
+    document.head.appendChild(link);
+  }
+  if (!vditorAssetsPromise) vditorAssetsPromise = loadScript(`${VDITOR_CDN}/dist/index.min.js`, "Vditor", "可视化编辑器资源加载失败。");
+  return vditorAssetsPromise;
+}
+
+async function mountVisualEditor(value) {
+  destroyVisualEditor();
+  const host = document.querySelector("#visualEditor");
+  const fallback = document.querySelector("#editorBodyFallback");
+  if (!host || !fallback) return null;
+  host.innerHTML = '<div class="visual-editor-loading">正在加载可视化编辑器...</div>';
+  try {
+    await ensureVisualEditorAssets();
+    host.innerHTML = "";
+    activeEditor = new Vditor(host, {
+      value: value || "",
+      mode: "wysiwyg",
+      height: 560,
+      minHeight: 420,
+      lang: "zh_CN",
+      cdn: VDITOR_CDN,
+      theme: vditorThemeName(),
+      cache: { enable: false },
+      toolbarConfig: { pin: true },
+      counter: { enable: true, type: "markdown" },
+      placeholder: "写下定义、定理、证明与公式；可直接用可视化工具插入数学表达式。",
+      preview: { math: { inlineDigit: true }, hljs: { enable: true, lineNumber: true } },
+      after: () => {
+        fallback.classList.add("textarea-hidden");
+        host.classList.add("ready");
+        syncVisualEditorTheme(document.documentElement.dataset.theme);
+      },
+    });
+    return activeEditor;
+  } catch (error) {
+    host.innerHTML = `<p class="muted-line">${escapeHtml(error.message)} 已切换为 Markdown 源码编辑。</p>`;
+    fallback.classList.remove("textarea-hidden");
+    return null;
+  }
+}
+
+function readEditorBody(form) {
+  if (activeEditor?.getValue) return activeEditor.getValue();
+  return form.elements.body?.value || "";
+}
+function setChromeTitle(title) {
+  const siteName = state.site?.name || "Wikist";
+  document.title = title ? `${title} - ${siteName}` : siteName;
+  el.breadcrumbs.textContent = title ? `${siteName} / ${title}` : siteName;
+}
+
+function renderPassportLink() {
+  if (!el.passportLink || !el.passportText) return;
+  if (state.user) {
+    el.passportLink.href = "#/account";
+    el.passportText.textContent = state.user.displayName || state.user.username;
+    el.passportLink.setAttribute("aria-label", "账户中心");
+    el.passportLink.classList.add("signed-in");
+  } else {
+    el.passportLink.href = "#/login";
+    const labels = UI_LABELS[state.uiLanguage] || UI_LABELS["zh-CN"];
+    el.passportText.textContent = labels.login;
+    el.passportLink.setAttribute("aria-label", `${labels.login} Wikist Passport`);
+    el.passportLink.classList.remove("signed-in");
+  }
+}
+
+function renderMessageBadge() {
+  if (!el.messageMenu || !el.messageLink || !el.messageBadge) return;
+  if (!state.user) {
+    el.messageMenu.hidden = true;
+    el.messageBadge.hidden = true;
+    state.unreadMessages = 0;
+    closeMessagePopover();
+    return;
+  }
+  el.messageMenu.hidden = false;
+  const unread = Number(state.unreadMessages || 0);
+  el.messageBadge.hidden = unread <= 0;
+  el.messageBadge.textContent = unread > 99 ? "99+" : String(unread);
+  el.messageLink.classList.toggle("has-unread", unread > 0);
+}
+
+async function refreshMessageBadge() {
+  if (!state.user) {
+    renderMessageBadge();
+    return;
+  }
+  const payload = await api("/api/passport/messages/unread-count").catch(() => ({ unread: 0 }));
+  state.unreadMessages = Number(payload.unread || 0);
+  renderMessageBadge();
+}
+
+function messagePriorityMeta(priority) {
+  return ({ urgent: { label: "\u6700\u9ad8\u4f18\u5148\u7ea7", tone: "urgent" }, high: { label: "\u9ad8\u4f18\u5148\u7ea7", tone: "high" }, low: { label: "\u4f4e\u4f18\u5148\u7ea7", tone: "low" }, normal: { label: "\u666e\u901a", tone: "normal" } })[String(priority || "normal").toLowerCase()] || { label: "\u666e\u901a", tone: "normal" };
+}
+
+function closeMessagePopover() {
+  state.messagePopoverOpen = false;
+  if (el.messagePopover) el.messagePopover.hidden = true;
+  if (el.messageLink) el.messageLink.setAttribute("aria-expanded", "false");
+}
+
+function messagePreviewHtml(message) {
+  const priority = messagePriorityMeta(message.priority);
+  return `<button class="message-preview-item ${message.status === "unread" ? "unread" : ""}" type="button" data-message-preview="${escapeHtml(message.id)}" data-message-source-url="${escapeHtml(message.sourceUrl || "")}" aria-label="\u67e5\u770b\u6d88\u606f\uff1a${escapeHtml(message.title)}"><span class="message-preview-top"><strong>${escapeHtml(message.title)}</strong>${message.priority !== "normal" ? `<span class="message-priority ${priority.tone}">${priority.label}</span>` : ""}</span><span>${escapeHtml(shortText(message.body || "", 92) || "\u65e0\u9644\u52a0\u5185\u5bb9")}</span><small>${escapeHtml(message.senderName || "Wikist")} &middot; ${fmtDate(message.createdAt)}</small></button>`;
+}
+
+async function renderMessagePopover() {
+  if (!state.user || !el.messagePopover || !state.messagePopoverOpen) return;
+  const requestId = ++messagePopoverRequestId;
+  el.messagePopover.hidden = false;
+  el.messagePopover.innerHTML = `<div class="message-popover-loading">\u6b63\u5728\u8bfb\u53d6\u6d88\u606f...</div>`;
+  try {
+    const payload = await api("/api/passport/messages?page=1&limit=5&status=all");
+    if (!state.messagePopoverOpen || requestId !== messagePopoverRequestId) return;
+    state.unreadMessages = Number(payload.unread || 0);
+    renderMessageBadge();
+    const messages = payload.messages || payload.items || [];
+    el.messagePopover.innerHTML = `<header class="message-popover-head"><div><strong>\u6d88\u606f</strong><small>${state.unreadMessages ? `${state.unreadMessages} \u6761\u672a\u8bfb` : "\u5df2\u5168\u90e8\u9605\u8bfb"}</small></div><button class="mini-button ghost" type="button" data-message-popover-read-all ${state.unreadMessages ? "" : "disabled"}>\u5168\u90e8\u5df2\u8bfb</button></header><div class="message-preview-list">${messages.length ? messages.map(messagePreviewHtml).join("") : `<p class="muted-line">\u6682\u65e0\u6d88\u606f\u3002</p>`}</div><a class="message-popover-more" href="#/messages">\u67e5\u770b\u66f4\u591a\u6d88\u606f</a>`;
+  } catch (error) {
+    if (state.messagePopoverOpen && requestId === messagePopoverRequestId) el.messagePopover.innerHTML = `<p class="muted-line">${escapeHtml(error.message)}</p>`;
+  }
+}
+
+async function showUrgentMessage(message) {
+  if (!window.Swal) return;
+  const result = await window.Swal.fire(sweetAlertOptions({
+    title: message.title || "\u6700\u9ad8\u4f18\u5148\u7ea7\u6d88\u606f",
+    text: message.body || "\u4f60\u6709\u4e00\u6761\u9700\u8981\u53ca\u65f6\u67e5\u770b\u7684\u7ad9\u5185\u6d88\u606f\u3002",
+    icon: "warning",
+    toast: true,
+    position: "top-end",
+    showCloseButton: true,
+    showConfirmButton: Boolean(message.sourceUrl),
+    confirmButtonText: message.sourceLabel || "\u67e5\u770b",
+    timer: Math.max(3000, Math.min(Number(message.displaySeconds || 7) * 1000, 60000)),
+    timerProgressBar: true,
+    customClass: { popup: "wikist-swal-toast wikist-priority-toast" },
+  }));
+  if (result.isConfirmed && message.sourceUrl) location.hash = message.sourceUrl;
+}
+
+function scheduleUrgentMessages() {
+  if (!state.user || urgentMessageCheck) return;
+  urgentMessageCheck = true;
+  Promise.resolve().then(async () => {
+    const payload = await api("/api/passport/messages/urgent").catch(() => ({ messages: [], unread: state.unreadMessages }));
+    state.unreadMessages = Number(payload.unread ?? state.unreadMessages ?? 0);
+    renderMessageBadge();
+    const message = (payload.messages || []).find((item) => !urgentMessagePopupIds.has(`${state.user?.id || "user"}:${item.id}`));
+    if (!message) return;
+    urgentMessagePopupIds.add(`${state.user?.id || "user"}:${message.id}`);
+    const result = await api(`/api/passport/messages/${message.id}/read`, { method: "PUT", body: JSON.stringify({}) }).catch(() => null);
+    if (result?.unread != null) state.unreadMessages = Number(result.unread);
+    renderMessageBadge();
+    showUrgentMessage(message).catch(() => {});
+  }).finally(() => { urgentMessageCheck = false; });
+}
+
+function setupMessageMenu() {
+  el.messageLink?.addEventListener("click", async (event) => {
+    event.stopPropagation();
+    if (state.messagePopoverOpen) { closeMessagePopover(); return; }
+    state.messagePopoverOpen = true;
+    el.messageLink.setAttribute("aria-expanded", "true");
+    await renderMessagePopover();
+  });
+  el.messagePopover?.addEventListener("click", async (event) => {
+    const readAll = event.target.closest("[data-message-popover-read-all]");
+    if (readAll) {
+      readAll.disabled = true;
+      const result = await api("/api/passport/messages/read-all", { method: "POST", body: JSON.stringify({}) }).catch(() => null);
+      if (result?.unread != null) state.unreadMessages = Number(result.unread);
+      renderMessageBadge();
+      await renderMessagePopover();
+      return;
+    }
+    const preview = event.target.closest("[data-message-preview]");
+    if (!preview) return;
+    const id = preview.dataset.messagePreview;
+    const sourceUrl = preview.dataset.messageSourceUrl || "";
+    await api(`/api/passport/messages/${id}/read`, { method: "PUT", body: JSON.stringify({}) }).then((result) => { state.unreadMessages = Number(result.unread || 0); }).catch(() => {});
+    renderMessageBadge();
+    closeMessagePopover();
+    if (sourceUrl) location.hash = sourceUrl;
+    else location.hash = "#/messages";
+  });
+  document.addEventListener("click", (event) => { if (state.messagePopoverOpen && !el.messageMenu?.contains(event.target)) closeMessagePopover(); });
+  document.addEventListener("keydown", (event) => { if (event.key === "Escape") closeMessagePopover(); });
+}
+function functionPlotTheme() {
+  const light = document.documentElement.dataset.theme === "light";
+  return light ? {
+    name: "light",
+    palette: ["#0969da", "#d1246f", "#238636", "#9a6700", "#8250df", "#1b7c83"],
+  } : {
+    name: "dark",
+    palette: ["#38e8ff", "#7cffb4", "#ffd166", "#ff5f8a", "#b88cff", "#5ed1ff"],
+  };
+}
+
+function ensureFunctionPlotAssets(settings) {
+  const cdn = settings.cdn || "https://cdn.jsdelivr.net/npm/function-plot@1.25.4/dist/function-plot.js";
+  const d3 = settings.d3Cdn || "";
+  const key = `${d3}|${cdn}`;
+  if (!functionPlotAssetsPromise || functionPlotAssetsKey !== key) {
+    functionPlotAssetsKey = key;
+    functionPlotAssetsPromise = (async () => {
+      if (d3) await loadScript(d3, "d3", "D3 图形库加载失败。");
+      await loadScript(cdn, "functionPlot", "函数图插件加载失败。");
+      if (typeof window.functionPlot !== "function") throw new Error("function-plot 已加载，但没有暴露 window.functionPlot。请检查 CDN 地址。");
+    })();
+  }
+  return functionPlotAssetsPromise;
+}
+
+function ensureMathJsAssets(settings) {
+  const cdn = settings.mathCdn || "https://cdn.jsdelivr.net/npm/mathjs@14.0.1/lib/browser/math.js";
+  if (!mathJsAssetsPromise || mathJsAssetsKey !== cdn) {
+    mathJsAssetsKey = cdn;
+    mathJsAssetsPromise = (async () => {
+      await loadScript(cdn, "math", "mathjs 表达式库加载失败。");
+      if (!window.math?.compile) throw new Error("mathjs 已加载，但没有暴露表达式编译器。请检查 mathCdn 配置。");
+    })();
+  }
+  return mathJsAssetsPromise;
+}
+
+
+function functionPlotExpressionNeedsMath(expression) {
+  return /\b(gamma|lgamma|erf|erfc|zeta|beta|factorial|combinations|permutations|sinc|besselj|besseli)\s*\(/i.test(String(expression || ""));
+}
+
+function functionPlotMathScope() {
+  const math = window.math;
+  if (!math) return {};
+  const aliases = {
+    gamma: ["gamma"], lgamma: ["lgamma"], erf: ["erf"], erfc: ["erfc"],
+    zeta: ["zeta"], beta: ["beta"], factorial: ["factorial"],
+    combinations: ["combinations"], permutations: ["permutations"], sinc: ["sinc"],
+    besselj: ["besselj", "besselJ"], besseli: ["besseli", "besselI"],
+  };
+  return Object.entries(aliases).reduce((scope, [name, candidates]) => {
+    const candidate = candidates.map((key) => math[key]).find((fn) => typeof fn === "function");
+    if (candidate) scope[name] = (...args) => candidate.apply(math, args);
+    return scope;
+  }, {});
+}
+
+function functionPlotNeedsMathJs(config = {}) {
+  return config.requiresMathjs === true || config.engine === "mathjs" || (config.data || []).some((item) => {
+    if (item.fnType === "implicit" && functionPlotExpressionNeedsMath(item.fn)) return true;
+    return functionPlotExpressionNeedsMath(item.fn) || functionPlotExpressionNeedsMath(item.x) || functionPlotExpressionNeedsMath(item.y) || functionPlotExpressionNeedsMath(item.r);
+  });
+}
+
+function readFunctionPlotConfig(figure) {
+  const scriptText = figure.querySelector(".function-plot-config")?.textContent?.trim();
+  const fallbackText = figure.dataset.config || "{}";
+  try {
+    return JSON.parse(scriptText || fallbackText);
+  } catch (_error) {
+    return JSON.parse(fallbackText);
+  }
+}
+
+function functionPlotSize(figure, box, config, settings) {
+  const rect = box.getBoundingClientRect();
+  const figureRect = figure.getBoundingClientRect();
+  const rawWidth = rect.width || box.clientWidth || Math.max(0, figureRect.width - 28) || 680;
+  const width = Math.max(240, Math.min(1400, Math.floor(rawWidth)));
+  const configuredHeight = Number(config.height || settings.defaultHeight || 360) || 360;
+  const responsiveLimit = Math.max(240, Math.round(width * (width < 520 ? 0.74 : 0.58)));
+  const height = Math.max(220, Math.min(760, Math.min(configuredHeight, responsiveLimit)));
+  return { width, height };
+}
+
+function themedFunctionPlotData(config, theme, settings = {}) {
+  const source = Array.isArray(config.data) && config.data.length ? config.data : [{ fn: "x", graphType: "polyline" }];
+  const samples = Math.max(160, Math.min(Number(config.samples || settings.samples) || 720, 1800));
+  const needsMath = functionPlotNeedsMathJs(config);
+  const mathScope = needsMath ? functionPlotMathScope() : {};
+  return source.map((series, index) => {
+    const next = {
+      ...series,
+      color: series.color || theme.palette[index % theme.palette.length],
+    };
+    if (needsMath || functionPlotExpressionNeedsMath(next.fn) || functionPlotExpressionNeedsMath(next.x) || functionPlotExpressionNeedsMath(next.y) || functionPlotExpressionNeedsMath(next.r)) {
+      // function-plot uses built-in-math-eval; special functions must be supplied in its scope.
+      next.scope = { ...(next.scope || {}), ...mathScope };
+    }
+    if (next.fnType === "implicit") {
+      next.graphType = next.graphType || "interval";
+    } else {
+      next.graphType = next.graphType || "polyline";
+      next.nSamples = Number(next.nSamples || samples);
+      if (needsMath || functionPlotExpressionNeedsMath(next.fn)) next.sampler = "builtIn";
+    }
+    return next;
+  });
+}
+
+function ensureFunctionPlotObserver() {
+  if (functionPlotResizeObserver || !("ResizeObserver" in window)) return;
+  functionPlotResizeObserver = new ResizeObserver((entries) => {
+    entries.forEach((entry) => {
+      const figure = entry.target.closest?.(".wikist-function-plot");
+      if (!figure || figure.dataset.rendered !== "true") return;
+      const width = Math.round(entry.contentRect.width || 0);
+      const previous = Number(figure.dataset.plotWidth || 0);
+      if (!width || Math.abs(width - previous) < 12) return;
+      clearTimeout(figure._wikistPlotResizeTimer);
+      figure._wikistPlotResizeTimer = setTimeout(() => {
+        delete figure.dataset.rendered;
+        hydrateFunctionPlots().catch(() => {});
+      }, 140);
+    });
+  });
+}
+
+function observeFunctionPlot(figure) {
+  const box = figure.querySelector(".function-plot-target");
+  if (!box) return;
+  ensureFunctionPlotObserver();
+  if (functionPlotResizeObserver && box.dataset.plotObserved !== "true") {
+    functionPlotResizeObserver.observe(box);
+    box.dataset.plotObserved = "true";
+  }
+}
+
+async function renderFunctionPlotFigure(figure, settings, index) {
+  const box = figure.querySelector(".function-plot-target");
+  if (!box) {
+    figure.dataset.rendered = "error";
+    return;
+  }
+  const config = readFunctionPlotConfig(figure);
+  const theme = functionPlotTheme();
+  const plotId = box.id || `wikist-function-plot-${Date.now()}-${index}`;
+  box.id = plotId;
+  const { width, height } = functionPlotSize(figure, box, config, settings);
+  box.style.height = `${height}px`;
+  box.style.minHeight = `${height}px`;
+  box.innerHTML = "";
+  const plot = window.functionPlot({
+    target: `#${plotId}`,
+    width,
+    height,
+    grid: config.grid !== false,
+    xAxis: config.xAxis,
+    yAxis: config.yAxis,
+    data: themedFunctionPlotData(config, theme, settings),
+  });
+  const svg = box.querySelector("svg");
+  if (!svg) throw new Error("function-plot 未生成 SVG。请检查函数表达式或 CDN 包。");
+  svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+  svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
+  figure.dataset.rendered = "true";
+  figure.dataset.plotWidth = String(width);
+  figure.dataset.plotTheme = theme.name;
+  figure._wikistPlot = plot;
+  observeFunctionPlot(figure);
+}
+
+async function hydrateFunctionPlots() {
+  const settings = state.site?.plugins?.functionPlot || {};
+  const targets = [...document.querySelectorAll(".wikist-function-plot:not([data-rendered])")];
+  if (!targets.length) return;
+  if (settings.enabled === false) {
+    targets.forEach((item) => { item.dataset.rendered = "disabled"; });
+    return;
+  }
+  try {
+    if (targets.some((figure) => functionPlotNeedsMathJs(readFunctionPlotConfig(figure)))) await ensureMathJsAssets(settings);
+    await ensureFunctionPlotAssets(settings);
+    await Promise.all(targets.map(async (figure, index) => {
+      try {
+        await renderFunctionPlotFigure(figure, settings, index);
+      } catch (error) {
+        figure.dataset.rendered = "error";
+        const box = figure.querySelector(".function-plot-target");
+        if (box) box.innerHTML = `<p class="muted-line">函数图渲染失败：${escapeHtml(error.message)}</p>`;
+      }
+    }));
+  } catch (error) {
+    targets.forEach((figure) => {
+      figure.dataset.rendered = "error";
+      const box = figure.querySelector(".function-plot-target");
+      if (box) box.innerHTML = `<p class="muted-line">${escapeHtml(error.message)}</p>`;
+    });
+  }
+}
+
+function refreshFunctionPlots() {
+  document.querySelectorAll(".wikist-function-plot[data-rendered='true']").forEach((figure) => {
+    if (figure.dataset.plotTheme === functionPlotTheme().name) return;
+    delete figure.dataset.rendered;
+  });
+  hydrateFunctionPlots().catch(() => {});
+}
+
+
+function pluginClientModuleUrl(plugin) {
+  const modulePath = String(plugin.clientModule || "").trim().replace(/\\/g, "/");
+  if (!modulePath || modulePath.startsWith("/") || modulePath.includes(":") || modulePath.includes("..")) return "";
+  const directory = String(plugin.directory || "").trim();
+  if (!/^[\w.-]{2,120}$/.test(directory)) return "";
+  const parts = modulePath.split("/").filter(Boolean);
+  if (!parts.length || parts.some((part) => !/^[\w.-]+$/.test(part))) return "";
+  if (!/\.m?js$/i.test(parts[parts.length - 1])) return "";
+  return `/plugins/${encodeURIComponent(directory)}/${parts.map(encodeURIComponent).join("/")}`;
+}
+
+function loadClientPluginModules() {
+  const catalog = state.site?.pluginCatalog || [];
+  const settings = state.site?.plugins || {};
+  catalog.forEach((plugin) => {
+    if (settings?.[plugin.id]?.enabled === false) return;
+    if (!plugin.runtime?.executable || plugin.runtime?.state !== "client-active") return;
+    const src = pluginClientModuleUrl(plugin);
+    if (!src || pluginModulePromises.has(src)) return;
+    const context = { api, route, state, root: el.main, plugin, hydratePlugins };
+    const promise = import(src)
+      .then((module) => {
+        const activate = module.activate || module.default;
+        if (typeof activate === "function") return activate(context);
+        return null;
+      })
+      .catch((error) => console.warn(`Wikist plugin module failed: ${plugin.id}`, error));
+    pluginModulePromises.set(src, promise);
+  });
+}
+
+function hydratePlugins() {
+  hydrateFunctionPlots().catch(() => {});
+  enhanceWikiLinks(el.main);
+  loadClientPluginModules();
+  document.dispatchEvent(new CustomEvent("wikist:plugins-hydrate", { detail: { root: el.main, state } }));
+}
+function injectMathJax() {
+  const source = state.site?.math?.cdn;
+  if (!source || document.querySelector("script[data-wikist-math]")) return;
+  window.MathJax = { tex: { inlineMath: [["\\(", "\\)"]], displayMath: [["$$", "$$"]], processEscapes: true } };
+  const script = document.createElement("script");
+  script.src = source;
+  script.async = true;
+  script.dataset.wikistMath = "true";
+  document.head.appendChild(script);
+}
+
+function typesetMath() {
+  if (window.MathJax?.typesetPromise) window.MathJax.typesetPromise([el.main]).catch(() => {});
+  hydratePlugins();
+}
+
+function renderTopQuickNav() {
+  if (!el.topQuickNav) return;
+  const links = (state.site?.navigation || []).slice(0, 7).map((item) => ({
+    label: item.label,
+    href: item.href || `#/page/${encodeSlug(item.slug)}`,
+  }));
+  links.push({ label: "导入导出", href: "#/import-export" });
+  if (canAccessAdmin()) links.push({ label: "后台", href: "#/admin/overview" });
+  const seen = new Set();
+  el.topQuickNav.innerHTML = links.filter((item) => {
+    const key = item.label + item.href;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }).map((item) => `<a href="${item.href}">${escapeHtml(item.label)}</a>`).join("");
+}
+function renderNav() {
+  const nav = state.site?.navigation?.length ? state.site.navigation : state.pages.slice(0, 8).map((page) => ({ label: page.title, slug: page.slug }));
+  el.primaryNav.innerHTML = nav.map((item) => `
+    <a class="nav-link ${item.slug === state.currentSlug ? "active" : ""}" href="#/page/${encodeSlug(item.slug)}">${escapeHtml(item.label)}</a>
+  `).join("");
+}
+
+function renderRecent() {
+  el.recent.innerHTML = state.recent.length
+    ? state.recent.map((item) => `<a class="recent-item" href="#/page/${encodeSlug(item.slug)}"><strong>${escapeHtml(item.title)}</strong><small>${fmtDate(item.updatedAt)} · ${escapeHtml(item.quality || "C")}</small></a>`).join("")
+    : '<span class="chip">暂无更新</span>';
+}
+
+function renderToc(toc) {
+  el.toc.innerHTML = toc?.length
+    ? toc.map((item) => `<a class="toc-level-${item.level}" href="#${escapeHtml(item.id)}" data-wikist-scroll="${escapeHtml(item.id)}">${escapeHtml(item.title)}</a>`).join("")
+    : '<span class="chip">无目录</span>';
+}
+
+async function refreshChrome() {
+  const [pages, recent] = await Promise.all([api("/api/pages"), api("/api/recent")]);
+  state.pages = pages;
+  state.recent = recent;
+  renderNav();
+  renderTopQuickNav();
+  renderRecent();
+}
+
+async function reloadSiteChrome() {
+  state.site = await api("/api/site");
+  el.siteName.textContent = state.site.name;
+  el.siteTagline.textContent = state.site.tagline;
+  updateLanguageChrome();
+  applySiteCustomizations();
+  injectMathJax();
+  await refreshChrome();
+}
+
+async function refreshUser() {
+  const payload = await api("/api/passport/me").catch(() => ({ user: null }));
+  state.user = payload.user || null;
+  renderPassportLink();
+  renderTopQuickNav();
+  await refreshMessageBadge();
+  scheduleUrgentMessages();
+}
+
+function pageToolNav(slug, active) {
+  const links = [
+    ["page", "正文", `#/page/${encodeSlug(slug)}`],
+    ["translate", "翻译", `#/translate/${encodeSlug(slug)}`],
+    ["history", "编辑记录", `#/history/${encodeSlug(slug)}`],
+    ["comments", "评论", `#/comments/${encodeSlug(slug)}`],
+    ["permissions", "权限", `#/permissions/${encodeSlug(slug)}`],
+    ["edit", "编辑", `#/edit/${encodeSlug(slug)}`],
+  ];
+  return `<nav class="page-tool-nav">${links.map(([id, label, href]) => `<a class="${id === active ? "active" : ""}" href="${href}">${label}</a>`).join("")}</nav>`;
+}
+
+function editorLink(event) {
+  if (event.editorType === "user" && event.editorLabel?.startsWith("@")) {
+    const username = event.editorLabel.slice(1);
+    return `<a href="#/user/${encodeURIComponent(username)}">${escapeHtml(event.editorName)}</a>`;
+  }
+  return `<span>${escapeHtml(event.editorName || "访客")}</span>`;
+}
+
+function editEventHtml(event) {
+  const labels = { create: "创建", update: "编辑", delete: "删除", restore: "恢复" };
+  const action = labels[event.action] || "编辑";
+  return `<article class="edit-event"><div><strong>${editorLink(event)}</strong><span>${action}了词条</span></div><small>${fmtDate(event.createdAt)} · ${escapeHtml(event.editorLabel || event.editorType)} · ${event.pageBytes || 0} 字节</small></article>`;
+}
+
+function normalizedPaged(payload, page, limit) {
+  if (Array.isArray(payload)) {
+    return { items: payload, pagination: { page, pageSize: limit, total: payload.length, totalPages: 1, hasPrev: false, hasNext: false } };
+  }
+  const pagination = payload.pagination || {};
+  return {
+    items: payload.items || [],
+    pagination: {
+      page: Number(pagination.page) || page,
+      pageSize: Number(pagination.pageSize) || limit,
+      total: Number(pagination.total) || 0,
+      totalPages: Math.max(1, Number(pagination.totalPages) || 1),
+      hasPrev: Boolean(pagination.hasPrev),
+      hasNext: Boolean(pagination.hasNext),
+    },
+  };
+}
+
+function paginationHtml(pagination, label) {
+  const total = Number(pagination.total) || 0;
+  const totalPages = Math.max(1, Number(pagination.totalPages) || 1);
+  const page = Math.min(totalPages, Math.max(1, Number(pagination.page) || 1));
+  if (!total || totalPages <= 1) return total ? `<div class="pager pager-single"><span>共 ${total} 条</span></div>` : "";
+  return `
+    <nav class="pager" aria-label="${escapeHtml(label)}分页">
+      <button type="button" data-page="${page - 1}" ${page <= 1 ? "disabled" : ""}>上一页</button>
+      <span>第 ${page} / ${totalPages} 页 · 共 ${total} 条</span>
+      <button type="button" data-page="${page + 1}" ${page >= totalPages ? "disabled" : ""}>下一页</button>
+    </nav>
+  `;
+}
+
+function bindPagination(container, callback) {
+  container.querySelectorAll(".pager button[data-page]").forEach((button) => {
+    button.addEventListener("click", () => callback(Number(button.dataset.page)));
+  });
+}
+
+function avatarHtml(user, size = "small") {
+  const name = user?.displayName || user?.username || "W";
+  const initial = escapeHtml(name.trim().slice(0, 1).toUpperCase() || "W");
+  if (user?.avatarUrl) return `<img class="user-avatar ${size}" src="${escapeHtml(user.avatarUrl)}" alt="" loading="lazy" />`;
+  return `<span class="user-avatar ${size}">${initial}</span>`;
+}
+
+const SOCIAL_PROFILE_TYPES = [
+  { key: "website", label: "个人网站", mark: "WEB", placeholder: "https://example.com" },
+  { key: "blog", label: "个人博客", mark: "BLOG", placeholder: "https://blog.example.com" },
+  { key: "github", label: "GitHub", mark: "GH", placeholder: "https://github.com/username" },
+  { key: "zhihu", label: "知乎", mark: "ZH", placeholder: "https://www.zhihu.com/people/..." },
+  { key: "bilibili", label: "哔哩哔哩", mark: "B", placeholder: "https://space.bilibili.com/..." },
+  { key: "x", label: "X", mark: "X", placeholder: "https://x.com/username" },
+  { key: "mastodon", label: "Mastodon", mark: "M", placeholder: "https://mastodon.social/@username" },
+];
+
+function socialLinksHtml(links = {}, variant = "card") {
+  const entries = SOCIAL_PROFILE_TYPES.filter(({ key }) => /^https?:\/\//i.test(String(links?.[key] || "")));
+  if (!entries.length) {
+    return variant === "card" ? `<p class="social-links-empty">添加个人网站或社交资料，让协作者更容易找到你。</p>` : "";
+  }
+  return `<div class="profile-social-links ${variant === "public" ? "public-social-links" : ""}" aria-label="外部资料">${entries.map(({ key, label, mark }) => `
+    <a class="profile-social-link is-${key}" href="${escapeHtml(links[key])}" target="_blank" rel="noopener noreferrer" title="打开 ${escapeHtml(label)}">
+      <span class="profile-social-mark" aria-hidden="true">${mark}</span><span>${escapeHtml(label)}</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M19 13v5a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h5"/></svg>
+    </a>`).join("")}</div>`;
+}
+
+function profileSocialFields(links = {}) {
+  return `<fieldset class="profile-social-fields"><legend>外部资料</legend><p class="muted-line">仅公开你主动填写的链接，保存后会同步显示在公开主页。</p><div class="profile-social-grid">${SOCIAL_PROFILE_TYPES.map(({ key, label, placeholder }) => `<label>${label}<input name="social_${key}" value="${escapeHtml(links?.[key] || "")}" placeholder="${escapeHtml(placeholder)}" inputmode="url" /></label>`).join("")}</div></fieldset>`;
+}
+
+function readProfileSocialLinks(form) {
+  return Object.fromEntries(SOCIAL_PROFILE_TYPES.map(({ key }) => [key, String(form.elements[`social_${key}`]?.value || "").trim()]));
+}
+
+const pagePreviewCache = new Map();
+let pagePreviewTimer = null;
+let pagePreviewHideTimer = null;
+
+function normalizeClientSlug(value) {
+  try {
+    return decodeURIComponent(String(value || ""));
+  } catch (_error) {
+    return String(value || "");
+  }
+}
+
+function slugFromPageHref(href) {
+  const raw = String(href || "");
+  const match = raw.match(/^#\/page\/(.+)$/);
+  if (!match) return "";
+  return normalizeClientSlug(match[1].split("#")[0]).trim().replace(/\s+/g, "-").replace(/^\/+|\/+$/g, "").toLowerCase();
+}
+
+function knownPageSlugs() {
+  return new Set((state.pages || []).map((page) => String(page.slug || "").toLowerCase()));
+}
+
+function ensurePagePreviewCard() {
+  let card = document.querySelector("#pageLinkPreview");
+  if (card) return card;
+  card = document.createElement("aside");
+  card.id = "pageLinkPreview";
+  card.className = "page-link-preview";
+  card.setAttribute("role", "status");
+  card.addEventListener("mouseenter", () => {
+    if (pagePreviewHideTimer) window.clearTimeout(pagePreviewHideTimer);
+  });
+  card.addEventListener("mouseleave", hidePagePreview);
+  document.body.appendChild(card);
+  return card;
+}
+
+function positionPagePreview(card, link) {
+  const rect = link.getBoundingClientRect();
+  const width = Math.min(340, window.innerWidth - 24);
+  card.style.width = `${width}px`;
+  const left = Math.max(12, Math.min(rect.left, window.innerWidth - width - 12));
+  card.style.left = `${left}px`;
+  card.style.top = `${Math.min(rect.bottom + 10, window.innerHeight - 170)}px`;
+}
+
+function hidePagePreview() {
+  if (pagePreviewTimer) window.clearTimeout(pagePreviewTimer);
+  pagePreviewHideTimer = window.setTimeout(() => {
+    document.querySelector("#pageLinkPreview")?.classList.remove("active");
+  }, 120);
+}
+
+async function fetchPagePreview(slug) {
+  if (pagePreviewCache.has(slug)) return pagePreviewCache.get(slug);
+  const payload = await api(`/api/pages/${encodeSlug(slug)}/preview`).catch(() => ({ exists: false, slug }));
+  pagePreviewCache.set(slug, payload);
+  return payload;
+}
+
+function previewHtml(payload, fallbackSlug) {
+  if (!payload?.exists) {
+    return `<div class="preview-missing"><strong>词条尚未创建</strong><p>${escapeHtml(fallbackSlug)}</p><a href="#/edit/${encodeSlug(fallbackSlug)}">创建该词条</a></div>`;
+  }
+  const image = payload.heroImage ? `<img src="${escapeHtml(payload.heroImage)}" alt="" loading="lazy" />` : "";
+  const cats = (payload.categories || []).slice(0, 3).map((item) => `<span>${escapeHtml(item)}</span>`).join("");
+  return `${image}<div class="preview-copy"><strong>${escapeHtml(payload.title)}</strong><p>${escapeHtml(payload.summary || "暂无摘要。")}</p><div>${cats}<span>${escapeHtml(payload.quality || "C")}</span></div></div>`;
+}
+
+function showPagePreview(link, slug) {
+  if (pagePreviewTimer) window.clearTimeout(pagePreviewTimer);
+  if (pagePreviewHideTimer) window.clearTimeout(pagePreviewHideTimer);
+  pagePreviewTimer = window.setTimeout(async () => {
+    const card = ensurePagePreviewCard();
+    card.innerHTML = `<div class="preview-loading">正在读取词条概要...</div>`;
+    positionPagePreview(card, link);
+    card.classList.add("active");
+    const payload = await fetchPagePreview(slug);
+    link.classList.toggle("wiki-link-existing", Boolean(payload.exists));
+    link.classList.toggle("wiki-link-missing", !payload.exists);
+    card.innerHTML = previewHtml(payload, slug);
+    positionPagePreview(card, link);
+  }, 120);
+}
+
+function enhanceWikiLinks(root = el.main) {
+  if (!root) return;
+  const existing = knownPageSlugs();
+  const scopeSelector = ".article-body,.comment-body,.search-results,.refined-search-results,.user-profile-body,.archived-body";
+  const scopes = root.matches?.(scopeSelector) ? [root] : [...root.querySelectorAll(scopeSelector)];
+  scopes.forEach((scope) => {
+    scope.querySelectorAll('a[href^="#/page/"]').forEach((link) => {
+      if (link.closest(".editor-actions,.page-tool-nav,.topbar,.nav-section,.sidebar-footer,.transfer-hub,.wiki-link-grid,.article-head,.admin-layout,.admin-shell,.recent-list")) return;
+      if (link.dataset.wikiPreviewBound === "1") return;
+      const slug = slugFromPageHref(link.getAttribute("href"));
+      if (!slug) return;
+      link.dataset.wikiPreviewBound = "1";
+      link.dataset.pageSlug = slug;
+      link.classList.add("wiki-page-link");
+      const exists = existing.has(slug);
+      link.classList.toggle("wiki-link-existing", exists);
+      link.classList.toggle("wiki-link-missing", !exists);
+      link.addEventListener("mouseenter", () => showPagePreview(link, slug));
+      link.addEventListener("focus", () => showPagePreview(link, slug));
+      link.addEventListener("mouseleave", hidePagePreview);
+      link.addEventListener("blur", hidePagePreview);
+    });
+  });
+}
+
+function favoriteButtonHtml(page) {
+  if (!page?.slug) return "";
+  return `
+    <button class="article-favorite-button" id="pageFavoriteButton" type="button" data-page-favorite="${escapeHtml(page.slug)}" aria-pressed="false">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 4.5A1.5 1.5 0 0 1 7.5 3h9A1.5 1.5 0 0 1 18 4.5V21l-6-3.8L6 21V4.5Z"/></svg>
+      <span data-favorite-label>收藏</span>
+    </button>`;
+}
+
+function updateFavoriteButton(button, favorite = {}) {
+  if (!button) return;
+  const active = Boolean(favorite.favorited);
+  const count = Number(favorite.count || 0);
+  button.classList.toggle("active", active);
+  button.setAttribute("aria-pressed", String(active));
+  button.title = active ? "取消收藏" : "收藏词条";
+  const label = button.querySelector("[data-favorite-label]");
+  if (label) label.textContent = active ? `已收藏${count ? ` · ${count}` : ""}` : count ? `收藏 · ${count}` : "收藏";
+}
+
+async function loadPageFavorite(slug) {
+  const button = document.querySelector("#pageFavoriteButton");
+  if (!button) return;
+  const payload = await api(`/api/pages/${encodeSlug(slug)}/favorite`).catch(() => ({ favorite: { favorited: false, count: 0 } }));
+  updateFavoriteButton(button, payload.favorite);
+  button.addEventListener("click", async () => {
+    if (!state.user) {
+      const goLogin = await uiConfirm({ title: "登录后收藏词条", text: "收藏会同步到你的 Wikist 通行证。", confirmText: "去登录" });
+      if (goLogin) location.hash = "#/login";
+      return;
+    }
+    const favorited = button.getAttribute("aria-pressed") !== "true";
+    button.disabled = true;
+    try {
+      const result = await api(`/api/pages/${encodeSlug(slug)}/favorite`, { method: "PUT", body: JSON.stringify({ favorited }) });
+      updateFavoriteButton(button, result.favorite);
+      await refreshUser();
+      uiToast(result.favorite.favorited ? "已加入收藏" : "已取消收藏");
+    } catch (error) {
+      await uiAlert("收藏失败", error.message, "error");
+    } finally {
+      button.disabled = false;
+    }
+  });
+}
+
+function articleHeader(page) {
+  const categories = page.categories?.length ? page.categories.map((item) => `<span class="chip">${escapeHtml(item)}</span>`).join("") : '<span class="chip">未分类</span>';
+  const hero = page.heroImage ? `<figure class="article-hero-image"><img src="${escapeHtml(page.heroImage)}" alt="" loading="lazy" /></figure>` : "";
+  const languageChip = page.language && page.language !== "zh-CN"
+    ? `<span class="chip">语言 ${escapeHtml(languageLabel(page.language))}${page.translationProgress !== undefined ? ` · ${Number(page.translationProgress || 0)}%` : ""}</span>`
+    : "";
+  return `
+    <header class="article-head ${page.heroImage ? "article-head-with-image" : ""}">
+      ${hero}
+      <div class="article-title-row">
+        <h1>${escapeHtml(page.title)}</h1>
+        <div class="article-title-actions"><span class="quality-badge">质量 ${escapeHtml(page.quality || "C")}</span>${favoriteButtonHtml(page)}</div>
+      </div>
+      <p class="article-summary">${escapeHtml(page.summary || "")}</p>
+      <div class="meta-row">
+        <span class="chip">${escapeHtml(page.difficulty || "未分级")}</span>
+        <span class="chip">${escapeHtml(page.status || "draft")}</span>
+        <span class="chip">作者 ${escapeHtml(page.author || "Wikist")}</span>
+        <span class="chip">更新 ${fmtDate(page.updatedAt)}</span>
+        <span class="chip">${escapeHtml(state.site?.license || "CC BY-SA 4.0")}</span>
+        ${languageChip}
+      </div>
+      <div class="chip-row">${categories}</div>
+    </header>
+  `;
+}
+function ratingPanelHtml(rating = {}) {
+  const count = Number(rating.count || 0);
+  const average = Number(rating.average || 0);
+  const myRating = Number(rating.myRating || 0);
+  const score = count ? `${average.toFixed(1)} / 5` : "暂无评分";
+  const stars = [1, 2, 3, 4, 5].map((value) => `<button type="button" class="rating-star ${myRating >= value ? "active" : ""}" data-rate-page="${value}" aria-label="给词条 ${value} 分">&#9733;</button>`).join("");
+  const distribution = [5, 4, 3, 2, 1].map((value) => {
+    const amount = Number(rating.distribution?.[value] || 0);
+    const width = count ? Math.round((amount / count) * 100) : 0;
+    return `<div class="rating-row"><span>${value}分</span><i><b style="width:${width}%"></b></i><em>${amount}</em></div>`;
+  }).join("");
+  return `
+    <div class="rating-card">
+      <div class="rating-summary"><span>词条评分</span><strong>${score}</strong><small>${count ? `${count} 次评分` : "成为第一个评分者"}</small></div>
+      <div class="rating-control" aria-label="词条评分">${stars}</div>
+      <div class="rating-distribution">${distribution}</div>
+    </div>`;
+}
+
+async function loadPageRating(slug) {
+  const target = document.querySelector("#pageRatingPanel");
+  if (!target) return;
+  target.innerHTML = '<p class="muted-line">正在加载评分...</p>';
+  const payload = await api(`/api/pages/${encodeSlug(slug)}/rating`).catch(() => ({ rating: { average: 0, count: 0, distribution: {}, myRating: 0 } }));
+  target.innerHTML = ratingPanelHtml(payload.rating || {});
+  target.querySelectorAll("[data-rate-page]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const rating = Number(button.dataset.ratePage);
+      target.classList.add("is-loading");
+      try {
+        const updated = await api(`/api/pages/${encodeSlug(slug)}/rating`, { method: "POST", body: JSON.stringify({ rating }) });
+        target.innerHTML = ratingPanelHtml(updated.rating || {});
+        await loadPageRating(slug);
+      } catch (error) {
+        target.innerHTML = `<p class="muted-line">${escapeHtml(error.message)}</p>`;
+      } finally {
+        target.classList.remove("is-loading");
+      }
+    });
+  });
+}
+
+async function loadPageTranslations(slug, activeLang = "zh-CN") {
+  const target = document.querySelector("#pageTranslationPanel");
+  if (!target) return;
+  const payload = await api(`/api/pages/${encodeSlug(slug)}/translations`).catch(() => ({ translations: [] }));
+  const translations = payload.translations || [];
+  const active = normalizeLanguageCode(activeLang, "zh-CN");
+  const activeInfo = translationInfo(translations, active);
+  const editHref = `#/translate/${encodeSlug(slug)}${active !== "zh-CN" ? `?lang=${encodeURIComponent(active)}` : ""}`;
+  target.innerHTML = translations.length ? `
+    <div class="translation-strip">
+      <div class="translation-strip-head">
+        <strong>词条语言</strong>
+        <span>${escapeHtml(languageLabel(active))} · ${activeInfo.status === "missing" ? "未翻译" : `${Number(activeInfo.progress || 0)}%`}</span>
+      </div>
+      ${translationBadges(translations, active, slug, "read")}
+      ${languageJumpForm(slug, "read")}
+      <a class="mini-link" href="${editHref}">参与翻译</a>
+    </div>` : "";
+  bindLanguageJumpForms(target);
+}
+
+async function loadPageEdits(slug, targetId = "pageEditTimeline", options = {}) {
+  const target = document.querySelector(`#${targetId}`);
+  if (!target) return;
+  const settings = typeof options === "number" ? { limit: options } : options;
+  const page = Math.max(1, Number(settings.page) || 1);
+  const limit = Math.max(1, Number(settings.limit) || 8);
+  const payload = await api(`/api/pages/${encodeSlug(slug)}/edits?page=${page}&limit=${limit}`).catch(() => ({ items: [], pagination: { page, pageSize: limit, total: 0, totalPages: 1 } }));
+  const { items, pagination } = normalizedPaged(payload, page, limit);
+  target.innerHTML = items.length
+    ? `${items.map(editEventHtml).join("")}${settings.paginate === false ? "" : paginationHtml(pagination, "编辑记录")}`
+    : '<p class="muted-line">暂无编辑记录。</p>';
+  if (settings.paginate !== false) bindPagination(target, (nextPage) => loadPageEdits(slug, targetId, { ...settings, page: nextPage }));
+}
+function pageCard(page, label = "词条") {
+  return `<a class="wiki-mini-card" href="#/page/${encodeSlug(page.slug)}"><span>${escapeHtml(label)}</span><strong>${escapeHtml(page.title)}</strong><small>${escapeHtml(page.summary || page.slug)}</small></a>`;
+}
+
+function renderHomePortal(page) {
+  const homeConfig = {
+    showFeatured: true,
+    showNews: true,
+    showPath: true,
+    showProgress: true,
+    showStable: true,
+    showOriginal: true,
+    showCategories: true,
+    showActions: true,
+    ...(state.site?.home || {}),
+  };
+  const homeText = {
+    heroKicker: "Wikist Knowledge Core",
+    heroTitle: "欢迎来到 Wikist",
+    heroSummary: "开放、严谨、可验证的中文数学知识共同体。定义、证明、引用、讨论、权限与归档共同构成可审计的知识网络。",
+    heroSearch: "搜索数学概念",
+    heroContribute: "开始贡献",
+    heroNews: "查看资讯",
+    newsTitle: "资讯雷达",
+    newsEmpty: "资讯页尚未创建。",
+    newsItems: [],
+    pathTitle: "入门路径",
+    progressTitle: "全球数学进展",
+    actionsTitle: "协作控制台",
+    actionsSummary: "Wikist 正在建立可审计的知识协作体系。",
+    progressItems: [
+      { tag: "国际会议", title: "ICM 2026", body: "国际数学家大会将继续作为全球数学共同体的核心交流节点。", href: "https://www.mathunion.org/icm/icm-2026" },
+      { tag: "形式化数学", title: "Lean / mathlib", body: "定理证明、形式化库与可验证证明正在进入更多数学工作流。", href: "https://github.com/leanprover-community/mathlib4" },
+      { tag: "开放预印本", title: "arXiv Mathematics", body: "数学预印本持续推动公开传播、同行讨论与跨领域引用。", href: "https://arxiv.org/archive/math" },
+    ],
+    ...(state.site?.homeContent || {}),
+  };
+  const featured = state.pages.filter((item) => !["home", "news"].includes(item.slug)).slice(0, 5);
+  const stable = state.pages.filter((item) => item.quality === "A" || item.status === "stable").slice(0, 6);
+  const categories = [...new Set(state.pages.flatMap((item) => item.categories || []))].slice(0, 14);
+  const news = state.pages.find((item) => item.slug === "news");
+  const newsItems = Array.isArray(homeText.newsItems) ? homeText.newsItems : [];
+  const progress = Array.isArray(homeText.progressItems) ? homeText.progressItems : [];
+  const modules = [
+    homeConfig.showFeatured ? `<article class="wiki-box sci-box sci-box-feature"><h2>特色词条</h2>${featured.length ? featured.map((item) => pageCard(item, item.quality || "词条")).join("") : "<p>暂无特色词条。</p>"}</article>` : "",
+    homeConfig.showNews ? `<article class="wiki-box sci-box sci-box-news"><h2>${escapeHtml(homeText.newsTitle)}</h2>${newsItems.length ? `<div class="wiki-news-list">${newsItems.map((item) => `<a href="${escapeHtml(item.href || "#/news")}"><span>${escapeHtml(item.date || item.tag || "资讯")}</span>${escapeHtml(item.title)}${item.body ? `<small>${escapeHtml(item.body)}</small>` : ""}</a>`).join("")}</div>` : (news ? `<a class="wiki-news-link" href="#/page/news"><strong>${escapeHtml(news.title)}</strong><span>${escapeHtml(news.summary)}</span></a>` : `<p>${escapeHtml(homeText.newsEmpty)}</p>`)}<div class="wiki-news-list">${state.recent.slice(0, 4).map((item) => `<a href="#/page/${encodeSlug(item.slug)}"><span>${fmtDate(item.updatedAt)}</span>${escapeHtml(item.title)}</a>`).join("")}</div></article>` : "",
+    homeConfig.showPath ? `<article class="wiki-box sci-box sci-box-path"><h2>${escapeHtml(homeText.pathTitle)}</h2><div class="wiki-link-grid"><a href="#/page/markup-guide">标记规范</a><a href="#/page/tutorial">教程</a><a href="#/page/protocol">协议</a><a href="#/page/contribution-guide">贡献规范</a></div></article>` : "",
+    homeConfig.showProgress ? `<article class="wiki-box sci-box sci-box-progress"><h2>${escapeHtml(homeText.progressTitle)}</h2>${progress.map((item) => `<a class="progress-item" href="${escapeHtml(item.href)}" target="_blank" rel="noreferrer"><span>${escapeHtml(item.tag)}</span><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.body)}</small></a>`).join("")}</article>` : "",
+    homeConfig.showStable ? `<article class="wiki-box sci-box sci-box-stable"><h2>稳定内容</h2>${stable.length ? stable.map((item) => pageCard(item, item.quality || "稳定")).join("") : "<p>暂无稳定词条。</p>"}</article>` : "",
+    homeConfig.showOriginal ? `<article class="wiki-box sci-box sci-box-wide sci-box-origin"><h2>首页正文</h2><article class="article-body home-original-body">${page.html || ""}</article></article>` : "",
+    homeConfig.showCategories ? `<article class="wiki-box sci-box sci-box-wide sci-box-categories"><h2>分类索引</h2><div class="wiki-category-cloud">${categories.length ? categories.map((item) => `<span>${escapeHtml(item)}</span>`).join("") : "<span>等待分类</span>"}</div></article>` : "",
+    homeConfig.showActions ? `<article class="wiki-box sci-box sci-box-actions"><h2>${escapeHtml(homeText.actionsTitle)}</h2><p>${escapeHtml(page.summary || homeText.actionsSummary)}</p><div class="wiki-link-grid"><a href="#/new">新建词条</a><a href="#/search/群">搜索示例</a>${canAccessAdmin() ? '<a href="#/admin/overview">后台控制台</a>' : '<a href="#/login">登录通行证</a>'}</div></article>` : "",
+  ].filter(Boolean).join("");
+  setChromeTitle("首页");
+  renderToc([]);
+  el.main.innerHTML = `
+    <section class="wiki-home sci-home">
+      <header class="wiki-welcome sci-hero">
+        <div class="sci-hero-copy">
+          <span class="system-kicker">${escapeHtml(homeText.heroKicker)}</span>
+          <h1>${escapeHtml(homeText.heroTitle)}</h1>
+          <p>${escapeHtml(homeText.heroSummary)}</p>
+          <div class="sci-hero-actions"><a href="#/search/群">${escapeHtml(homeText.heroSearch)}</a><a href="#/page/tutorial">${escapeHtml(homeText.heroContribute)}</a><a href="#/page/news">${escapeHtml(homeText.heroNews)}</a></div>
+        </div>
+        <div class="sci-orbit-panel" aria-label="Wikist 数据概览"><strong>${state.pages.length}</strong><span>公开页面</span><small>${categories.length} 个活跃分类</small></div>
+      </header>
+
+      <section class="sci-dashboard-strip">
+        <div><span>质量目标</span><strong>定义 · 证明 · 引用</strong></div>
+        <div><span>协作机制</span><strong>讨论 · 权限 · 归档</strong></div>
+        <div><span>编辑身份</span><strong>${state.user ? escapeHtml(state.user.groupLabel || GROUP_LABELS[state.user.role] || state.user.role) : "访客 / 通行证"}</strong></div>
+      </section>
+
+      <section class="wiki-home-grid sci-grid">${modules || '<article class="wiki-box sci-box"><h2>首页模块</h2><p>后台已关闭所有首页模块。</p></article>'}</section>
+    </section>`;
+}
+async function renderNews() {
+  const page = await api("/api/pages/news").catch(() => null);
+  setChromeTitle("资讯");
+  renderToc(page?.toc || []);
+  el.editLink.href = "#/edit/news";
+  el.main.innerHTML = `${page ? pageToolNav("news", "page") + articleHeader(page) + `<article class="article-body">${page.html}</article>` : '<section class="empty-state"><h1>资讯页尚未创建</h1><a class="command-button" href="#/edit/news">创建资讯页</a></section>'}<section class="wiki-box news-feed-box"><h2>最近更新</h2>${state.recent.map((item) => `<a class="recent-item" href="#/page/${encodeSlug(item.slug)}"><strong>${escapeHtml(item.title)}</strong><small>${fmtDate(item.updatedAt)} · ${escapeHtml(item.quality || "C")}</small></a>`).join("")}</section>`;
+  if (page) await loadPageFavorite(page.slug);
+  typesetMath();
+}
+async function renderPage(value) {
+  const parsed = splitValueQuery(value);
+  const requestedLang = normalizeLanguageCode(parsed.params.get("lang"), "");
+  const preferredLang = requestedLang || normalizeLanguageCode(state.uiLanguage || state.site?.language, "zh-CN");
+  state.currentSlug = parsed.pathValue || state.site.defaultPage || "home";
+  renderNav();
+  el.editLink.href = `#/edit/${encodeSlug(state.currentSlug)}`;
+  try {
+    const page = await api(`/api/pages/${encodeSlug(state.currentSlug)}`);
+    if (page.slug === (state.site.defaultPage || "home")) {
+      renderHomePortal(page);
+      hydratePlugins();
+      return;
+    }
+    let displayPage = page;
+    let activeLang = "zh-CN";
+    let translationNotice = "";
+    if (preferredLang && preferredLang !== "zh-CN") {
+      activeLang = preferredLang;
+      const payload = await api(`/api/pages/${encodeSlug(page.slug)}/translation?lang=${encodeURIComponent(preferredLang)}`).catch(() => null);
+      const translation = payload?.translation;
+      if (translation?.html) {
+        activeLang = translation.language || preferredLang;
+        displayPage = {
+          ...page,
+          title: translation.title || page.title,
+          summary: translation.summary || page.summary,
+          html: translation.html,
+          toc: translation.toc || [],
+          language: activeLang,
+          translationProgress: translation.progress,
+          status: translation.status || page.status,
+          author: translation.translatorName || page.author,
+          updatedAt: translation.updatedAt || page.updatedAt,
+        };
+      } else {
+        translationNotice = `<section class="translation-missing-note"><strong>${escapeHtml(languageLabel(preferredLang))} 译文尚未发布。</strong><span>当前显示源词条。你可以进入翻译工作台创建该语言版本。</span><a href="#/translate/${encodeSlug(page.slug)}?lang=${encodeURIComponent(preferredLang)}">创建译文</a></section>`;
+      }
+    }
+    setChromeTitle(displayPage.title);
+    renderToc(displayPage.toc);
+    el.main.innerHTML = `${pageToolNav(page.slug, "page")}${articleHeader(displayPage)}${translationNotice}<section class="page-translation-panel" id="pageTranslationPanel"></section><article class="article-body">${displayPage.html}</article><section class="page-rating-panel" id="pageRatingPanel"></section><section class="edit-timeline-section"><div class="section-title-row"><h2>最近编辑</h2><a class="mini-link" href="#/history/${encodeSlug(page.slug)}">查看全部</a></div><div class="edit-timeline" id="pageEditTimeline"></div></section>`;
+    await Promise.all([loadPageTranslations(page.slug, activeLang), loadPageFavorite(page.slug), loadPageRating(page.slug), loadPageEdits(page.slug, "pageEditTimeline", { limit: 6, page: 1 })]);
+    typesetMath();
+  } catch (_error) {
+    setChromeTitle("未创建");
+    renderToc([]);
+    el.main.innerHTML = `<section class="empty-state"><h1>词条尚未创建</h1><p>${escapeHtml(state.currentSlug)}</p><div class="editor-actions"><a class="command-button" href="#/edit/${encodeSlug(state.currentSlug)}">创建词条</a><a class="command-button secondary" href="#/page/${encodeSlug(state.site.defaultPage)}">返回首页</a></div></section>`;
+  }
+}
+
+async function renderHistory(slug) {
+  const page = await api(`/api/pages/${encodeSlug(slug)}`).catch(() => ({ slug, title: slug, summary: "" }));
+  state.currentSlug = page.slug || slug;
+  setChromeTitle(`${page.title} 的编辑记录`);
+  renderToc([]);
+  el.editLink.href = `#/edit/${encodeSlug(state.currentSlug)}`;
+  el.main.innerHTML = `${pageToolNav(state.currentSlug, "history")}<header class="article-head"><h1>编辑记录</h1><p class="article-summary">${escapeHtml(page.title)} 的身份审计与编辑时间线。</p></header><section class="edit-timeline history-timeline" id="historyTimeline"></section>`;
+  await loadPageEdits(state.currentSlug, "historyTimeline", { limit: 12, page: 1 });
+}
+
+function linkCommentMentions(html) {
+  return String(html || "").replace(/(^|[\s>])@([a-z0-9_-]{3,30})(?=\b)/g, (match, prefix, username) => {
+    return `${prefix}<a class="mention-link" href="#/user/${encodeURIComponent(username)}">@${escapeHtml(username)}</a>`;
+  });
+}
+
+function commentAvatarHtml(comment) {
+  const user = {
+    displayName: comment.authorName || "访客",
+    username: comment.authorUsername || "guest",
+    avatarUrl: comment.authorAvatarUrl || "",
+  };
+  const avatar = avatarHtml(user, "small");
+  if (comment.authorType === "user" && comment.authorUsername) {
+    return `<a class="comment-avatar-link" href="#/user/${encodeURIComponent(comment.authorUsername)}" aria-label="查看 ${escapeHtml(comment.authorName || comment.authorUsername)} 的用户主页">${avatar}</a>`;
+  }
+  return `<span class="comment-avatar-link is-guest">${avatar}</span>`;
+}
+
+function commentAuthorHtml(comment) {
+  const authorName = comment.authorName || "访客";
+  if (comment.authorType === "user" && comment.authorUsername) {
+    const href = `#/user/${encodeURIComponent(comment.authorUsername)}`;
+    return `<span class="comment-author-link"><a href="${href}"><strong>${escapeHtml(authorName)}</strong></a><a href="${href}"><small>@${escapeHtml(comment.authorUsername)}</small></a></span>`;
+  }
+  return `<span class="comment-author-link"><strong>${escapeHtml(authorName)} · 访客</strong></span>`;
+}
+
+function canDeleteCommentClient(comment) {
+  if (canAccessAdmin()) return true;
+  return Boolean(state.user && comment.authorType === "user" && Number(comment.userId || 0) === Number(state.user.id || 0));
+}
+
+function commentHtml(comment, options = {}) {
+  const isReply = Boolean(options.reply);
+  const locked = Boolean(options.locked);
+  const rootId = Number(options.rootId || comment.parentId || comment.id);
+  const authorName = comment.authorName || "访客";
+  const replyCount = Number(comment.replyCount || 0);
+  const replyButton = locked ? "" : `<button type="button" class="mini-button ghost" data-reply-comment="${comment.id}" data-root-comment="${rootId}" data-reply-author="${escapeHtml(authorName)}">${isReply ? `回复 @${escapeHtml(authorName)}` : "回复"}</button>`;
+  const deleteButton = canDeleteCommentClient(comment) ? `<button type="button" class="mini-button danger ghost" data-delete-comment="${comment.id}" data-root-comment="${rootId}" data-comment-reply="${isReply ? "1" : "0"}">删除</button>` : "";
+  const loadReplies = !isReply && replyCount > 0 ? `<button type="button" class="mini-button ghost" data-load-replies="${comment.id}" data-reply-count="${replyCount}">展开 ${replyCount} 条回复</button>` : "";
+  return `
+    <article class="comment-item ${isReply ? "comment-reply" : ""}" data-comment-id="${comment.id}" data-root-id="${rootId}" data-author="${escapeHtml(authorName)}">
+      <div class="comment-shell">
+        ${commentAvatarHtml(comment)}
+        <div class="comment-main">
+          <header><span>${commentAuthorHtml(comment)}<small class="comment-depth-label">${isReply ? "二级回复" : "一级评论"}</small></span><small>${fmtDate(comment.createdAt)}</small></header>
+          <div class="article-body comment-body">${linkCommentMentions(comment.contentHtml || "")}</div>
+          <div class="comment-actions">${replyButton}${deleteButton}${loadReplies}</div>
+          <div class="comment-reply-slot"></div>
+          ${isReply ? "" : `<div class="comment-replies" id="commentReplies-${comment.id}" data-replies-for="${comment.id}"></div>`}
+        </div>
+      </div>
+    </article>`;
+}
+
+function commentReplyFormHtml({ rootId, parentId, authorName }) {
+  return `
+    <form class="auth-panel compact comment-form inline-comment-form" data-comment-reply-form data-root-id="${rootId}">
+      <input type="hidden" name="parentId" value="${parentId}" />
+      ${guestFields("回复")}
+      <label>回复 @${escapeHtml(authorName || "访客")}<textarea name="content" class="profile-markdown" required placeholder="最多显示两级；更深层回复会自动转为 @ 提及"></textarea></label>
+      <div class="editor-actions"><button class="command-button" type="submit">发布回复</button><button class="command-button secondary" type="button" data-cancel-reply>取消</button></div>
+      <div class="status-line"></div>
+    </form>`;
+}
+
+async function submitCommentForm(form, slug, rootId = null) {
+  const status = form.querySelector(".status-line") || document.querySelector("#commentStatus");
+  const payload = Object.fromEntries(new FormData(form).entries());
+  if (status) status.textContent = "正在发布...";
+  try {
+    await api(`/api/pages/${encodeSlug(slug)}/comments`, { method: "POST", body: JSON.stringify(payload) });
+    form.reset();
+    if (status) status.textContent = rootId ? "回复已发布。" : "评论已发布。";
+    if (rootId) await loadCommentReplies(slug, rootId, 1);
+    else await loadComments(slug, 1);
+  } catch (error) {
+    if (status) status.textContent = error.message;
+  }
+}
+
+function bindCommentInteractions(slug) {
+  const target = document.querySelector("#commentList");
+  if (!target || target.dataset.bound === "1") return;
+  target.dataset.bound = "1";
+  target.addEventListener("click", async (event) => {
+    const userLink = event.target.closest(".comment-author-link a, a.comment-avatar-link, a.mention-link");
+    const href = userLink?.getAttribute("href") || "";
+    if (href.startsWith("#/user/")) {
+      event.preventDefault();
+      location.hash = href;
+      return;
+    }
+    const deleteButton = event.target.closest("[data-delete-comment]");
+    if (deleteButton) {
+      const id = Number(deleteButton.dataset.deleteComment);
+      const rootId = Number(deleteButton.dataset.rootComment || id);
+      const isReply = deleteButton.dataset.commentReply === "1";
+      deleteButton.disabled = true;
+      deleteButton.textContent = "删除中...";
+      try {
+        await api(`/api/pages/${encodeSlug(slug)}/comments/${id}`, { method: "DELETE", body: "{}" });
+        if (isReply) await loadCommentReplies(slug, rootId, 1);
+        else await loadComments(slug, 1);
+      } catch (error) {
+        deleteButton.disabled = false;
+        deleteButton.textContent = error.message;
+      }
+      return;
+    }
+    const cancel = event.target.closest("[data-cancel-reply]");
+    if (cancel) {
+      cancel.closest(".comment-reply-slot").innerHTML = "";
+      return;
+    }
+    const loadButton = event.target.closest("[data-load-replies]");
+    if (loadButton) {
+      const rootId = Number(loadButton.dataset.loadReplies);
+      const box = document.querySelector(`#commentReplies-${rootId}`);
+      const count = Number(loadButton.dataset.replyCount || 0);
+      if (box?.dataset.loaded === "1") {
+        const collapsed = box.classList.toggle("is-collapsed");
+        loadButton.textContent = collapsed ? `展开 ${count} 条回复` : "折叠回复";
+        return;
+      }
+      loadButton.textContent = "正在展开...";
+      await loadCommentReplies(slug, rootId, 1);
+      loadButton.textContent = "折叠回复";
+      return;
+    }
+    const replyButton = event.target.closest("[data-reply-comment]");
+    if (replyButton) {
+      if (target.dataset.commentsLocked === "1") return;
+      const item = replyButton.closest(".comment-item");
+      const slot = item.querySelector(".comment-reply-slot");
+      if (slot.innerHTML.trim()) {
+        slot.innerHTML = "";
+        return;
+      }
+      target.querySelectorAll(".comment-reply-slot").forEach((otherSlot) => { otherSlot.innerHTML = ""; });
+      const rootId = Number(replyButton.dataset.rootComment || item.dataset.rootId || replyButton.dataset.replyComment);
+      const parentId = Number(replyButton.dataset.replyComment);
+      const authorName = replyButton.dataset.replyAuthor || item.dataset.author || "访客";
+      slot.innerHTML = commentReplyFormHtml({ rootId, parentId, authorName });
+      slot.querySelector("textarea")?.focus();
+    }
+  });
+  target.addEventListener("submit", async (event) => {
+    const form = event.target.closest("[data-comment-reply-form]");
+    if (!form) return;
+    event.preventDefault();
+    await submitCommentForm(form, slug, Number(form.dataset.rootId));
+  });
+}
+
+function guestFields(kind) {
+  if (state.user) return "";
+  return `
+    <div class="guest-fields">
+      <label>访客昵称<input name="guestName" required placeholder="例如：Sean" /></label>
+      <label>邮箱<input name="guestEmail" type="email" required placeholder="仅用于记录与反滥用" /></label>
+      <label>网站<input name="guestWebsite" placeholder="可选" /></label>
+    </div>
+    <p class="muted-line">未登录${kind}会记录访客昵称、邮箱、浏览器与 IP 基本信息。</p>
+  `;
+}
+
+async function renderComments(slug) {
+  const page = await api(`/api/pages/${encodeSlug(slug)}`).catch(() => ({ slug, title: slug, summary: "" }));
+  const permissions = await api(`/api/pages/${encodeSlug(slug)}/permissions`).catch(() => ({ commentPolicy: "guest" }));
+  state.currentSlug = page.slug || slug;
+  setChromeTitle(`${page.title} 的评论`);
+  renderToc([]);
+  el.editLink.href = `#/edit/${encodeSlug(state.currentSlug)}`;
+  const locked = permissions.commentPolicy === "locked" || (permissions.commentPolicy === "user" && !state.user);
+  el.main.innerHTML = `
+    ${pageToolNav(state.currentSlug, "comments")}
+    <header class="article-head"><h1>评论</h1><p class="article-summary">${escapeHtml(page.title)} 的讨论区。当前策略：${escapeHtml(permissions.commentPolicy)}</p></header>
+    <section class="comments-layout">
+      <div class="comment-list" id="commentList" data-comments-locked="${locked ? "1" : "0"}"></div>
+      <form class="auth-panel compact comment-form" id="commentForm">
+        <h2>发表评论</h2>
+        ${locked ? '<p class="muted-line">当前权限不允许你发表评论。</p>' : `${guestFields("评论")}<label>内容<textarea name="content" class="profile-markdown" required placeholder="支持 Markdown 与数学公式"></textarea></label><button class="command-button" type="submit">发布评论</button>`}
+        <div class="status-line" id="commentStatus"></div>
+      </form>
+    </section>
+  `;
+  bindCommentInteractions(state.currentSlug);
+  await loadComments(state.currentSlug, 1);
+  if (!locked) {
+    document.querySelector("#commentForm").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      await submitCommentForm(event.currentTarget, state.currentSlug, null);
+    });
+  }
+}
+
+async function loadCommentReplies(slug, rootId, page = 1, limit = 6) {
+  const box = document.querySelector(`#commentReplies-${rootId}`);
+  if (!box) return;
+  const locked = document.querySelector("#commentList")?.dataset.commentsLocked === "1";
+  box.classList.remove("is-collapsed");
+  box.innerHTML = '<p class="muted-line">正在加载回复...</p>';
+  const payload = await api(`/api/pages/${encodeSlug(slug)}/comments/${rootId}/replies?page=${page}&limit=${limit}`).catch(() => ({ items: [], pagination: { page, pageSize: limit, total: 0, totalPages: 1 } }));
+  const { items, pagination } = normalizedPaged(payload, page, limit);
+  box.dataset.loaded = "1";
+  box.innerHTML = items.length
+    ? `<div class="reply-stack">${items.map((item) => commentHtml(item, { reply: true, rootId, locked })).join("")}</div>${paginationHtml(pagination, "回复")}`
+    : '<p class="muted-line">暂无回复。</p>';
+  bindPagination(box, (nextPage) => loadCommentReplies(slug, rootId, nextPage, limit));
+  typesetMath();
+}
+
+async function loadComments(slug, page = 1, limit = 8) {
+  const target = document.querySelector("#commentList");
+  if (!target) return;
+  const locked = target.dataset.commentsLocked === "1";
+  const payload = await api(`/api/pages/${encodeSlug(slug)}/comments?page=${page}&limit=${limit}`).catch(() => ({ items: [], pagination: { page, pageSize: limit, total: 0, totalPages: 1 } }));
+  const { items, pagination } = normalizedPaged(payload, page, limit);
+  target.innerHTML = items.length
+    ? `${items.map((item) => commentHtml(item, { locked })).join("")}${paginationHtml(pagination, "评论")}`
+    : '<p class="muted-line">暂无评论。</p>';
+  bindPagination(target, (nextPage) => loadComments(slug, nextPage, limit));
+  typesetMath();
+}
+
+const TRANSLATION_LABELS = COMMON_LANGUAGE_LABELS;
+
+function splitValueQuery(value) {
+  const raw = String(value || "");
+  const [pathValue, query = ""] = raw.split("?");
+  return { pathValue, params: new URLSearchParams(query) };
+}
+
+function translationInfo(translations = [], lang = "zh-CN") {
+  const normalized = normalizeLanguageCode(lang, "zh-CN");
+  const found = (translations || []).find((item) => normalizeLanguageCode(item.language, "") === normalized);
+  if (found) return found;
+  if (normalized === "zh-CN") return { language: "zh-CN", status: "source", progress: 100 };
+  return { language: normalized, status: "missing", progress: 0 };
+}
+
+function translationLanguageItems(translations = [], activeLang = "zh-CN") {
+  const byLang = new Map((translations || []).map((item) => [normalizeLanguageCode(item.language, ""), item]));
+  return supportedLanguages([activeLang, ...(translations || []).map((item) => item.language)])
+    .map((lang) => byLang.get(lang) || translationInfo(translations, lang));
+}
+
+function languageModeHref(slug, lang, mode = "read") {
+  const normalized = normalizeLanguageCode(lang, "zh-CN");
+  if (mode === "edit" && normalized === "zh-CN") return `#/page/${encodeSlug(slug)}`;
+  if (mode === "edit") return `#/translate/${encodeSlug(slug)}${normalized !== "en" ? `?lang=${encodeURIComponent(normalized)}` : ""}`;
+  return `#/page/${encodeSlug(slug)}${normalized !== "zh-CN" ? `?lang=${encodeURIComponent(normalized)}` : ""}`;
+}
+
+function translationBadges(translations = [], activeLang = "en", slug = state.currentSlug, mode = "edit") {
+  const active = normalizeLanguageCode(activeLang, "zh-CN");
+  return `<div class="translation-badges">${translationLanguageItems(translations, active).map((item) => {
+    const lang = normalizeLanguageCode(item.language, "");
+    const status = item.status === "missing" ? "未翻译" : `${Number(item.progress || 0)}%`;
+    return `<a class="${lang === active ? "active" : ""} ${item.status === "missing" ? "missing" : ""}" href="${languageModeHref(slug, lang, mode)}"><strong>${escapeHtml(languageLabel(lang))}</strong><span>${escapeHtml(status)}</span></a>`;
+  }).join("")}</div>`;
+}
+
+function languageJumpForm(slug, mode = "read") {
+  return `<form class="language-add-form" data-language-jump="${escapeHtml(mode)}" data-language-slug="${escapeHtml(slug)}"><input name="language" placeholder="添加语言：fr / ja / de-DE" autocomplete="off" /><button class="mini-button" type="submit">打开</button></form>`;
+}
+
+function bindLanguageJumpForms(root = document) {
+  root.querySelectorAll("form[data-language-jump]").forEach((form) => {
+    if (form.dataset.bound === "1") return;
+    form.dataset.bound = "1";
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const language = normalizeLanguageCode(new FormData(form).get("language"), "");
+      if (!language) {
+        form.querySelector("input")?.focus();
+        return;
+      }
+      location.hash = languageModeHref(form.dataset.languageSlug || state.currentSlug, language, form.dataset.languageJump || "read");
+    });
+  });
+}
+
+function updateTranslationProgress(value) {
+  const progress = Math.max(0, Math.min(100, Number(value) || 0));
+  const textTarget = document.querySelector("#translationProgressText");
+  const barTarget = document.querySelector("#translationProgressBar");
+  if (textTarget) textTarget.textContent = `${progress}%`;
+  if (barTarget) barTarget.style.width = `${progress}%`;
+}
+
+async function renderTranslation(value) {
+  const parsed = splitValueQuery(value);
+  const slug = parsed.pathValue || state.currentSlug || state.site.defaultPage || "home";
+  const lang = parsed.params.get("lang") || "en";
+  const payload = await api(`/api/pages/${encodeSlug(slug)}/translation?lang=${encodeURIComponent(lang)}`);
+  const source = payload.source || {};
+  const translation = payload.translation || {};
+  state.currentSlug = source.slug || slug;
+  setChromeTitle(`${source.title || slug} 翻译`);
+  renderToc([]);
+  el.editLink.href = `#/edit/${encodeSlug(state.currentSlug)}`;
+  const activeLang = normalizeLanguageCode(translation.language || lang, "en");
+  const translatedMd = translation.translatedMd || "";
+  const joinNotice = payload.translator ? "" : `<div class="translation-join-box"><p>加入翻译社区后可以保存译文和生成自动初稿。</p><button class="command-button" type="button" id="joinTranslationFromPage">加入翻译社区</button></div>`;
+  const progress = Math.max(0, Math.min(100, Number(translation.progress || 0)));
+  const translationState = translation.status === "published" ? "已发布" : "草稿";
+  el.main.innerHTML = `
+    ${pageToolNav(state.currentSlug, "translate")}
+    <header class="article-head translation-head">
+      <div class="article-title-row"><h1>${escapeHtml(source.title || state.currentSlug)} · 翻译</h1><span class="quality-badge">${escapeHtml(languageLabel(activeLang))}</span></div>
+      <p class="article-summary">源文与译文同屏校订，标题、摘要和正文可独立保存，翻译度按正文完成比例计算。</p>
+      <div class="translation-route-controls">
+        ${translationBadges(payload.translations || [], activeLang, state.currentSlug, "edit")}
+        ${languageJumpForm(state.currentSlug, "edit")}
+      </div>
+    </header>
+    ${joinNotice}
+    <section class="translation-workspace-shell">
+      <header class="translation-workspace-bar">
+        <div><span class="system-kicker">Translation Workspace</span><strong>双栏翻译工作台</strong><small>同步校订标题、摘要与正文</small></div>
+        <div class="translation-progress" aria-label="翻译完成度">
+          <span>完成度</span><strong id="translationProgressText">${progress}%</strong>
+          <i><b id="translationProgressBar" style="width:${progress}%"></b></i>
+        </div>
+      </header>
+      <div class="translation-workbench">
+        <article class="translation-pane translation-source-pane">
+          <header class="translation-pane-head">
+            <div><span class="translation-language-dot source"></span><div><strong>源词条</strong><small>简体中文 · ${fmtDate(source.updatedAt)}</small></div></div>
+            <div class="segmented-control" role="group" aria-label="源文显示方式">
+              <button class="active" type="button" data-source-view="preview">阅读</button>
+              <button type="button" data-source-view="markdown">Markdown</button>
+            </div>
+          </header>
+          <div class="translation-source-scroll">
+            <article class="article-body translation-source-preview" id="translationSourcePreview">${source.html || "<p>" + escapeHtml(source.body || "") + "</p>"}</article>
+            <pre class="translation-source-code" id="translationSourceCode" hidden>${escapeHtml(source.body || "")}</pre>
+          </div>
+        </article>
+        <form class="translation-pane translation-editor" id="translationForm">
+          <header class="translation-pane-head">
+            <div><span class="translation-language-dot target"></span><div><strong>译文 · ${escapeHtml(languageLabel(activeLang))}</strong><small>${translationState}</small></div></div>
+          </header>
+          <input type="hidden" name="language" value="${escapeHtml(activeLang)}" />
+          <div class="translation-meta-fields">
+            <label class="translation-field"><span>译文标题</span><input name="title" value="${escapeHtml(translation.title || source.title || "")}" /></label>
+            <label class="translation-field"><span>译文摘要</span><textarea name="summary" rows="3">${escapeHtml(translation.summary || source.summary || "")}</textarea></label>
+          </div>
+          <label class="translation-field translation-body-field"><span>正文 Markdown</span><textarea name="translatedMd" class="profile-markdown translation-textarea" spellcheck="false" placeholder="在这里编辑译文，公式与 Wikist 扩展语法会原样保留。">${escapeHtml(translatedMd)}</textarea></label>
+          <footer class="translation-editor-footer">
+            <div class="status-line" id="translationStatus" aria-live="polite"></div>
+            <div class="editor-actions">
+              <button class="command-button secondary" type="button" id="autoTranslateButton">自动生成初稿</button>
+              <button class="command-button" type="submit">保存译文</button>
+            </div>
+          </footer>
+        </form>
+      </div>
+    </section>`;
+
+  document.querySelectorAll("[data-source-view]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const showMarkdown = button.dataset.sourceView === "markdown";
+      document.querySelector("#translationSourcePreview").hidden = showMarkdown;
+      document.querySelector("#translationSourceCode").hidden = !showMarkdown;
+      document.querySelectorAll("[data-source-view]").forEach((item) => item.classList.toggle("active", item === button));
+    });
+  });
+  document.querySelector("#joinTranslationFromPage")?.addEventListener("click", async () => {
+    try {
+      await api("/api/passport/translation/join", { method: "POST", body: JSON.stringify({ languages: [activeLang] }) });
+      await refreshUser();
+      await renderTranslation(`${state.currentSlug}?lang=${activeLang}`);
+    } catch (error) {
+      document.querySelector(".translation-join-box p").textContent = error.message;
+    }
+  });
+  document.querySelector("#autoTranslateButton")?.addEventListener("click", async () => {
+    const status = document.querySelector("#translationStatus");
+    status.textContent = "正在生成初稿...";
+    try {
+      const result = await api(`/api/pages/${encodeSlug(state.currentSlug)}/translation/auto`, { method: "POST", body: JSON.stringify({ language: activeLang }) });
+      const draft = result.draft || {};
+      const form = document.querySelector("#translationForm");
+      form.elements.title.value = draft.title || form.elements.title.value;
+      form.elements.summary.value = draft.summary || form.elements.summary.value;
+      form.elements.translatedMd.value = draft.translatedMd || "";
+      updateTranslationProgress(draft.progress);
+      status.textContent = "初稿已生成，请校订后保存。";
+      uiToast("初稿已生成", "info");
+    } catch (error) {
+      status.textContent = error.message;
+    }
+  });
+  document.querySelector("#translationForm")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const status = document.querySelector("#translationStatus");
+    status.textContent = "正在保存译文...";
+    const body = Object.fromEntries(new FormData(event.currentTarget).entries());
+    try {
+      const saved = await api(`/api/pages/${encodeSlug(state.currentSlug)}/translation`, { method: "PUT", body: JSON.stringify(body) });
+      status.textContent = `译文已保存，翻译度 ${saved.translation.progress}%。`;
+      uiToast("译文已保存");
+      updateTranslationProgress(saved.translation.progress);
+      document.querySelector(".translation-head .translation-badges").outerHTML = translationBadges(saved.translations || [], saved.translation.language, state.currentSlug, "edit");
+      bindLanguageJumpForms(document.querySelector(".translation-head"));
+    } catch (error) {
+      status.textContent = error.message;
+    }
+  });
+  typesetMath();
+  hydratePlugins();
+  bindLanguageJumpForms(el.main);
+}
+
+async function renderPermissions(slug) {
+  const page = await api(`/api/pages/${encodeSlug(slug)}`).catch(() => ({ slug, title: slug }));
+  const permissions = await api(`/api/pages/${encodeSlug(slug)}/permissions`);
+  state.currentSlug = page.slug || slug;
+  setChromeTitle(`${page.title} 的权限`);
+  renderToc([]);
+  el.editLink.href = `#/edit/${encodeSlug(state.currentSlug)}`;
+  const disabled = !canManageContent();
+  const deleteLocked = permissions.deletePolicy === "locked" || !canManageContent();
+  el.main.innerHTML = `
+    ${pageToolNav(state.currentSlug, "permissions")}
+    <header class="article-head"><h1>权限</h1><p class="article-summary">控制 ${escapeHtml(page.title)} 的编辑、评论与删除策略。</p></header>
+    <section class="permission-stack">
+      <form class="auth-panel permission-panel" id="permissionForm">
+        <h2>访问策略</h2>
+        <label>编辑权限<select name="editPolicy" ${disabled ? "disabled" : ""}>${policyOptions(permissions.editPolicy)}</select></label>
+        <label>评论权限<select name="commentPolicy" ${disabled ? "disabled" : ""}>${policyOptions(permissions.commentPolicy)}</select></label>
+        <label>删除权限<select name="deletePolicy" ${disabled ? "disabled" : ""}>${deletePolicyOptions(permissions.deletePolicy || "user")}</select></label>
+        ${disabled ? '<p class="muted-line">只有资深编辑和管理员可以修改权限。普通用户不能修改权限。</p>' : '<button class="command-button" type="submit">保存权限</button>'}
+        <div class="status-line" id="permissionStatus"></div>
+      </form>
+      <form class="auth-panel danger-panel" id="deleteForm">
+        <h2>删除词条</h2>
+        <p class="muted-line">删除会将 Markdown 文件移入归档目录，并在编辑记录中留下删除事件。</p>
+        ${disabled ? '<p class="muted-line">只有资深编辑和管理员可以删除词条。</p>' : deleteLocked ? '<p class="muted-line">当前删除权限不允许执行此操作。</p>' : `<label>确认 slug<input name="confirmSlug" placeholder="${escapeHtml(state.currentSlug)}" autocomplete="off" required /></label><button class="command-button danger" type="submit">归档并删除</button>`}
+        <div class="status-line" id="deleteStatus"></div>
+      </form>
+    </section>
+  `;
+  if (!disabled) {
+    document.querySelector("#permissionForm").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const status = document.querySelector("#permissionStatus");
+      const payload = Object.fromEntries(new FormData(event.currentTarget).entries());
+      status.textContent = "正在保存...";
+      try {
+        await api(`/api/pages/${encodeSlug(state.currentSlug)}/permissions`, { method: "PUT", body: JSON.stringify(payload) });
+        status.textContent = "权限已保存。";
+      } catch (error) {
+        status.textContent = error.message;
+      }
+    });
+  }
+  if (!disabled && !deleteLocked) {
+    document.querySelector("#deleteForm").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const status = document.querySelector("#deleteStatus");
+      const payload = Object.fromEntries(new FormData(event.currentTarget).entries());
+      status.textContent = "正在归档并删除...";
+      try {
+        await api(`/api/pages/${encodeSlug(state.currentSlug)}`, { method: "DELETE", body: JSON.stringify(payload) });
+        await refreshChrome();
+        status.textContent = "词条已归档删除。";
+        setTimeout(() => { location.hash = `#/page/${encodeSlug(state.site.defaultPage)}`; }, 450);
+      } catch (error) {
+        status.textContent = error.message;
+      }
+    });
+  }
+}
+
+function policyOptions(active) {
+  const labels = { guest: "允许访客", user: "仅登录用户", locked: "锁定" };
+  return Object.entries(labels).map(([value, label]) => `<option value="${value}" ${value === active ? "selected" : ""}>${label}</option>`).join("");
+}
+function deletePolicyOptions(active) {
+  const safeActive = active === "locked" ? "locked" : "user";
+  const labels = { user: "资深编辑可删除", locked: "禁止删除" };
+  return Object.entries(labels).map(([value, label]) => `<option value="${value}" ${value === safeActive ? "selected" : ""}>${label}</option>`).join("");
+}
+function parseSearchState(value = "") {
+  const raw = String(value || "");
+  const splitAt = raw.indexOf("?");
+  const term = splitAt >= 0 ? raw.slice(0, splitAt) : raw;
+  const params = new URLSearchParams(splitAt >= 0 ? raw.slice(splitAt + 1) : "");
+  return {
+    q: term === "_" ? "" : term.trim(),
+    page: Math.max(1, Number(params.get("page")) || 1),
+    mode: params.get("mode") || "balanced",
+    category: params.get("category") || "",
+    quality: params.get("quality") || "",
+    difficulty: params.get("difficulty") || "",
+  };
+}
+
+function searchHash(options = {}) {
+  const q = String(options.q || "").trim();
+  const params = new URLSearchParams();
+  if (Number(options.page || 1) > 1) params.set("page", String(Math.max(1, Number(options.page) || 1)));
+  if (options.mode && options.mode !== "balanced") params.set("mode", options.mode);
+  if (options.category) params.set("category", options.category);
+  if (options.quality) params.set("quality", options.quality);
+  if (options.difficulty) params.set("difficulty", options.difficulty);
+  const suffix = params.toString() ? `?${params.toString()}` : "";
+  return `#/search/${q ? encodeURIComponent(q) : ""}${suffix}`;
+}
+
+function searchSelect(name, current, options) {
+  return `<select name="${name}">${options.map(([value, label]) => `<option value="${escapeHtml(value)}" ${value === current ? "selected" : ""}>${escapeHtml(label)}</option>`).join("")}</select>`;
+}
+
+function searchResultHtml(item, index) {
+  const score = Math.max(1, Math.round(Number(item.score || 0)));
+  return `<a class="result-item search-result-card" href="#/page/${encodeSlug(item.slug)}" style="--result-index:${index + 1}">
+    <div class="search-result-rank">${index + 1}</div>
+    <div class="search-result-body">
+      <h2>${escapeHtml(item.title)}</h2>
+      <p>${escapeHtml(item.snippet || item.summary || "")}</p>
+      <div class="chip-row">
+        <span class="chip">相关度 ${score}</span>
+        <span class="chip">质量 ${escapeHtml(item.quality || "C")}</span>
+        ${item.difficulty ? `<span class="chip">${escapeHtml(item.difficulty)}</span>` : ""}
+        ${(item.categories || []).slice(0, 4).map((category) => `<span class="chip">${escapeHtml(category)}</span>`).join("")}
+      </div>
+    </div>
+  </a>`;
+}
+
+function facetLinks(facets, searchState) {
+  const categories = facets?.categories || [];
+  if (!categories.length) return "";
+  return `<div class="search-facets"><strong>快速分类</strong>${categories.map((item) => `<a href="${searchHash({ ...searchState, category: item.name, page: 1 })}">${escapeHtml(item.name)}<small>${item.count}</small></a>`).join("")}</div>`;
+}
+
+async function renderSearch(value) {
+  const searchState = parseSearchState(value);
+  const q = searchState.q;
+  setChromeTitle(q ? `搜索 ${q}` : "搜索");
+  renderToc([]);
+  el.editLink.href = "#/new";
+  if (el.searchInput) el.searchInput.value = q;
+  if (el.topSearchInput) el.topSearchInput.value = q;
+
+  const params = new URLSearchParams({
+    q,
+    page: String(searchState.page),
+    limit: "10",
+    mode: searchState.mode,
+    category: searchState.category,
+    quality: searchState.quality,
+    difficulty: searchState.difficulty,
+  });
+  const payload = (q || searchState.category || searchState.quality || searchState.difficulty)
+    ? await api(`/api/search?${params.toString()}`)
+    : { items: [], total: 0, engine: "wikist-mini", facets: {}, pagination: { page: 1, pageSize: 10, total: 0, totalPages: 1, hasPrev: false, hasNext: false } };
+  const { items, pagination } = normalizedPaged(payload, searchState.page, 10);
+  const activeFilters = [searchState.category, searchState.quality, searchState.difficulty].filter(Boolean);
+  el.main.innerHTML = `
+    <header class="article-head search-head">
+      <div>
+        <p class="system-kicker">Wikist Search</p>
+        <h1>搜索知识库</h1>
+        <p class="article-summary">搜索是 wiki 的入口。支持标题、正文、分类、质量和难度联合检索，并可用 <code>title:</code>、<code>category:</code>、<code>quality:</code> 等高级语法。</p>
+      </div>
+      <form class="search-page-form" id="searchPageForm">
+        <div class="search-page-main">
+          <input name="q" type="search" value="${escapeHtml(q)}" autocomplete="off" placeholder="搜索概念、定理、符号或英文术语" autofocus />
+          <button class="command-button" type="submit">搜索</button>
+        </div>
+        <div class="search-advanced-grid">
+          <label>模式${searchSelect("mode", searchState.mode, [["balanced", "综合"], ["title", "标题优先"], ["content", "正文优先"]])}</label>
+          <label>分类<input name="category" value="${escapeHtml(searchState.category)}" placeholder="例如：代数" /></label>
+          <label>质量${searchSelect("quality", searchState.quality, [["", "不限"], ["A", "A"], ["B", "B"], ["C", "C"], ["Draft", "草稿"]])}</label>
+          <label>难度<input name="difficulty" value="${escapeHtml(searchState.difficulty)}" placeholder="入门 / 本科 / 专题" /></label>
+        </div>
+      </form>
+    </header>
+    <section class="search-overview">
+      <div><strong>${Number(payload.total || 0)}</strong><span>条结果</span></div>
+      <div><strong>${escapeHtml(payload.engine || "wikist-mini")}</strong><span>搜索引擎</span></div>
+      <div><strong>${activeFilters.length || "无"}</strong><span>高级筛选</span></div>
+    </section>
+    ${facetLinks(payload.facets, searchState)}
+    <section class="search-results refined-search-results">
+      ${items.length ? items.map(searchResultHtml).join("") : `<div class="empty-state"><h2>${q || activeFilters.length ? "没有匹配结果" : "输入关键词开始搜索"}</h2><p class="muted-line">可以尝试标题、英文术语、分类名，或使用 title:、category:、quality: 进行高级搜索。</p></div>`}
+    </section>
+    ${paginationHtml(pagination, "搜索结果")}`;
+  document.querySelector("#searchPageForm")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    location.hash = searchHash({
+      q: data.get("q") || "",
+      mode: data.get("mode") || "balanced",
+      category: data.get("category") || "",
+      quality: data.get("quality") || "",
+      difficulty: data.get("difficulty") || "",
+      page: 1,
+    });
+  });
+  bindPagination(el.main, (nextPage) => {
+    location.hash = searchHash({ ...searchState, page: nextPage });
+  });
+}
+function editorFields(page = {}) {
+  return `
+    <form class="editor-form" id="editorForm">
+      <label>Slug<input name="slug" value="${escapeHtml(page.slug || "")}" ${page.slug ? "readonly" : ""} required /></label>
+      <label>标题<input name="title" value="${escapeHtml(page.title || "")}" required /></label>
+      <label class="wide">摘要<input name="summary" value="${escapeHtml(page.summary || "")}" /></label>
+      <label class="wide">顶部大图 URL<input name="heroImage" value="${escapeHtml(page.heroImage || "")}" placeholder="https://..." /></label>
+      <label>分类<input name="categories" value="${escapeHtml((page.categories || []).join(", "))}" /></label>
+      <label>难度<select name="difficulty">${["入门", "本科", "研究生", "专题", "未分级"].map((item) => `<option value="${item}" ${item === page.difficulty ? "selected" : ""}>${item}</option>`).join("")}</select></label>
+      <label>质量<select name="quality">${["A", "B", "C", "Draft"].map((item) => `<option value="${item}" ${item === page.quality ? "selected" : ""}>${item}</option>`).join("")}</select></label>
+      <label>状态<select name="status">${["stable", "review", "draft"].map((item) => `<option value="${item}" ${item === page.status ? "selected" : ""}>${item}</option>`).join("")}</select></label>
+      <div class="wide">${guestFields("编辑")}</div>
+      <div class="wide visual-editor-wrap">
+        <div class="visual-editor-head"><span>可视化编辑器</span><small>Vditor WYSIWYG · Markdown 源文同步 · 公式可视化</small></div>
+        <div id="visualEditor" class="vditor-host"></div>
+        <textarea id="editorBodyFallback" name="body" spellcheck="false">${escapeHtml(page.body || "")}</textarea>
+      </div>
+      <div class="editor-actions wide"><button class="command-button" type="submit">保存</button><a class="command-button secondary" href="#/page/${encodeSlug(page.slug || state.site.defaultPage)}">取消</a></div>
+      <div class="status-line wide" id="editorStatus"></div>
+    </form>
+  `;
+}
+
+async function renderEditor(slug) {
+  let page = {
+    slug: slug || "",
+    title: "",
+    summary: "",
+    categories: [],
+    difficulty: "未分级",
+    quality: "Draft",
+    status: "draft",
+    heroImage: "",
+    body: "# 新词条\n\n::: definition 定义\n写下清晰、可验证的定义。\n:::\n",
+  };
+  if (slug) page = await api(`/api/pages/${encodeSlug(slug)}`).catch(() => page);
+  state.currentSlug = page.slug || slug || "";
+  const permissions = state.currentSlug ? await api(`/api/pages/${encodeSlug(state.currentSlug)}/permissions`).catch(() => ({ editPolicy: "guest" })) : { editPolicy: "guest" };
+  const editBlocked = permissions.editPolicy === "locked" || (permissions.editPolicy === "user" && !state.user);
+  if (editBlocked) {
+    setChromeTitle("不可编辑");
+    renderToc([]);
+    el.editLink.href = `#/page/${encodeSlug(state.currentSlug || state.site.defaultPage)}`;
+    const message = permissions.editPolicy === "locked" ? "该词条已锁定，暂不可编辑。" : "该词条仅允许登录用户编辑。";
+    el.main.innerHTML = `${pageToolNav(state.currentSlug || page.slug || "home", "edit")}<section class="empty-state"><h1>不可编辑</h1><p>${escapeHtml(message)}</p><div class="editor-actions"><a class="command-button" href="#/page/${encodeSlug(state.currentSlug || state.site.defaultPage)}">返回词条</a><a class="command-button secondary" href="#/permissions/${encodeSlug(state.currentSlug || page.slug || "home")}">查看权限</a></div></section>`;
+    return;
+  }
+  setChromeTitle(page.title ? `编辑 ${page.title}` : "新词条");
+  renderToc([]);
+  el.editLink.href = "#/new";
+  el.main.innerHTML = `${pageToolNav(state.currentSlug || page.slug || "home", "edit")}<header class="article-head"><h1>${page.slug ? "编辑词条" : "新词条"}</h1><p class="article-summary">${escapeHtml(state.user ? `将以 ${state.user.displayName || state.user.username} 的身份记录编辑。` : "未登录时需要填写访客昵称和邮箱。")}</p></header>${editorFields(page)}`;
+  await mountVisualEditor(page.body || "");
+  document.querySelector("#editorForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const payload = Object.fromEntries(new FormData(form).entries());
+    const status = document.querySelector("#editorStatus");
+    payload.body = readEditorBody(form);
+    payload.categories = String(payload.categories || "").split(",").map((item) => item.trim()).filter(Boolean);
+    status.textContent = "保存中...";
+    try {
+      const saved = await api(`/api/pages/${encodeSlug(payload.slug)}`, { method: "PUT", body: JSON.stringify(payload) });
+      await Promise.all([refreshUser(), refreshChrome()]);
+      destroyVisualEditor();
+      location.hash = `#/page/${encodeSlug(saved.slug)}`;
+    } catch (error) {
+      status.textContent = error.message;
+    }
+  });
+}
+
+function authShell(mode) {
+  const isRegister = mode === "register";
+  return `<section class="auth-layout"><div class="auth-copy"><span class="system-kicker">Wikist Passport</span><h1>${isRegister ? "加入开放知识网络" : "进入知识通行证"}</h1><p>${isRegister ? "注册后可留下贡献身份，并为后续审核、权限、组织协作铺好基础。" : "使用 Wikist Passport 访问账户中心、管理密码，并在编辑词条时记录可信署名。"}</p><div class="auth-signals"><span>SQLite 可迁移</span><span>HttpOnly 会话</span><span>scrypt 加密</span><span>验证码校验</span></div></div><form class="auth-panel" id="authForm"><div class="auth-tabs"><a class="${!isRegister ? "active" : ""}" href="#/login">登录</a><a class="${isRegister ? "active" : ""}" href="#/register">注册</a></div>${isRegister ? `<label>用户名<input name="username" autocomplete="username" placeholder="wikist_user" required /></label><label>显示名称<input name="displayName" autocomplete="nickname" placeholder="你的知识署名" required /></label><label>邮箱<input name="email" type="email" autocomplete="email" placeholder="name@example.com" /></label>` : `<label>用户名或邮箱<input name="identifier" autocomplete="username" required /></label>`}<label>密码<input name="password" type="password" autocomplete="${isRegister ? "new-password" : "current-password"}" minlength="8" required /></label>${isRegister ? '<label>确认密码<input name="confirmPassword" type="password" autocomplete="new-password" minlength="8" required /></label>' : ""}<input name="captchaId" type="hidden" /><label>人机验证<span class="captcha-row"><img class="captcha-image" id="captchaImage" alt="验证码" /><button class="icon-button" id="refreshCaptcha" type="button" title="刷新验证码" aria-label="刷新验证码"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.34-5.66M20 4v6h-6"/></svg></button></span><input name="captchaAnswer" inputmode="numeric" autocomplete="off" placeholder="输入算式结果" required /></label><div class="editor-actions"><button class="command-button" type="submit">${isRegister ? "创建通行证" : "登录"}</button><a class="command-button secondary" href="#/page/${encodeSlug(state.site.defaultPage)}">返回 wiki</a></div><div class="status-line" id="authStatus"></div></form></section>`;
+}
+
+function secureAuthShell(mode) {
+  const isRegister = mode === "register";
+  const title = isRegister ? "加入开放知识网络" : "进入知识通行证";
+  const intro = isRegister ? "注册后请完成邮箱验证，用于找回密码和保护贡献身份。" : "登录后可管理账户、消息、安全设置与词条贡献。";
+  const registerFields = `
+    <label>用户名<input name="username" autocomplete="username" placeholder="wikist_user" required /></label>
+    <label>显示名称<input name="displayName" autocomplete="nickname" placeholder="你的知识署名" required /></label>
+    <label>邮箱<input name="email" type="email" autocomplete="email" placeholder="name@example.com" required /></label>`;
+  const loginFields = `
+    <label>用户名或邮箱<input name="identifier" autocomplete="username" required /></label>
+    <label>二次验证码<input name="twoFactorCode" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="已开启二次验证时填写" /></label>
+    <a class="mini-link auth-forgot-link" href="#/forgot-password">忘记密码？</a>`;
+  return `<section class="auth-layout"><div class="auth-copy"><span class="system-kicker">Wikist Passport</span><h1>${title}</h1><p>${intro}</p><div class="auth-signals"><span>邮箱验证</span><span>SMTP 找回</span><span>TOTP 二次验证</span><span>scrypt 加密</span></div></div><form class="auth-panel" id="authForm"><div class="auth-tabs"><a class="${!isRegister ? "active" : ""}" href="#/login">登录</a><a class="${isRegister ? "active" : ""}" href="#/register">注册</a></div>${isRegister ? registerFields : loginFields}<label>密码<input name="password" type="password" autocomplete="${isRegister ? "new-password" : "current-password"}" minlength="8" required /></label>${isRegister ? '<label>确认密码<input name="confirmPassword" type="password" autocomplete="new-password" minlength="8" required /></label>' : ""}<input name="captchaId" type="hidden" /><label>人机验证<span class="captcha-row"><img class="captcha-image" id="captchaImage" alt="验证码" /><button class="icon-button" id="refreshCaptcha" type="button" title="刷新验证码" aria-label="刷新验证码"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.34-5.66M20 4v6h-6"/></svg></button></span><input name="captchaAnswer" inputmode="numeric" autocomplete="off" placeholder="输入算式结果" required /></label><div class="editor-actions"><button class="command-button" type="submit">${isRegister ? "创建通行证" : "登录"}</button><a class="command-button secondary" href="#/page/${encodeSlug(state.site.defaultPage)}">返回 wiki</a></div><div class="status-line" id="authStatus"></div></form></section>`;
+}
+
+function svgToDataUri(svg) {
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+}
+
+async function loadCaptcha() {
+  const form = document.querySelector("#authForm");
+  if (!form) return;
+  const captcha = await api("/api/passport/captcha");
+  form.elements.captchaId.value = captcha.id;
+  document.querySelector("#captchaImage").src = svgToDataUri(captcha.svg);
+  form.elements.captchaAnswer.value = "";
+}
+
+async function renderAuth(mode) {
+  await refreshUser();
+  if (state.user && mode !== "register") { location.hash = "#/account"; return; }
+  setChromeTitle(mode === "register" ? "注册" : "登录");
+  renderToc([]);
+  el.editLink.href = "#/new";
+  el.main.innerHTML = secureAuthShell(mode);
+  await loadCaptcha();
+  document.querySelector("#refreshCaptcha").addEventListener("click", () => loadCaptcha().catch((error) => { document.querySelector("#authStatus").textContent = error.message; }));
+  document.querySelector("#authForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const status = document.querySelector("#authStatus");
+    const payload = Object.fromEntries(new FormData(event.currentTarget).entries());
+    if (mode === "register" && payload.password !== payload.confirmPassword) { status.textContent = "两次输入的密码不一致。"; return; }
+    delete payload.confirmPassword;
+    status.textContent = mode === "register" ? "正在创建通行证..." : "正在验证身份...";
+    try {
+      const result = await api(`/api/passport/${mode === "register" ? "register" : "login"}`, { method: "POST", body: JSON.stringify(payload) });
+      state.user = result.user;
+      renderPassportLink();
+      location.hash = "#/account";
+    } catch (error) {
+      if (error.message === "账号已被禁用。") {
+        status.textContent = "";
+        await uiAlert("账号已被禁用", "该 Wikist 通行证已被管理员封禁，无法登录或参与新的编辑、评论活动。若认为这是误操作，请联系站点管理员。", "error");
+      } else {
+        status.textContent = error.message;
+      }
+      await loadCaptcha().catch(() => {});
+    }
+  });
+}
+
+function forgotPasswordShell() {
+  return `<section class="auth-layout"><div class="auth-copy"><span class="system-kicker">Password Recovery</span><h1>找回 Wikist 密码</h1><p>输入用户名或邮箱，系统会把一次性重置链接发送到绑定邮箱。</p><div class="auth-signals"><span>短时有效</span><span>令牌哈希存储</span><span>成功后清理旧会话</span></div></div><form class="auth-panel" id="authForm"><div class="auth-tabs"><a href="#/login">登录</a><a href="#/register">注册</a></div><label>用户名或邮箱<input name="identifier" autocomplete="username" required /></label><input name="captchaId" type="hidden" /><label>人机验证<span class="captcha-row"><img class="captcha-image" id="captchaImage" alt="验证码" /><button class="icon-button" id="refreshCaptcha" type="button" title="刷新验证码" aria-label="刷新验证码"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.34-5.66M20 4v6h-6"/></svg></button></span><input name="captchaAnswer" inputmode="numeric" autocomplete="off" placeholder="输入算式结果" required /></label><div class="editor-actions"><button class="command-button" type="submit">发送重置邮件</button><a class="command-button secondary" href="#/login">返回登录</a></div><div class="status-line" id="authStatus"></div></form></section>`;
+}
+
+async function renderForgotPassword() {
+  await refreshUser();
+  if (state.user) { location.hash = "#/account"; return; }
+  setChromeTitle("找回密码");
+  renderToc([]);
+  el.editLink.href = "#/new";
+  el.main.innerHTML = forgotPasswordShell();
+  await loadCaptcha();
+  document.querySelector("#refreshCaptcha")?.addEventListener("click", () => loadCaptcha().catch((error) => { document.querySelector("#authStatus").textContent = error.message; }));
+  document.querySelector("#authForm")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const status = document.querySelector("#authStatus");
+    const payload = Object.fromEntries(new FormData(event.currentTarget).entries());
+    status.textContent = "正在发送邮件...";
+    try {
+      await api("/api/passport/password/forgot", { method: "POST", body: JSON.stringify(payload) });
+      status.textContent = "如果账号存在且邮件系统可用，重置链接已经发送。";
+    } catch (error) {
+      status.textContent = error.message;
+      await loadCaptcha().catch(() => {});
+    }
+  });
+}
+
+async function renderResetPassword(token = "") {
+  setChromeTitle("重置密码");
+  renderToc([]);
+  el.editLink.href = "#/new";
+  el.main.innerHTML = `<section class="auth-layout"><div class="auth-copy"><span class="system-kicker">Password Reset</span><h1>设置新密码</h1><p>重置成功后，所有旧登录会话会自动失效。</p></div><form class="auth-panel" id="resetPasswordForm"><input name="token" type="hidden" value="${escapeHtml(token)}" /><label>新密码<input name="newPassword" type="password" autocomplete="new-password" minlength="8" required /></label><label>确认新密码<input name="confirmPassword" type="password" autocomplete="new-password" minlength="8" required /></label><div class="editor-actions"><button class="command-button" type="submit">更新密码</button><a class="command-button secondary" href="#/login">返回登录</a></div><div class="status-line" id="resetPasswordStatus"></div></form></section>`;
+  document.querySelector("#resetPasswordForm")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const status = document.querySelector("#resetPasswordStatus");
+    const payload = Object.fromEntries(new FormData(event.currentTarget).entries());
+    if (payload.newPassword !== payload.confirmPassword) { status.textContent = "两次输入的新密码不一致。"; return; }
+    delete payload.confirmPassword;
+    status.textContent = "正在更新密码...";
+    try {
+      await api("/api/passport/password/reset", { method: "POST", body: JSON.stringify(payload) });
+      await uiToast("密码已更新，请重新登录");
+      location.hash = "#/login";
+    } catch (error) {
+      status.textContent = error.message;
+    }
+  });
+}
+
+async function renderVerifyEmail(token = "") {
+  setChromeTitle("邮箱验证");
+  renderToc([]);
+  el.editLink.href = "#/new";
+  el.main.innerHTML = `<section class="empty-state"><h1>正在验证邮箱...</h1><p class="muted-line">Wikist 正在确认这条验证链接。</p></section>`;
+  try {
+    const result = await api("/api/passport/email/verify", { method: "POST", body: JSON.stringify({ token }) });
+    state.user = result.user || state.user;
+    await refreshUser();
+    el.main.innerHTML = `<section class="empty-state success"><h1>邮箱已验证</h1><p class="muted-line">你的通行证邮箱已经完成验证。</p><a class="command-button" href="#/account">进入账户中心</a></section>`;
+  } catch (error) {
+    el.main.innerHTML = `<section class="empty-state"><h1>验证失败</h1><p>${escapeHtml(error.message)}</p><a class="command-button secondary" href="#/account">返回账户中心</a></section>`;
+  }
+}
+
+function translatorLanguageChoices(selected = []) {
+  return uniqueLanguages([
+    ...selected,
+    ...supportedLanguages(),
+    "ja",
+    "ko",
+    "fr",
+    "de",
+    "es",
+    "ru",
+    "ar",
+    "pt",
+    "it",
+    "vi",
+  ]).filter((lang) => lang !== "zh-CN");
+}
+
+function translatorLanguagePicker(selected = []) {
+  const selectedSet = new Set(uniqueLanguages(selected));
+  return `
+    <div class="language-picker" role="group" aria-label="目标语言">
+      ${translatorLanguageChoices(selected).map((lang) => `
+        <label class="language-choice ${selectedSet.has(lang) ? "active" : ""}">
+          <input type="checkbox" name="languages" value="${escapeHtml(lang)}" ${selectedSet.has(lang) ? "checked" : ""} />
+          <span>${escapeHtml(languageLabel(lang))}</span>
+          <small>${escapeHtml(lang)}</small>
+        </label>`).join("")}
+    </div>
+    <label>添加自定义语言<input name="customLanguages" placeholder="例如：fr, ja, de-DE" autocomplete="off" /></label>`;
+}
+
+function accountFavoritesHtml(favorites = [], total = 0) {
+  const items = favorites.length
+    ? favorites.slice(0, 10).map((favorite) => `
+      <article class="favorite-list-item">
+        <a href="#/page/${encodeSlug(favorite.pageSlug)}">
+          <strong>${escapeHtml(favorite.pageTitle || favorite.pageSlug)}</strong>
+          <small>${escapeHtml(favorite.pageSlug)} · ${fmtDate(favorite.createdAt)}</small>
+        </a>
+        <button class="icon-button favorite-remove-button" type="button" data-remove-favorite="${escapeHtml(favorite.pageSlug)}" title="取消收藏" aria-label="取消收藏 ${escapeHtml(favorite.pageTitle || favorite.pageSlug)}">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 14h10l1-14M9 7V4h6v3"/></svg>
+        </button>
+      </article>`).join("")
+    : '<div class="favorite-empty"><strong>还没有收藏词条</strong><span>在任意词条标题旁点击收藏即可同步到这里。</span></div>';
+  const note = total > 10 ? `显示最近 10 条，共 ${total} 条` : `共 ${total} 条`;
+  return `
+    <section class="auth-panel compact favorites-panel" id="accountFavorites">
+      <div class="panel-heading-row"><div><h2>收藏词条</h2><p class="muted-line">${note}</p></div><div class="panel-heading-actions">${total ? '<a class="mini-link" href="#/favorites">查看更多</a>' : ""}<span class="favorite-count-badge">${total}</span></div></div>
+      <div class="favorite-list">${items}</div>
+    </section>`;
+}
+
+function favoriteResultHtml(item, index) {
+  const details = `<div class="chip-row"><span class="chip">收藏于 ${fmtDate(item.favoritedAt)}</span><span class="chip">质量 ${escapeHtml(item.quality || "-")}</span>${item.status ? `<span class="chip">${escapeHtml(item.status)}</span>` : ""}${(item.categories || []).slice(0, 4).map((category) => `<span class="chip">${escapeHtml(category)}</span>`).join("")}</div>`;
+  if (!item.exists) {
+    return `<article class="result-item search-result-card favorite-result-card is-archived" style="--result-index:${index + 1}"><div class="search-result-rank">${index + 1}</div><div class="search-result-body"><h2>${escapeHtml(item.title || item.slug)}</h2><p>${escapeHtml(item.summary || "该词条已归档或尚未恢复。")}</p>${details}</div></article>`;
+  }
+  return `<article class="result-item search-result-card favorite-result-card" style="--result-index:${index + 1}"><a class="favorite-result-link" href="#/page/${encodeSlug(item.slug)}"><div class="search-result-rank">${index + 1}</div><div class="search-result-body"><h2>${escapeHtml(item.title)}</h2><p>${escapeHtml(item.summary || "")}</p>${details}</div></a><button class="icon-button favorite-result-remove" type="button" data-remove-favorite="${escapeHtml(item.slug)}" title="取消收藏" aria-label="取消收藏 ${escapeHtml(item.title)}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 14h10l1-14M9 7V4h6v3"/></svg></button></article>`;
+}
+
+async function renderFavorites(value = "") {
+  const page = Math.max(1, Number(String(value || "").split("/")[0]) || 1);
+  await refreshUser();
+  if (!state.user) { location.hash = "#/login"; return; }
+  setChromeTitle("我的收藏");
+  renderToc([]);
+  el.editLink.href = "#/new";
+  const payload = await api(`/api/passport/favorites?page=${page}&limit=12`);
+  const { items, pagination } = normalizedPaged(payload, page, 12);
+  el.main.innerHTML = `
+    <header class="article-head favorites-page-head">
+      <div class="article-title-row"><h1>我的收藏</h1><span class="quality-badge">${Number(pagination.total || 0)} 条</span></div>
+      <p class="article-summary">这里保留你的词条书签。列表按收藏时间排序，展示与搜索结果一致的摘要、质量、状态和分类信息。</p>
+      <div class="editor-actions"><a class="command-button secondary" href="#/account">返回账户中心</a></div>
+    </header>
+    <section class="search-results refined-search-results favorite-results-page">
+      ${items.length ? items.map(favoriteResultHtml).join("") : '<div class="empty-state"><h2>还没有收藏词条</h2><p class="muted-line">在任意词条标题旁点击收藏，即可把它加入这里。</p></div>'}
+    </section>
+    ${paginationHtml(pagination, "收藏词条")}`;
+  document.querySelectorAll("[data-remove-favorite]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      button.disabled = true;
+      try {
+        await api(`/api/pages/${encodeSlug(button.dataset.removeFavorite)}/favorite`, { method: "PUT", body: JSON.stringify({ favorited: false }) });
+        await refreshUser();
+        uiToast("已取消收藏");
+        await renderFavorites(String(page));
+      } catch (error) {
+        button.disabled = false;
+        await uiAlert("操作失败", error.message, "error");
+      }
+    });
+  });
+  bindPagination(el.main, (nextPage) => { location.hash = `#/favorites/${nextPage}`; });
+}
+
+function accountSecurityHtml(user = {}) {
+  const emailState = user.emailVerified ? "已验证" : "未验证";
+  const twoFactorState = user.twoFactorEnabled ? "已开启" : "未开启";
+  return `
+    <section class="auth-panel compact security-panel" id="accountSecurityPanel">
+      <div class="panel-heading-row"><div><h2>安全中心</h2><p class="muted-line">邮箱验证、找回密码和二次验证统一在这里管理。</p></div><span class="security-score">${user.emailVerified && user.twoFactorEnabled ? "强" : "待加强"}</span></div>
+      <div class="security-check-list">
+        <span class="${user.emailVerified ? "ok" : "warn"}">邮箱 ${emailState}</span>
+        <span class="${user.twoFactorEnabled ? "ok" : "warn"}">二次验证 ${twoFactorState}</span>
+        <span class="ok">密码 scrypt 加密</span>
+      </div>
+      <div class="editor-actions security-actions">
+        ${user.email && !user.emailVerified ? '<button class="command-button secondary" type="button" id="sendVerificationEmail">发送验证邮件</button>' : ""}
+        ${user.twoFactorEnabled ? '<button class="command-button secondary" type="button" id="disableTwoFactor">关闭二次验证</button>' : '<button class="command-button" type="button" id="setupTwoFactor">开启二次验证</button>'}
+      </div>
+      <div class="two-factor-setup" id="twoFactorSetupBox" hidden></div>
+      <div class="status-line" id="securityStatus"></div>
+    </section>`;
+}
+
+async function renderAccount() {
+  await refreshUser();
+  setChromeTitle("账户中心");
+  renderToc([]);
+  el.editLink.href = "#/new";
+  if (!state.user) { location.hash = "#/login"; return; }
+  el.main.innerHTML = `
+    <header class="article-head">
+      <div class="article-title-row"><h1>Wikist 通行证</h1><span class="quality-badge">${escapeHtml(state.user.role)}</span></div>
+      <p class="article-summary">管理身份、头像、密码和公开 Markdown 个人页。所有编辑都会自动同步到这个身份档案。</p>
+    </header>
+    <section class="account-grid account-grid-wide">
+      <div class="identity-card">
+        ${avatarHtml(state.user, "large")}
+        <span class="system-kicker">身份档案</span>
+        <h2>${escapeHtml(state.user.displayName || state.user.username)}</h2>
+        <p>@${escapeHtml(state.user.username)}</p>
+        <div class="chip-row">
+          <span class="chip">${escapeHtml(state.user.email || "未绑定邮箱")}</span>
+          <span class="chip">编辑 ${state.user.stats?.edits || 0}</span>
+          <span class="chip">评论 ${state.user.stats?.comments || 0}</span>
+          <span class="chip">收藏 ${state.user.stats?.favorites || 0}</span>
+          <span class="chip">同步 ${fmtDate(state.user.lastSyncAt)}</span>
+        </div>
+        <div class="identity-social-summary"><span>外部资料</span>${socialLinksHtml(state.user.socialLinks, "card")}</div>
+        <div class="editor-actions">
+          <a class="command-button" href="#/user/${encodeURIComponent(state.user.username)}">公开主页</a>
+          <a class="command-button secondary" href="#/admin/overview">后台</a>
+          <button class="command-button secondary" id="logoutButton" type="button">退出登录</button>
+        </div>
+      </div>
+      ${accountSecurityHtml(state.user)}
+      <form class="auth-panel compact translator-panel" id="translatorJoinForm">
+        <h2>翻译社区</h2>
+        <p class="muted-line">${state.user.translator ? `已加入，目标语言：${(state.user.translator.languages || []).map(languageLabel).join("、")}` : "加入后可以在词条翻译页生成初稿、保存译文，并参与翻译度统计。"}</p>
+        ${translatorLanguagePicker(state.user.translator?.languages || ["en", "zh-TW"])}
+        <button class="command-button" type="submit">${state.user.translator ? "更新翻译语言" : "加入翻译社区"}</button>
+        <div class="status-line" id="translatorJoinStatus"></div>
+      </form>
+      ${accountFavoritesHtml(state.user.favorites || [], Number(state.user.stats?.favorites || 0))}
+      <form class="auth-panel compact profile-panel" id="profileForm">
+        <h2>公开资料</h2>
+        <label>显示名称<input name="displayName" value="${escapeHtml(state.user.displayName || "")}" required /></label>
+        <label>邮箱<input name="email" type="email" value="${escapeHtml(state.user.email || "")}" /></label>
+        <label>头像地址<input name="avatarUrl" value="${escapeHtml(state.user.avatarUrl || "")}" placeholder="https://..." /></label>
+        <label>简介<input name="bio" value="${escapeHtml(state.user.bio || "")}" maxlength="500" /></label>
+        ${profileSocialFields(state.user.socialLinks)}
+        <label>个人 Markdown 页面<textarea class="profile-markdown" name="pageMd" spellcheck="false">${escapeHtml(state.user.pageMd || "")}</textarea></label>
+        <button class="command-button" type="submit">保存资料</button>
+        <div class="status-line" id="profileStatus"></div>
+      </form>
+      <form class="auth-panel compact password-panel" id="passwordForm">
+        <h2>修改密码</h2>
+        <label>当前密码<input name="currentPassword" type="password" autocomplete="current-password" required /></label>
+        <label>新密码<input name="newPassword" type="password" autocomplete="new-password" minlength="8" required /></label>
+        <label>确认新密码<input name="confirmPassword" type="password" autocomplete="new-password" minlength="8" required /></label>
+        <button class="command-button" type="submit">更新密码</button>
+        <div class="status-line" id="passwordStatus"></div>
+      </form>
+    </section>`;
+  document.querySelector("#logoutButton").addEventListener("click", async () => {
+    await api("/api/passport/logout", { method: "POST", body: "{}" }).catch(() => {});
+    state.user = null;
+    renderPassportLink();
+    location.hash = "#/login";
+  });
+  document.querySelector("#accountFavorites")?.addEventListener("click", async (event) => {
+    const button = event.target.closest("[data-remove-favorite]");
+    if (!button) return;
+    const slug = button.dataset.removeFavorite;
+    button.disabled = true;
+    try {
+      await api(`/api/pages/${encodeSlug(slug)}/favorite`, { method: "PUT", body: JSON.stringify({ favorited: false }) });
+      await refreshUser();
+      uiToast("已取消收藏");
+      await renderAccount();
+    } catch (error) {
+      button.disabled = false;
+      await uiAlert("操作失败", error.message, "error");
+    }
+  });
+  document.querySelector("#sendVerificationEmail")?.addEventListener("click", async (event) => {
+    const button = event.currentTarget;
+    const status = document.querySelector("#securityStatus");
+    button.disabled = true;
+    status.textContent = "正在发送验证邮件...";
+    try {
+      const result = await api("/api/passport/email/verification", { method: "POST", body: JSON.stringify({}) });
+      status.textContent = result.mail?.messageId ? "验证邮件已发送，请检查邮箱。" : "验证邮件请求已提交。";
+    } catch (error) {
+      status.textContent = error.message;
+    } finally {
+      button.disabled = false;
+    }
+  });
+  document.querySelector("#setupTwoFactor")?.addEventListener("click", async () => {
+    const status = document.querySelector("#securityStatus");
+    const box = document.querySelector("#twoFactorSetupBox");
+    status.textContent = "正在生成二次验证密钥...";
+    try {
+      const result = await api("/api/passport/security/2fa/setup", { method: "POST", body: JSON.stringify({}) });
+      box.hidden = false;
+      box.innerHTML = `<p class="muted-line">在任意 TOTP 应用中添加下面的密钥或 otpauth 链接，然后输入 6 位动态码启用。</p><code>${escapeHtml(result.secret)}</code><textarea readonly>${escapeHtml(result.otpauthUrl)}</textarea><form id="enableTwoFactorForm" class="two-factor-confirm"><input name="code" inputmode="numeric" maxlength="6" placeholder="6 位动态码" required /><button class="command-button" type="submit">确认启用</button></form>`;
+      status.textContent = "";
+      document.querySelector("#enableTwoFactorForm")?.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const payload = Object.fromEntries(new FormData(event.currentTarget).entries());
+        status.textContent = "正在启用...";
+        try {
+          await api("/api/passport/security/2fa/enable", { method: "POST", body: JSON.stringify(payload) });
+          await refreshUser();
+          await renderAccount();
+        } catch (error) {
+          status.textContent = error.message;
+        }
+      });
+    } catch (error) {
+      status.textContent = error.message;
+    }
+  });
+  document.querySelector("#disableTwoFactor")?.addEventListener("click", async () => {
+    const currentPassword = await uiPrompt({ title: "关闭二次验证", text: "请输入当前密码。", confirmText: "继续" });
+    if (currentPassword === null) return;
+    const code = await uiPrompt({ title: "动态验证码", text: "请输入当前 6 位 TOTP 动态码。", confirmText: "关闭" });
+    if (code === null) return;
+    const status = document.querySelector("#securityStatus");
+    status.textContent = "正在关闭二次验证...";
+    try {
+      await api("/api/passport/security/2fa/disable", { method: "POST", body: JSON.stringify({ currentPassword, code }) });
+      await refreshUser();
+      await renderAccount();
+    } catch (error) {
+      status.textContent = error.message;
+    }
+  });
+  document.querySelector("#translatorJoinForm")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const status = document.querySelector("#translatorJoinStatus");
+    const data = new FormData(event.currentTarget);
+    const languages = uniqueLanguages([
+      ...data.getAll("languages"),
+      ...String(data.get("customLanguages") || "").split(/[,\n，、\s]+/),
+    ]).filter((lang) => lang !== "zh-CN");
+    status.textContent = "正在保存...";
+    try {
+      const result = await api("/api/passport/translation/join", { method: "POST", body: JSON.stringify({ languages }) });
+      state.user.translator = result.translator;
+      status.textContent = "翻译社区资料已更新。";
+      await refreshUser();
+      await renderAccount();
+    } catch (error) {
+      status.textContent = error.message;
+    }
+  });
+  document.querySelector("#profileForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const status = document.querySelector("#profileStatus");
+    const payload = Object.fromEntries(new FormData(event.currentTarget).entries());
+    payload.socialLinks = readProfileSocialLinks(event.currentTarget);
+    const submittedSocialLinks = Object.values(payload.socialLinks).some(Boolean);
+    status.textContent = "正在保存...";
+    try {
+      const result = await api("/api/passport/profile", { method: "PUT", body: JSON.stringify(payload) });
+      if (submittedSocialLinks && !Object.prototype.hasOwnProperty.call(result.user || {}, "socialLinks")) {
+        status.textContent = "服务器尚未加载社交资料功能，请重启 Wikist 后重试。";
+        await uiAlert("服务器需要重启", "当前页面已更新，但运行中的 Wikist 后端仍是旧版本，尚不能保存外部资料。请停止旧服务并重新运行 run-wikist-server.cmd，然后按控制台显示的地址重新打开站点。", "warning");
+        return;
+      }
+      state.user = result.user;
+      renderPassportLink();
+      status.textContent = "资料已保存。";
+      await refreshUser();
+      await renderAccount();
+    } catch (error) {
+      status.textContent = error.message;
+    }
+  });
+  document.querySelector("#passwordForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const status = document.querySelector("#passwordStatus");
+    const payload = Object.fromEntries(new FormData(event.currentTarget).entries());
+    if (payload.newPassword !== payload.confirmPassword) { status.textContent = "两次输入的新密码不一致。"; return; }
+    delete payload.confirmPassword;
+    status.textContent = "正在更新...";
+    try {
+      await api("/api/passport/password", { method: "POST", body: JSON.stringify(payload) });
+      state.user = null;
+      renderPassportLink();
+      location.hash = "#/login";
+    } catch (error) {
+      status.textContent = error.message;
+    }
+  });
+}
+function messageItemHtml(message) {
+  const statusText = message.status === "unread" ? "\u672a\u8bfb" : "\u5df2\u8bfb";
+  const priority = messagePriorityMeta(message.priority);
+  const source = message.sourceUrl ? `<a class="mini-link" href="${escapeHtml(message.sourceUrl)}" data-message-source="${message.id}">${escapeHtml(message.sourceLabel || "\u67e5\u770b\u6765\u6e90")}</a>` : "";
+  return `
+    <article class="message-item ${message.status === "unread" ? "unread" : ""}" data-message-id="${message.id}">
+      <header><div><strong>${escapeHtml(message.title)}</strong><small>${escapeHtml(message.senderName || "Wikist")} &middot; ${fmtDate(message.createdAt)}</small></div><div class="message-item-labels"><span class="message-status">${statusText}</span>${message.priority !== "normal" ? `<span class="message-priority ${priority.tone}">${priority.label}</span>` : ""}</div></header>
+      <p>${escapeHtml(message.body || "")}</p>
+      <div class="message-actions">
+        ${source}
+        ${message.status === "unread" ? `<button class="mini-button" type="button" data-message-read="${message.id}">\u6807\u4e3a\u5df2\u8bfb</button>` : ""}
+        <button class="mini-button ghost" type="button" data-message-delete="${message.id}">\u5220\u9664</button>
+      </div>
+    </article>`;
+}
+
+async function renderMessages(page = 1, statusFilter = "all") {
+  await refreshUser();
+  if (!state.user) { location.hash = "#/login"; return; }
+  const limit = 12;
+  const payload = await api(`/api/passport/messages?page=${page}&limit=${limit}&status=${encodeURIComponent(statusFilter)}`);
+  const { items, pagination } = normalizedPaged(payload, page, limit);
+  state.unreadMessages = Number(payload.unread || 0);
+  renderMessageBadge();
+  setChromeTitle("消息中心");
+  renderToc([]);
+  el.editLink.href = "#/new";
+  const filters = `<select name="status"><option value="all" ${statusFilter === "all" ? "selected" : ""}>全部消息</option><option value="unread" ${statusFilter === "unread" ? "selected" : ""}>未读</option><option value="read" ${statusFilter === "read" ? "selected" : ""}>已读</option></select>`;
+  el.main.innerHTML = `
+    <header class="article-head"><div class="article-title-row"><h1>消息中心</h1><span class="quality-badge">${state.unreadMessages} 未读</span></div><p class="article-summary">系统通知、后台群发和评论 @ 提醒会堆积在这里，读完后可删除。</p></header>
+    <form class="admin-toolbar" id="messageFilterForm">${filters}<button class="command-button" type="submit">筛选</button><button class="command-button secondary" type="button" id="markAllMessagesRead">全部已读</button></form>
+    <section class="message-list" id="messageList">${items.length ? items.map(messageItemHtml).join("") : '<p class="muted-line">暂无消息。</p>'}</section>
+    ${paginationHtml(pagination, "消息")}`;
+  document.querySelector("#messageFilterForm")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    renderMessages(1, new FormData(event.currentTarget).get("status") || "all").catch(renderError);
+  });
+  document.querySelector("#markAllMessagesRead")?.addEventListener("click", async () => {
+    await api("/api/passport/messages/read-all", { method: "POST", body: JSON.stringify({}) });
+    await renderMessages(1, statusFilter);
+  });
+  document.querySelector("#messageList")?.addEventListener("click", async (event) => {
+    const readButton = event.target.closest("[data-message-read]");
+    if (readButton) {
+      await api(`/api/passport/messages/${readButton.dataset.messageRead}/read`, { method: "PUT", body: JSON.stringify({}) });
+      await renderMessages(page, statusFilter);
+      return;
+    }
+    const deleteButton = event.target.closest("[data-message-delete]");
+    if (deleteButton) {
+      await api(`/api/passport/messages/${deleteButton.dataset.messageDelete}`, { method: "DELETE" });
+      await renderMessages(page, statusFilter);
+      return;
+    }
+    const source = event.target.closest("[data-message-source]");
+    if (source) {
+      event.preventDefault();
+      await api(`/api/passport/messages/${source.dataset.messageSource}/read`, { method: "PUT", body: JSON.stringify({}) }).catch(() => {});
+      location.hash = source.getAttribute("href") || "#/messages";
+    }
+  });
+  bindPagination(el.main, (nextPage) => renderMessages(nextPage, statusFilter).catch(renderError));
+}
+async function renderUserPage(username) {
+  setChromeTitle(`用户 ${username}`);
+  renderToc([]);
+  el.editLink.href = "#/new";
+  await refreshUser().catch(() => {});
+  try {
+    const { user } = await api(`/api/users/${encodeURIComponent(username)}`);
+    setChromeTitle(user.displayName || user.username);
+    renderToc(user.toc || []);
+    const isSelf = state.user?.username && state.user.username.toLowerCase() === String(user.username || "").toLowerCase();
+    const isBanned = user.status === "disabled" || user.isBanned === true;
+    const editProfileButton = isSelf ? `<a class="icon-button user-profile-edit" href="#/account" title="编辑个人主页" aria-label="编辑个人主页"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5Z"/></svg></a>` : "";
+    const activity = user.recentEdits?.length
+      ? user.recentEdits.slice(0, 10).map((event) => `<a class="edit-event" href="#/page/${encodeSlug(event.pageSlug)}"><div><strong>${escapeHtml(event.pageTitle)}</strong><span>${event.action === "create" ? "创建" : event.action === "delete" ? "删除" : "编辑"}</span></div><small>${fmtDate(event.createdAt)}</small></a>`).join("")
+      : `<p class="muted-line">暂无公开活动。</p>`;
+    el.main.innerHTML = `
+      <header class="article-head user-head">
+        <div class="article-title-row">
+          <div class="user-title-with-avatar">${avatarHtml(user, "large")}<div><h1>${escapeHtml(user.displayName || user.username)}</h1><p class="article-summary">${escapeHtml(user.bio || "这个用户还没有填写简介。")}</p></div></div>
+          <div class="user-head-actions"><span class="quality-badge">@${escapeHtml(user.username)}</span>${editProfileButton}</div>
+        </div>
+        <div class="meta-row"><span class="chip">角色 ${escapeHtml(user.role)}</span><span class="chip">编辑 ${user.stats?.edits || 0}</span><span class="chip">评论 ${user.stats?.comments || 0}</span><span class="chip">加入 ${fmtDate(user.createdAt)}</span></div>
+        ${socialLinksHtml(user.socialLinks, "public")}
+      </header>
+      ${isBanned ? `<section class="user-ban-notice" role="status"><div><strong>该用户已被封禁</strong><p>此账户目前无法登录，也不能进行新的编辑、评论或消息操作。为保证词条修订历史完整，既有公开资料与贡献记录仍会保留。</p></div><span>账户状态：已封禁</span></section>` : ""}
+      <section class="user-profile-layout">
+        <article class="article-body user-profile-body">${user.pageHtml || ""}</article>
+        <aside class="user-edit-feed"><h2>最近贡献</h2>${activity}</aside>
+      </section>`;
+    typesetMath();
+  } catch (error) {
+    el.main.innerHTML = `<section class="empty-state"><h1>用户不存在</h1><p>${escapeHtml(error.message)}</p></section>`;
+  }
+}
+
+function adminSectionTitle(section) {
+  return ({ overview: "概览", users: "用户管理", pages: "词条管理", comments: "评论管理", "comment-replies": "二级评论", messages: "消息管理", logs: "更新日志", archives: "归档页面", backups: "全站备份", settings: "站点设置", imports: "导入导出", plugins: "插件管理" })[section] || "概览";
+}
+
+function adminShell(active, body) {
+  const sections = [
+    ["overview", "概览"],
+    ...(canManageUsers() ? [["users", "用户管理"]] : []),
+    ["pages", "词条管理"],
+    ["comments", "评论管理"],
+    ["messages", "消息管理"],
+    ["logs", "更新日志"],
+    ["archives", "归档页面"],
+    ["backups", "全站备份"],
+    ["imports", "导入导出"],
+    ["settings", "站点设置"],
+    ["plugins", "插件管理"],
+  ];
+  return `
+    <section class="admin-layout">
+      <aside class="admin-sidebar" aria-label="后台导航">
+        <div class="admin-sidebar-head"><span class="system-kicker">Wikist Admin</span><strong>控制面板</strong></div>
+        <nav>${sections.map(([id, label]) => `<a class="${id === active ? "active" : ""}" href="#/admin/${id}">${label}</a>`).join("")}</nav>
+      </aside>
+      <section class="admin-main">${body}</section>
+    </section>`;
+}
+
+function adminHeader(title, summary) {
+  return `<header class="article-head admin-head"><div class="article-title-row"><h1>${escapeHtml(title)}</h1><span class="quality-badge">后台</span></div><p class="article-summary">${escapeHtml(summary)}</p></header>`;
+}
+
+function adminSearchForm(id, value, placeholder, extra = "") {
+  return `<form class="admin-toolbar" id="${id}"><input name="q" type="search" value="${escapeHtml(value || "")}" placeholder="${escapeHtml(placeholder)}" />${extra}<button class="command-button" type="submit">查询</button></form>`;
+}
+
+function adminStatus(text) {
+  return `<span class="admin-status">${escapeHtml(text || "待处理")}</span>`;
+}
+
+function roleOptions(active) {
+  return [
+    ["member", "普通用户"],
+    ["creator", "创作者"],
+    ["editor", "编辑"],
+    ["senior_editor", "资深编辑"],
+    ["admin", "管理员"],
+  ].map(([role, label]) => `<option value="${role}" ${role === active ? "selected" : ""}>${label}</option>`).join("");
+}
+
+function accountStatusOptions(active) {
+  return ["active", "disabled"].map((status) => `<option value="${status}" ${status === active ? "selected" : ""}>${status === "active" ? "正常" : "禁用"}</option>`).join("");
+}
+
+function commentStatusOptions(active) {
+  return [
+    ["published", "显示"],
+    ["hidden", "隐藏"],
+    ["deleted", "已删除"],
+  ].map(([value, label]) => `<option value="${value}" ${value === active ? "selected" : ""}>${label}</option>`).join("");
+}
+
+function policyLabel(value) {
+  return ({ guest: "访客可用", user: "登录用户", senior_editor: "资深编辑", locked: "锁定" })[value] || value || "默认";
+}
+
+function shortText(value, max = 120) {
+  const text = String(value || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+  return text.length > max ? `${text.slice(0, max)}...` : text;
+}
+
+function adminPager(pagination, callback) {
+  const target = document.querySelector(".admin-main");
+  if (target) bindPagination(target, callback);
+}
+
+function adminUserRow(user) {
+  return `
+    <tr data-user-id="${user.id}">
+      <td class="admin-identity-cell">${avatarHtml(user, "small")}<div><strong>${escapeHtml(user.displayName || user.username)}</strong><small>@${escapeHtml(user.username)} · #${user.id}</small></div></td>
+      <td><input data-field="displayName" value="${escapeHtml(user.displayName || "")}" /></td>
+      <td><input data-field="email" type="email" value="${escapeHtml(user.email || "")}" /></td>
+      <td><input data-field="avatarUrl" value="${escapeHtml(user.avatarUrl || "")}" placeholder="https://..." /></td>
+      <td><select data-field="role">${roleOptions(user.role)}</select><small>${escapeHtml(user.groupLabel || GROUP_LABELS[user.role] || user.role)}</small></td>
+      <td><select data-field="status">${accountStatusOptions(user.status)}</select></td>
+      <td class="admin-number">${user.stats?.edits || 0}</td>
+      <td class="admin-number">${user.stats?.comments || 0}</td>
+      <td><button class="mini-button" data-save-user type="button">保存</button><span class="status-line"></span></td>
+    </tr>`;
+}
+
+function adminPageRow(page) {
+  const rating = page.rating || {};
+  const ratingText = Number(rating.count || 0) ? `${Number(rating.average || 0).toFixed(1)} 分 / ${rating.count} 评` : "暂无评分";
+  return `
+    <tr>
+      <td><strong>${escapeHtml(page.title)}</strong><small>${escapeHtml(page.slug)}</small></td>
+      <td>${escapeHtml((page.categories || []).join("、") || "未分类")}</td>
+      <td>${escapeHtml(page.quality || "C")} / ${escapeHtml(page.status || "draft")}<small>评分 ${escapeHtml(ratingText)}</small></td>
+      <td>${policyLabel(page.permissions?.editPolicy)} · ${policyLabel(page.permissions?.commentPolicy)} · ${policyLabel(page.permissions?.deletePolicy)}</td>
+      <td>${fmtDate(page.updatedAt)}</td>
+      <td class="admin-row-actions"><a class="mini-link" href="#/edit/${encodeSlug(page.slug)}">编辑</a><a class="mini-link" href="#/permissions/${encodeSlug(page.slug)}">权限/删除</a><a class="mini-link" href="#/history/${encodeSlug(page.slug)}">记录</a></td>
+    </tr>`;
+}
+async function renderAdminOverview() {
+  const [users, pages, comments] = await Promise.all([
+    api("/api/admin/users?page=1&limit=1").catch(() => ({ pagination: { total: 0 } })),
+    api("/api/admin/pages?page=1&limit=1").catch(() => ({ pagination: { total: 0 } })),
+    api("/api/admin/comments?page=1&limit=1").catch(() => ({ pagination: { total: 0 } })),
+  ]);
+  const body = `
+    ${adminHeader("后台概览", "参考真实 wiki 的后台信息架构：用户、词条、评论分区管理，所有列表都支持查询与分页。")}
+    <div class="admin-metrics">
+      <a class="admin-metric" href="#/admin/users"><span>用户</span><strong>${users.pagination?.total || 0}</strong></a>
+      <a class="admin-metric" href="#/admin/pages"><span>词条</span><strong>${pages.pagination?.total || 0}</strong></a>
+      <a class="admin-metric" href="#/admin/comments"><span>一级评论</span><strong>${comments.pagination?.total || 0}</strong></a>
+    </div>
+    <section class="admin-note"><h2>后台原则</h2><p>账户、页面、评论分区处理；用户采用表格列表；评论默认只列一级，二级评论进入独立页面管理。</p></section>`;
+  el.main.innerHTML = adminShell("overview", body);
+}
+
+async function renderAdminUsers(page = 1, query = "") {
+  const limit = 12;
+  const payload = await api(`/api/admin/users?page=${page}&limit=${limit}&q=${encodeURIComponent(query)}`);
+  const { items, pagination } = normalizedPaged(payload, page, limit);
+  const rows = items.length ? items.map(adminUserRow).join("") : `<tr><td colspan="9">没有匹配的用户。</td></tr>`;
+  const body = `
+    ${adminHeader("用户管理", "列表形式展示用户，支持分页、查询、头像、角色和状态编辑。")}
+    ${adminSearchForm("adminUserSearch", query, "搜索用户名、显示名或邮箱")}
+    <div class="admin-table-wrap"><table class="admin-table"><thead><tr><th data-sort>用户</th><th data-sort>显示名称</th><th data-sort>邮箱</th><th>头像</th><th data-sort>用户组</th><th data-sort>状态</th><th data-sort>编辑</th><th data-sort>评论</th><th>操作</th></tr></thead><tbody>${rows}</tbody></table></div>
+    ${paginationHtml(pagination, "用户管理")}`;
+  el.main.innerHTML = adminShell("users", body);
+  document.querySelector("#adminUserSearch")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    renderAdminUsers(1, new FormData(event.currentTarget).get("q") || "").catch(renderError);
+  });
+  enhanceTables();
+  adminPager(pagination, (nextPage) => renderAdminUsers(nextPage, query).catch(renderError));
+  document.querySelectorAll("[data-save-user]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const row = button.closest("tr");
+      const status = row.querySelector(".status-line");
+      const payload = {};
+      row.querySelectorAll("[data-field]").forEach((field) => { payload[field.dataset.field] = field.value; });
+      status.textContent = "保存中...";
+      try {
+        await api(`/api/admin/users/${row.dataset.userId}`, { method: "PUT", body: JSON.stringify(payload) });
+        status.textContent = "已保存。";
+        await refreshUser();
+      } catch (error) {
+        status.textContent = error.message;
+      }
+    });
+  });
+}
+
+async function renderAdminPages(page = 1, query = "") {
+  const limit = 12;
+  const payload = await api(`/api/admin/pages?page=${page}&limit=${limit}&q=${encodeURIComponent(query)}`);
+  const { items, pagination } = normalizedPaged(payload, page, limit);
+  const rows = items.length ? items.map(adminPageRow).join("") : `<tr><td colspan="6">没有匹配的词条。</td></tr>`;
+  const body = `
+    ${adminHeader("词条管理", "集中查看词条状态、质量、评分和权限策略，并跳转到编辑、记录或删除页面。")}
+    ${adminSearchForm("adminPageSearch", query, "搜索标题、slug、分类或作者")}
+    <div class="admin-table-wrap"><table class="admin-table"><thead><tr><th data-sort>词条</th><th data-sort>分类</th><th data-sort>质量/状态</th><th data-sort>权限</th><th data-sort>更新</th><th>操作</th></tr></thead><tbody>${rows}</tbody></table></div>
+    ${paginationHtml(pagination, "词条管理")}`;
+  el.main.innerHTML = adminShell("pages", body);
+  document.querySelector("#adminPageSearch")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    renderAdminPages(1, new FormData(event.currentTarget).get("q") || "").catch(renderError);
+  });
+  enhanceTables();
+  adminPager(pagination, (nextPage) => renderAdminPages(nextPage, query).catch(renderError));
+}
+function adminCommentRow(comment, options = {}) {
+  const showReplies = options.showReplies !== false;
+  const authorUser = { displayName: comment.authorName || "访客", username: comment.authorUsername || "guest", avatarUrl: comment.authorAvatarUrl || "" };
+  const authorMain = comment.authorType === "user" && comment.authorUsername
+    ? `<a class="mini-link" href="#/user/${encodeURIComponent(comment.authorUsername)}">${escapeHtml(comment.authorName || comment.authorUsername)}</a>`
+    : `<strong>${escapeHtml(comment.authorName || "访客")}</strong>`;
+  const authorMeta = comment.authorType === "guest" ? (comment.authorEmail || "访客") : `@${comment.authorUsername || "user"}`;
+  const repliesCell = showReplies
+    ? `<a class="mini-link" href="#/admin/comment-replies/${comment.id}">查看二级评论（${Number(comment.replyCount || 0)}）</a>`
+    : `<span class="muted-line">二级评论</span>`;
+  return `
+    <tr data-comment-id="${comment.id}">
+      <td><a class="mini-link" href="#/comments/${encodeSlug(comment.pageSlug)}">${escapeHtml(comment.pageSlug)}</a><small>#${comment.id}${comment.parentId ? ` · 回复 #${comment.parentId}` : ""}</small></td>
+      <td class="admin-identity-cell">${avatarHtml(authorUser, "small")}<div>${authorMain}<small>${escapeHtml(authorMeta)}</small></div></td>
+      <td class="admin-comment-cell">${escapeHtml(shortText(comment.contentMd || comment.contentHtml || "", 160))}</td>
+      <td>${repliesCell}</td>
+      <td><select data-field="status">${commentStatusOptions(comment.status)}</select></td>
+      <td>${fmtDate(comment.createdAt)}</td>
+      <td><button class="mini-button" data-save-comment type="button">保存</button><button class="mini-button danger" data-delete-admin-comment type="button">删除</button><span class="status-line"></span></td>
+    </tr>`;
+}
+
+function bindAdminCommentSaves(refresh) {
+  document.querySelectorAll("[data-save-comment]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const row = button.closest("tr");
+      const status = row.querySelector(".status-line");
+      const value = row.querySelector("[data-field='status']").value;
+      status.textContent = "保存中...";
+      try {
+        await api(`/api/admin/comments/${row.dataset.commentId}`, { method: "PUT", body: JSON.stringify({ status: value }) });
+        status.textContent = "已保存。";
+        if (typeof refresh === "function") await refresh();
+      } catch (error) {
+        status.textContent = error.message;
+      }
+    });
+  });
+  document.querySelectorAll("[data-delete-admin-comment]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const row = button.closest("tr");
+      const status = row.querySelector(".status-line");
+      button.disabled = true;
+      status.textContent = "删除中...";
+      try {
+        await api(`/api/admin/comments/${row.dataset.commentId}`, { method: "DELETE", body: "{}" });
+        status.textContent = "已删除。";
+        if (typeof refresh === "function") await refresh();
+        else row.querySelector("[data-field='status']").value = "deleted";
+      } catch (error) {
+        status.textContent = error.message;
+      } finally {
+        button.disabled = false;
+      }
+    });
+  });
+}
+
+function adminMessageRow(message) {
+  const recalled = message.broadcastStatus === "recalled" || message.status === "recalled";
+  const sender = message.senderUsername ? `@${message.senderUsername}` : (message.senderName || "Wikist");
+  const priority = messagePriorityMeta(message.priority);
+  const delivery = Number(message.deliveryCount || 0);
+  const read = Number(message.readCount || 0);
+  const deleted = Number(message.deletedCount || 0);
+  return `
+    <tr data-admin-message-id="${escapeHtml(message.rawId || message.id)}">
+      <td><strong>${escapeHtml(message.title)}</strong><small>${escapeHtml(message.kind || "broadcast")} &middot; #${escapeHtml(message.rawId || message.id)}</small></td>
+      <td><span class="message-priority ${priority.tone}">${priority.label}</span></td>
+      <td><strong>\u5168\u7ad9\u7528\u6237</strong><small>\u8986\u76d6 ${delivery} \u4eba &middot; \u5df2\u8bfb ${read} \u00b7 \u81ea\u884c\u5220\u9664 ${deleted}</small></td>
+      <td>${escapeHtml(sender)}</td>
+      <td class="admin-comment-cell">${escapeHtml(shortText(message.body || "", 150))}</td>
+      <td><span class="admin-status ${recalled ? "" : "hot"}">${recalled ? "\u5df2\u64a4\u56de" : "\u53d1\u9001\u4e2d"}</span></td>
+      <td>${fmtDate(message.createdAt)}${message.recalledAt ? `<small>\u64a4\u56de ${fmtDate(message.recalledAt)}</small>` : ""}</td>
+      <td>${recalled ? '<span class="muted-line">\u4e0d\u53ef\u91cd\u590d\u64a4\u56de</span>' : `<button class="mini-button danger" type="button" data-admin-message-revoke="${escapeHtml(message.rawId || message.id)}">\u5168\u5458\u64a4\u56de</button>`}</td>
+    </tr>`;
+}
+
+function adminLogRow(log) {
+  return `
+    <tr>
+      <td><strong>${escapeHtml(log.action || "")}</strong><small>#${log.id} · ${fmtDate(log.createdAt)}</small></td>
+      <td><strong>${escapeHtml(log.actorName || "系统")}</strong><small>${escapeHtml(log.actorLabel || log.actorType || "")}</small></td>
+      <td><span class="admin-status">${escapeHtml(log.targetType || "site")}</span><small>${escapeHtml(log.targetId || "")}</small></td>
+      <td><strong>${escapeHtml(log.targetLabel || "")}</strong><small>${escapeHtml(log.summary || "")}</small></td>
+      <td class="admin-comment-cell"><code>${escapeHtml(JSON.stringify(log.metadata || {}))}</code></td>
+    </tr>`;
+}
+
+async function renderAdminLogs(page = 1, query = "", action = "all", targetType = "all") {
+  const limit = 18;
+  const payload = await api(`/api/admin/logs?page=${page}&limit=${limit}&q=${encodeURIComponent(query)}&action=${encodeURIComponent(action)}&targetType=${encodeURIComponent(targetType)}`);
+  const { items, pagination } = normalizedPaged(payload, page, limit);
+  const rows = items.length ? items.map(adminLogRow).join("") : `<tr><td colspan="5">暂无匹配日志。</td></tr>`;
+  const extra = `<select name="action"><option value="all" ${action === "all" ? "selected" : ""}>全部动作</option><option value="page.update" ${action === "page.update" ? "selected" : ""}>词条编辑</option><option value="comment.delete" ${action === "comment.delete" ? "selected" : ""}>评论删除</option><option value="settings.update" ${action === "settings.update" ? "selected" : ""}>站点设置</option><option value="translation.save" ${action === "translation.save" ? "selected" : ""}>翻译保存</option></select><select name="targetType"><option value="all" ${targetType === "all" ? "selected" : ""}>全部对象</option><option value="page" ${targetType === "page" ? "selected" : ""}>词条</option><option value="comment" ${targetType === "comment" ? "selected" : ""}>评论</option><option value="user" ${targetType === "user" ? "selected" : ""}>用户</option><option value="site" ${targetType === "site" ? "selected" : ""}>站点</option><option value="plugin" ${targetType === "plugin" ? "selected" : ""}>插件</option></select>`;
+  const body = `
+    ${adminHeader("更新日志", "所有关键修改都会写入这里：词条、评论、用户、设置、插件、备份和翻译操作均可分页查询。")}
+    ${adminSearchForm("adminLogSearch", query, "搜索操作者、动作、对象或摘要", extra)}
+    <div class="admin-table-wrap"><table class="admin-table"><thead><tr><th data-sort>动作</th><th data-sort>操作者</th><th data-sort>对象</th><th data-sort>摘要</th><th>元数据</th></tr></thead><tbody>${rows}</tbody></table></div>
+    ${paginationHtml(pagination, "更新日志")}`;
+  el.main.innerHTML = adminShell("logs", body);
+  document.querySelector("#adminLogSearch")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    renderAdminLogs(1, data.get("q") || "", data.get("action") || "all", data.get("targetType") || "all").catch(renderError);
+  });
+  enhanceTables();
+  adminPager(pagination, (nextPage) => renderAdminLogs(nextPage, query, action, targetType).catch(renderError));
+}
+
+async function renderAdminMessages(page = 1, query = "", statusFilter = "all") {
+  const limit = 12;
+  const payload = await api(`/api/admin/messages?page=${page}&limit=${limit}&q=${encodeURIComponent(query)}&status=${encodeURIComponent(statusFilter)}`);
+  const { items, pagination } = normalizedPaged(payload, page, limit);
+  const rows = items.length ? items.map(adminMessageRow).join("") : `<tr><td colspan="8">\u6682\u65e0\u5168\u7ad9\u6d88\u606f\u8bb0\u5f55\u3002</td></tr>`;
+  const extra = `<select name="status"><option value="all" ${statusFilter === "all" ? "selected" : ""}>全部状态</option><option value="active" ${statusFilter === "active" ? "selected" : ""}>发送中</option><option value="recalled" ${statusFilter === "recalled" ? "selected" : ""}>已撤回</option></select>`;
+  const body = `
+    ${adminHeader("消息管理", "后台群发只保存一条全站消息；每个用户的已读、删除状态单独记录，避免用户量增加时复制正文。")}
+    <form class="auth-panel compact admin-message-form" id="adminBroadcastForm">
+      <h2>全站群发</h2>
+      <label>标题<input name="title" required maxlength="140" placeholder="例如：站点维护通知" /></label>
+      <label>内容<textarea name="body" class="profile-markdown" required placeholder="写给所有用户的站内消息"></textarea></label>
+      <div class="admin-priority-grid">
+        <label class="admin-priority-select">\u4f18\u5148\u7ea7<select name="priority"><option value="normal">\u666e\u901a\uff1a\u8fdb\u5165\u6d88\u606f\u4e2d\u5fc3</option><option value="high">\u9ad8\uff1a\u7a81\u51fa\u663e\u793a</option><option value="urgent">\u6700\u9ad8\uff1a\u53f3\u4e0a\u89d2\u5f39\u7a97</option><option value="low">\u4f4e\uff1a\u9759\u9ed8\u901a\u77e5</option></select></label>
+        <label class="admin-priority-select">\u5f39\u7a97\u79d2\u6570<input name="displaySeconds" type="number" min="3" max="60" value="7" /></label>
+      </div>
+      <button class="command-button" type="submit">发送给全站用户</button>
+      <div class="status-line" id="adminBroadcastStatus"></div>
+    </form>
+    ${adminSearchForm("adminMessageSearch", query, "搜索标题、正文或发送者", extra)}
+    <div class="admin-table-wrap"><table class="admin-table"><thead><tr><th data-sort>\u6d88\u606f</th><th>\u4f18\u5148\u7ea7</th><th data-sort>\u8303\u56f4\u4e0e\u72b6\u6001</th><th data-sort>\u53d1\u9001\u8005</th><th data-sort>\u6b63\u6587</th><th data-sort>\u72b6\u6001</th><th data-sort>\u65f6\u95f4</th><th>\u64cd\u4f5c</th></tr></thead><tbody>${rows}</tbody></table></div>
+    ${paginationHtml(pagination, "消息管理")}`;
+  el.main.innerHTML = adminShell("messages", body);
+  document.querySelector("#adminBroadcastForm")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const status = document.querySelector("#adminBroadcastStatus");
+    const requestBody = Object.fromEntries(new FormData(form).entries());
+    status.textContent = "发送中...";
+    try {
+      const result = await api("/api/admin/messages/broadcast", { method: "POST", body: JSON.stringify(requestBody) });
+      form?.reset();
+      status.textContent = `已创建 1 条全站消息，当前覆盖 ${result.count || 0} 位用户。`;
+      await renderAdminMessages(1, query, statusFilter);
+    } catch (error) {
+      status.textContent = error.message;
+    }
+  });
+  document.querySelector("#adminMessageSearch")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    renderAdminMessages(1, data.get("q") || "", data.get("status") || "all").catch(renderError);
+  });
+  document.querySelectorAll("[data-admin-message-revoke]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const id = button.dataset.adminMessageRevoke;
+      button.disabled = true;
+      button.textContent = "撤回中...";
+      try {
+        await api(`/api/admin/messages/${encodeURIComponent(id)}/revoke`, { method: "POST", body: JSON.stringify({}) });
+        await renderAdminMessages(page, query, statusFilter);
+      } catch (error) {
+        button.textContent = error.message;
+        setTimeout(() => renderAdminMessages(page, query, statusFilter).catch(renderError), 900);
+      }
+    });
+  });
+  enhanceTables();
+  adminPager(pagination, (nextPage) => renderAdminMessages(nextPage, query, statusFilter).catch(renderError));
+}async function renderAdminComments(page = 1, query = "", statusFilter = "all") {
+  const limit = 12;
+  const payload = await api(`/api/admin/comments?page=${page}&limit=${limit}&q=${encodeURIComponent(query)}&status=${encodeURIComponent(statusFilter)}`);
+  const { items, pagination } = normalizedPaged(payload, page, limit);
+  const rows = items.length ? items.map((item) => adminCommentRow(item, { showReplies: true })).join("") : `<tr><td colspan="7">没有匹配的一级评论。</td></tr>`;
+  const extra = `<select name="status"><option value="all" ${statusFilter === "all" ? "selected" : ""}>全部状态</option><option value="published" ${statusFilter === "published" ? "selected" : ""}>显示中</option><option value="hidden" ${statusFilter === "hidden" ? "selected" : ""}>已隐藏</option><option value="deleted" ${statusFilter === "deleted" ? "selected" : ""}>已删除</option></select>`;
+  const body = `
+    ${adminHeader("评论管理", "后台只列出一级评论；二级评论进入独立页面管理，避免同屏混乱。")}
+    ${adminSearchForm("adminCommentSearch", query, "搜索词条、作者、邮箱或评论内容", extra)}
+    <div class="admin-table-wrap"><table class="admin-table"><thead><tr><th data-sort>词条</th><th data-sort>作者</th><th data-sort>内容</th><th data-sort>二级评论</th><th data-sort>状态</th><th data-sort>时间</th><th>操作</th></tr></thead><tbody>${rows}</tbody></table></div>
+    ${paginationHtml(pagination, "评论管理")}`;
+  el.main.innerHTML = adminShell("comments", body);
+  document.querySelector("#adminCommentSearch")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    renderAdminComments(1, data.get("q") || "", data.get("status") || "all").catch(renderError);
+  });
+  enhanceTables();
+  adminPager(pagination, (nextPage) => renderAdminComments(nextPage, query, statusFilter).catch(renderError));
+  bindAdminCommentSaves(null);
+}
+
+async function renderAdminCommentReplies(parentId, page = 1, query = "", statusFilter = "all") {
+  const limit = 12;
+  const payload = await api(`/api/admin/comments/${parentId}/replies?page=${page}&limit=${limit}&q=${encodeURIComponent(query)}&status=${encodeURIComponent(statusFilter)}`);
+  const { items, pagination } = normalizedPaged(payload, page, limit);
+  const root = payload.root || {};
+  const rows = items.length ? items.map((item) => adminCommentRow(item, { showReplies: false })).join("") : `<tr><td colspan="7">这个一级评论下暂无二级评论。</td></tr>`;
+  const extra = `<select name="status"><option value="all" ${statusFilter === "all" ? "selected" : ""}>全部状态</option><option value="published" ${statusFilter === "published" ? "selected" : ""}>显示中</option><option value="hidden" ${statusFilter === "hidden" ? "selected" : ""}>已隐藏</option><option value="deleted" ${statusFilter === "deleted" ? "selected" : ""}>已删除</option></select>`;
+  const rootPreview = shortText(root.contentMd || root.contentHtml || "", 120);
+  const body = `
+    ${adminHeader("二级评论管理", `正在管理 #${parentId} 下的二级评论。根评论：${escapeHtml(rootPreview)}`)}
+    <div class="admin-toolbar"><a class="command-button secondary" href="#/admin/comments">返回一级评论</a><a class="command-button secondary" href="#/comments/${encodeSlug(root.pageSlug || "home")}">打开前台讨论区</a></div>
+    ${adminSearchForm("adminReplySearch", query, "搜索二级评论作者、邮箱或内容", extra)}
+    <div class="admin-table-wrap"><table class="admin-table"><thead><tr><th data-sort>词条</th><th data-sort>作者</th><th data-sort>内容</th><th data-sort>层级</th><th data-sort>状态</th><th data-sort>时间</th><th>操作</th></tr></thead><tbody>${rows}</tbody></table></div>
+    ${paginationHtml(pagination, "二级评论")}`;
+  el.main.innerHTML = adminShell("comments", body);
+  document.querySelector("#adminReplySearch")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    renderAdminCommentReplies(parentId, 1, data.get("q") || "", data.get("status") || "all").catch(renderError);
+  });
+  enhanceTables();
+  adminPager(pagination, (nextPage) => renderAdminCommentReplies(parentId, nextPage, query, statusFilter).catch(renderError));
+  bindAdminCommentSaves(null);
+}
+function adminArchiveRow(item) {
+  return `
+    <tr>
+      <td><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.slug)} · ${escapeHtml(item.archiveId)}</small></td>
+      <td>${escapeHtml(item.author || "Wikist")}</td>
+      <td>${escapeHtml(item.quality || "C")} / ${escapeHtml(item.status || "archived")}</td>
+      <td>${fmtDate(item.archivedAt)}</td>
+      <td class="admin-row-actions"><a class="mini-link" href="#/archive/${encodeSlug(item.slug)}/${encodeURIComponent(item.archiveId)}">查看归档</a><button class="mini-button" data-restore-archive data-slug="${escapeHtml(item.slug)}" data-archive="${escapeHtml(item.archiveId)}" type="button">恢复</button><span class="status-line"></span></td>
+    </tr>`;
+}
+
+function downloadTextFile(filename, text, type = "text/plain;charset=utf-8") {
+  const blob = new Blob([text], { type });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+function downloadBlobFile(filename, blob) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+function importExportHubHtml(options = {}) {
+  const pageOptions = state.pages.slice(0, 200).map((page) => `<option value="${escapeHtml(page.slug)}">${escapeHtml(page.title)}</option>`).join("");
+  const header = options.admin
+    ? adminHeader("导入导出", "普通用户可迁移词条与导入 Wikipedia；后台保留入口用于维护视角。导入仍遵守词条权限与锁定策略。")
+    : `<header class="article-head transfer-head"><div class="article-title-row"><h1>导入导出</h1><span class="quality-badge">Wikist Transfer</span></div><p class="article-summary">迁移 Wikist 词条、导入 Wikipedia 原始词条、同步来源，并把 Wikipedia 组件尽量转换为 Wikist 可继续编辑的 Markdown。</p></header>`;
+  return `
+    ${header}
+    <section class="transfer-hub">
+      <article class="transfer-hero">
+        <div><span class="system-kicker">Knowledge Portability</span><h2>开放知识应该能自由迁移</h2><p>导出不会要求后台权限；导入和同步需要登录，并会记录为你的贡献。Wikipedia 内链会保留为 Wikist 词条链接，图片、信息框与表格会尽量转成本站组件。</p></div>
+        <div class="transfer-state"><strong>${state.user ? "已登录" : "未登录"}</strong><span>${state.user ? escapeHtml(state.user.displayName || state.user.username) : "导入前请先登录通行证"}</span></div>
+      </article>
+      <section class="transfer-grid">
+        <form class="transfer-panel" id="pageExportForm">
+          <header><span>01</span><h2>导出词条</h2></header>
+          <label>词条 slug<input name="slug" list="pageSlugList" required placeholder="abstract-algebra" /></label>
+          <label>格式<select name="format"><option value="json">Wikist JSON</option><option value="markdown">Markdown</option></select></label>
+          <button class="command-button" type="submit">导出</button>
+          <div class="status-line" id="pageExportStatus"></div>
+        </form>
+        <form class="transfer-panel" id="wikistImportForm">
+          <header><span>02</span><h2>导入 Wikist</h2></header>
+          <div class="transfer-fields two"><label>格式<select name="format"><option value="json">Wikist JSON</option><option value="markdown">Markdown</option></select></label><label>目标 slug<input name="slug" required placeholder="imported-page" /></label></div>
+          <label>标题<input name="title" placeholder="Markdown 导入时使用" /></label>
+          <label>摘要<input name="summary" placeholder="Markdown 导入时使用" /></label>
+          <label>导入内容<textarea name="content" spellcheck="false" placeholder="粘贴 Wikist JSON，或 Markdown 正文"></textarea></label>
+          <label class="plugin-enable inline"><input type="checkbox" name="overwrite" />允许覆盖已有词条</label>
+          <button class="command-button" type="submit">导入 Wikist</button>
+          <div class="status-line" id="wikistImportStatus"></div>
+        </form>
+        <form class="transfer-panel transfer-panel-accent" id="wikipediaImportForm">
+          <header><span>03</span><h2>导入 Wikipedia</h2></header>
+          <div class="transfer-fields two"><label>语言<select name="lang"><option value="zh">中文 Wikipedia</option><option value="en">English Wikipedia</option><option value="zh-cn">中文源 · 简体显示</option><option value="zh-tw">中文源 · 繁体显示</option></select></label><label>标题<input name="title" required placeholder="Virus / 群 (数学)" /></label></div>
+          <label>目标 slug<input name="slug" placeholder="留空则自动生成" /></label>
+          <label class="plugin-enable inline"><input type="checkbox" name="overwrite" />允许覆盖已有词条</label>
+          <button class="command-button" type="submit">从 Wikipedia 导入</button>
+          <div class="status-line" id="wikipediaImportStatus"></div>
+        </form>
+        <form class="transfer-panel" id="wikipediaSyncForm">
+          <header><span>04</span><h2>同步来源</h2></header>
+          <label>已导入词条 slug<input name="slug" list="pageSlugList" required placeholder="virus" /></label>
+          <p class="muted-line">仅支持保存了 Wikipedia 导入元信息的词条；同步会保留本地标题、slug 与顶部大图。</p>
+          <button class="command-button" type="submit">同步最新源</button>
+          <div class="status-line" id="wikipediaSyncStatus"></div>
+        </form>
+      </section>
+    </section>
+    <datalist id="pageSlugList">${pageOptions}</datalist>`;
+}
+
+function bindImportExportForms() {
+  document.querySelector("#pageExportForm")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const status = document.querySelector("#pageExportStatus");
+    const data = new FormData(event.currentTarget);
+    const slug = data.get("slug") || "";
+    const format = data.get("format") || "json";
+    status.textContent = "正在导出...";
+    try {
+      const response = await fetch(`/api/pages/export?slug=${encodeURIComponent(slug)}&format=${encodeURIComponent(format)}`, { credentials: "same-origin" });
+      const text = await response.text();
+      if (!response.ok) throw new Error(JSON.parse(text || "{}").error || "导出失败。");
+      downloadTextFile(`${slug}.${format === "markdown" ? "md" : "json"}`, format === "json" ? JSON.stringify(JSON.parse(text), null, 2) : text, format === "json" ? "application/json;charset=utf-8" : "text/markdown;charset=utf-8");
+      status.textContent = "导出完成。";
+    } catch (error) { status.textContent = error.message; }
+  });
+
+  document.querySelector("#wikistImportForm")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const status = document.querySelector("#wikistImportStatus");
+    const data = new FormData(event.currentTarget);
+    const payload = Object.fromEntries(data.entries());
+    payload.overwrite = data.has("overwrite");
+    status.textContent = "正在导入...";
+    try {
+      const result = await api("/api/pages/import/wikist", { method: "POST", body: JSON.stringify(payload) });
+      status.innerHTML = `导入完成：<a href="#/page/${encodeSlug(result.page.slug)}">${escapeHtml(result.page.title)}</a>`;
+      await refreshChrome();
+    } catch (error) { status.textContent = error.message; }
+  });
+
+  document.querySelector("#wikipediaImportForm")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const status = document.querySelector("#wikipediaImportStatus");
+    const data = new FormData(event.currentTarget);
+    const payload = Object.fromEntries(data.entries());
+    payload.overwrite = data.has("overwrite");
+    status.textContent = "正在拉取 Wikipedia...";
+    try {
+      const result = await api("/api/pages/import/wikipedia", { method: "POST", body: JSON.stringify(payload) });
+      status.innerHTML = `导入完成：<a href="#/page/${encodeSlug(result.page.slug)}">${escapeHtml(result.page.title)}</a>`;
+      await refreshChrome();
+    } catch (error) { status.textContent = error.message; }
+  });
+
+  document.querySelector("#wikipediaSyncForm")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const status = document.querySelector("#wikipediaSyncStatus");
+    const slug = new FormData(event.currentTarget).get("slug") || "";
+    status.textContent = "正在同步...";
+    try {
+      const result = await api(`/api/pages/${encodeSlug(slug)}/sync`, { method: "POST", body: JSON.stringify({}) });
+      status.innerHTML = `同步完成：<a href="#/page/${encodeSlug(result.page.slug)}">${escapeHtml(result.page.title)}</a>`;
+      await refreshChrome();
+    } catch (error) { status.textContent = error.message; }
+  });
+}
+
+async function renderImportExport() {
+  await refreshUser().catch(() => {});
+  setChromeTitle("导入导出");
+  renderToc([]);
+  el.editLink.href = "#/new";
+  el.main.innerHTML = importExportHubHtml({ admin: false });
+  bindImportExportForms();
+}
+
+async function renderAdminImports() {
+  const body = importExportHubHtml({ admin: true });
+  el.main.innerHTML = adminShell("imports", body);
+  bindImportExportForms();
+}
+async function renderAdminArchives(page = 1, query = "") {
+  const limit = 12;
+  const payload = await api(`/api/admin/archives?page=${page}&limit=${limit}&q=${encodeURIComponent(query)}`);
+  const { items, pagination } = normalizedPaged(payload, page, limit);
+  const rows = items.length ? items.map(adminArchiveRow).join("") : `<tr><td colspan="5">没有归档页面。</td></tr>`;
+  const body = `
+    ${adminHeader("归档页面", "删除后的词条会进入归档列表，可按标题、slug、作者或归档编号查询，并可一键恢复。")}
+    ${adminSearchForm("adminArchiveSearch", query, "搜索归档标题、slug、作者或编号")}
+    <div class="admin-table-wrap"><table class="admin-table"><thead><tr><th data-sort>归档</th><th data-sort>作者</th><th data-sort>质量/状态</th><th data-sort>归档时间</th><th>操作</th></tr></thead><tbody>${rows}</tbody></table></div>
+    ${paginationHtml(pagination, "归档页面")}`;
+  el.main.innerHTML = adminShell("archives", body);
+  document.querySelector("#adminArchiveSearch")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    renderAdminArchives(1, new FormData(event.currentTarget).get("q") || "").catch(renderError);
+  });
+  enhanceTables();
+  adminPager(pagination, (nextPage) => renderAdminArchives(nextPage, query).catch(renderError));
+  document.querySelectorAll("[data-restore-archive]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const status = button.parentElement.querySelector(".status-line");
+      status.textContent = "恢复中...";
+      button.disabled = true;
+      try {
+        await api(`/api/admin/archives/${encodeSlug(button.dataset.slug)}/${encodeURIComponent(button.dataset.archive)}/restore`, { method: "POST", body: JSON.stringify({}) });
+        await refreshChrome();
+        status.textContent = "已恢复。";
+        setTimeout(() => renderAdminArchives(page, query).catch(renderError), 350);
+      } catch (error) {
+        button.disabled = false;
+        status.textContent = error.message;
+      }
+    });
+  });
+}
+async function renderArchive(slugAndArchive) {
+  const parts = String(slugAndArchive || "").split("/").filter(Boolean);
+  const archiveId = parts.pop();
+  const slug = parts.join("/");
+  const archive = await api(`/api/archives/${encodeSlug(slug)}/${encodeURIComponent(archiveId)}`);
+  setChromeTitle(`归档 - ${archive.title}`);
+  renderToc(archive.toc || []);
+  el.editLink.href = `#/edit/${encodeSlug(archive.slug)}`;
+  el.main.innerHTML = `<header class="article-head"><div class="article-title-row"><h1>${escapeHtml(archive.title)}</h1><span class="quality-badge">归档</span></div><p class="article-summary">${escapeHtml(archive.summary || "已删除词条的归档快照。")}</p><div class="meta-row"><span class="chip">${escapeHtml(archive.slug)}</span><span class="chip">归档 ${fmtDate(archive.archivedAt)}</span><span class="chip">${archive.bytes || 0} 字节</span></div></header><article class="article-body archived-body">${archive.html || ""}</article>`;
+  typesetMath();
+}
+
+function enhanceTables() {
+  document.querySelectorAll(".admin-table th[data-sort]").forEach((th, index) => {
+    th.setAttribute("role", "button");
+    th.title = "点击排序";
+    th.addEventListener("click", () => {
+      const table = th.closest("table");
+      const tbody = table.querySelector("tbody");
+      const rows = [...tbody.querySelectorAll("tr")];
+      const dir = th.dataset.dir === "asc" ? "desc" : "asc";
+      table.querySelectorAll("th[data-sort]").forEach((item) => delete item.dataset.dir);
+      th.dataset.dir = dir;
+      rows.sort((a, b) => {
+        const left = a.children[index]?.innerText.trim() || "";
+        const right = b.children[index]?.innerText.trim() || "";
+        return dir === "asc" ? left.localeCompare(right, "zh-CN") : right.localeCompare(left, "zh-CN");
+      });
+      rows.forEach((row) => tbody.appendChild(row));
+    });
+  });
+}
+const HOME_SETTING_FIELDS = [
+  ["showFeatured", "特色词条", "展示高质量与推荐词条入口"],
+  ["showNews", "资讯雷达", "展示资讯页与最近更新"],
+  ["showPath", "入门路径", "展示标记规范、教程、协议等入口"],
+  ["showProgress", "全球数学进展", "展示国际会议、形式化数学、预印本动态"],
+  ["showStable", "稳定内容", "展示 A 级或 stable 词条"],
+  ["showOriginal", "首页正文", "展示 home 词条原始 Markdown 正文"],
+  ["showCategories", "分类索引", "展示分类云"],
+  ["showActions", "协作控制台", "展示新建、搜索和后台入口"],
+];
+
+function settingToggleHtml([key, label, description], home) {
+  const checked = home?.[key] !== false ? "checked" : "";
+  return `<label class="setting-toggle"><input name="${key}" type="checkbox" ${checked} /><span><strong>${label}</strong><small>${description}</small></span></label>`;
+}
+
+async function renderAdminBackupsLegacy() {
+  const body = `
+    ${adminHeader("全站备份", "将词条、修订、归档、站点配置、插件清单和通行证数据库打包为 gzip 文件下载。")}
+    <section class="admin-settings-panel backup-panel">
+      <div class="settings-section">
+        <h2>创建备份包</h2>
+        <p class="muted-line">备份包格式为 wikist-site-backup JSON gzip，适合迁移、冷备份和版本留档。用户、评论、消息与评分等数据随 SQLite 文件一起打包。</p>
+        <button class="command-button" type="button" id="createBackupButton">生成并下载备份</button>
+        <div class="backup-progress" id="backupProgress" hidden>
+          <div><span id="backupProgressText">准备中...</span><strong id="backupProgressPercent">0%</strong></div>
+          <progress id="backupProgressBar" value="0" max="100"></progress>
+        </div>
+        <div class="status-line" id="backupStatus"></div>
+      </div>
+    </section>`;
+  el.main.innerHTML = adminShell("backups", body);
+  document.querySelector("#createBackupButton")?.addEventListener("click", async (event) => {
+    const button = event.currentTarget;
+    const status = document.querySelector("#backupStatus");
+    const box = document.querySelector("#backupProgress");
+    const text = document.querySelector("#backupProgressText");
+    const percent = document.querySelector("#backupProgressPercent");
+    const bar = document.querySelector("#backupProgressBar");
+    button.disabled = true;
+    box.hidden = false;
+    status.textContent = "";
+    text.textContent = "正在创建备份包...";
+    percent.textContent = "0%";
+    bar.value = 0;
+    try {
+      const response = await fetch("/api/admin/backup", { credentials: "same-origin" });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.error || "备份创建失败。");
+      }
+      const total = Number(response.headers.get("content-length") || 0);
+      const reader = response.body?.getReader();
+      const chunks = [];
+      let received = 0;
+      if (reader) {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          chunks.push(value);
+          received += value.length;
+          const next = total ? Math.min(98, Math.round((received / total) * 100)) : Math.min(98, bar.value + 8);
+          bar.value = next;
+          percent.textContent = `${next}%`;
+          text.textContent = "正在下载备份数据...";
+        }
+      }
+      const blob = reader ? new Blob(chunks, { type: response.headers.get("content-type") || "application/gzip" }) : await response.blob();
+      const disposition = response.headers.get("content-disposition") || "";
+      const filename = disposition.match(/filename="([^"]+)"/)?.[1] || `wikist-backup-${Date.now()}.json.gz`;
+      downloadBlobFile(filename, blob);
+      bar.value = 100;
+      percent.textContent = "100%";
+      text.textContent = "备份完成";
+      status.textContent = `已下载 ${filename}`;
+    } catch (error) {
+      status.textContent = error.message;
+    } finally {
+      button.disabled = false;
+    }
+  });
+}
+
+function readBackupFileBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || "").replace(/^data:[^,]+,/, ""));
+    reader.onerror = () => reject(new Error("备份文件读取失败。"));
+    reader.readAsDataURL(file);
+  });
+}
+
+function humanFileSize(bytes) {
+  const value = Number(bytes || 0);
+  if (value >= 1024 * 1024) return `${(value / 1024 / 1024).toFixed(1)} MB`;
+  if (value >= 1024) return `${(value / 1024).toFixed(1)} KB`;
+  return `${value} B`;
+}
+
+function backupMetricsHtml(counts = {}) {
+  const items = [
+    ["词条", counts.pages || 0],
+    ["修订", counts.revisions || 0],
+    ["归档", counts.deleted || 0],
+    ["配置", counts.config || 0],
+    ["插件", counts.plugins || 0],
+    ["用户数据", counts.userDataFiles || 0],
+  ];
+  return `<div class="backup-metrics">${items.map(([label, value]) => `<span><strong>${escapeHtml(value)}</strong><small>${label}</small></span>`).join("")}</div>`;
+}
+
+function backupInspectHtml(backup = {}) {
+  const files = (backup.files || []).slice(0, 8).map((file) => `<li><span>${escapeHtml(file.path)}</span><small>${humanFileSize(file.bytes)}</small></li>`).join("");
+  const users = (backup.userData || []).map((file) => `<li><span>${escapeHtml(file.path)}</span><small>${humanFileSize(file.bytes)}</small></li>`).join("");
+  return `
+    <div class="backup-result-card">
+      <div class="backup-result-head"><strong>备份包已识别</strong><small>${backup.generatedAt ? fmtDate(backup.generatedAt) : "未知时间"} · ${escapeHtml(backup.format || "")}</small></div>
+      ${backupMetricsHtml(backup.counts || {})}
+      <div class="backup-file-preview">
+        <div><b>内容样例</b><ul>${files || "<li><span>无内容文件</span></li>"}</ul></div>
+        <div><b>用户数据</b><ul>${users || "<li><span>未包含通行证数据库</span></li>"}</ul></div>
+      </div>
+    </div>`;
+}
+
+function backupRestoreHtml(result = {}) {
+  const restored = (result.restored || []).slice(0, 10).map((file) => `<li><span>${escapeHtml(file.path)}</span><small>${humanFileSize(file.bytes)}</small></li>`).join("");
+  const skipped = (result.skipped || []).slice(0, 8).map((file) => `<li><span>${escapeHtml(file.path || "未知路径")}</span><small>${escapeHtml(file.reason || "")}</small></li>`).join("");
+  return `
+    <div class="backup-result-card success">
+      <div class="backup-result-head"><strong>回档完成</strong><small>${result.restoredFrom ? `来源 ${fmtDate(result.restoredFrom)}` : "已写入站点目录"}</small></div>
+      ${backupMetricsHtml(result.counts || {})}
+      <p class="muted-line">回档前已自动保存安全备份：${escapeHtml(result.safetyBackup?.path || "未生成")}</p>
+      ${result.needsRestart ? '<p class="muted-line strong-warn">已恢复用户、评论、消息与评分数据库，建议重启 Wikist 服务使所有连接完全切换到新数据。</p>' : ""}
+      <div class="backup-file-preview">
+        <div><b>已恢复</b><ul>${restored || "<li><span>没有写入文件</span></li>"}</ul></div>
+        <div><b>已跳过</b><ul>${skipped || "<li><span>无跳过项</span></li>"}</ul></div>
+      </div>
+    </div>`;
+}
+
+async function selectedBackupPayload() {
+  const input = document.querySelector("#backupImportFile");
+  const file = input?.files?.[0];
+  if (!file) throw new Error("请先选择 Wikist 备份包。");
+  return { filename: file.name, packageBase64: await readBackupFileBase64(file) };
+}
+
+async function renderAdminBackups() {
+  const body = `
+    ${adminHeader("全站备份", "下载、导入与回档 Wikist 站点数据。回档前会自动生成安全备份，适合迁移、试验和灾难恢复。")}
+    <section class="backup-admin-grid">
+      <article class="admin-settings-panel backup-panel">
+        <div class="settings-section">
+          <span class="system-kicker">Backup</span>
+          <h2>创建备份包</h2>
+          <p class="muted-line">打包词条、修订、归档、站点配置、插件清单和通行证 SQLite 数据库，导出为 wikist-site-backup gzip 文件。</p>
+          <button class="command-button" type="button" id="createBackupButton">生成并下载备份</button>
+          <div class="backup-progress" id="backupProgress" hidden>
+            <div><span id="backupProgressText">准备中...</span><strong id="backupProgressPercent">0%</strong></div>
+            <progress id="backupProgressBar" value="0" max="100"></progress>
+          </div>
+          <div class="status-line" id="backupStatus"></div>
+        </div>
+      </article>
+      <article class="admin-settings-panel backup-panel">
+        <div class="settings-section">
+          <span class="system-kicker">Restore</span>
+          <h2>导入与回档</h2>
+          <p class="muted-line">先解析备份包确认内容，再执行覆盖式回档。词条、配置和插件会立即生效；全量用户数据恢复后建议重启服务。</p>
+          <label class="backup-file-picker">
+            <span>选择备份包</span>
+            <input id="backupImportFile" type="file" accept=".gz,.json,application/gzip,application/json" />
+          </label>
+          <label class="setting-toggle backup-userdata-toggle">
+            <input id="restoreUserData" type="checkbox" />
+            <span><strong>同时恢复用户与互动数据</strong><small>覆盖通行证、评论、消息、评分等 SQLite 数据。普通内容回档不需要勾选。</small></span>
+          </label>
+          <div class="editor-actions">
+            <button class="command-button secondary" type="button" id="inspectBackupButton">解析备份包</button>
+            <button class="command-button danger" type="button" id="restoreBackupButton">执行回档</button>
+          </div>
+          <div class="status-line" id="backupRestoreStatus"></div>
+          <div class="backup-result" id="backupInspectResult" hidden></div>
+        </div>
+      </article>
+    </section>`;
+  el.main.innerHTML = adminShell("backups", body);
+
+  document.querySelector("#createBackupButton")?.addEventListener("click", async (event) => {
+    const button = event.currentTarget;
+    const status = document.querySelector("#backupStatus");
+    const box = document.querySelector("#backupProgress");
+    const text = document.querySelector("#backupProgressText");
+    const percent = document.querySelector("#backupProgressPercent");
+    const bar = document.querySelector("#backupProgressBar");
+    button.disabled = true;
+    box.hidden = false;
+    status.textContent = "";
+    text.textContent = "正在创建备份包...";
+    percent.textContent = "0%";
+    bar.value = 0;
+    try {
+      const response = await fetch("/api/admin/backup", { credentials: "same-origin" });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.error || "备份创建失败。");
+      }
+      const total = Number(response.headers.get("content-length") || 0);
+      const reader = response.body?.getReader();
+      const chunks = [];
+      let received = 0;
+      if (reader) {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          chunks.push(value);
+          received += value.length;
+          const next = total ? Math.min(98, Math.round((received / total) * 100)) : Math.min(98, bar.value + 8);
+          bar.value = next;
+          percent.textContent = `${next}%`;
+          text.textContent = "正在下载备份数据...";
+        }
+      }
+      const blob = reader ? new Blob(chunks, { type: response.headers.get("content-type") || "application/gzip" }) : await response.blob();
+      const disposition = response.headers.get("content-disposition") || "";
+      const filename = disposition.match(/filename="([^"]+)"/)?.[1] || `wikist-backup-${Date.now()}.json.gz`;
+      downloadBlobFile(filename, blob);
+      bar.value = 100;
+      percent.textContent = "100%";
+      text.textContent = "备份完成";
+      status.textContent = `已下载 ${filename}`;
+    } catch (error) {
+      status.textContent = error.message;
+    } finally {
+      button.disabled = false;
+    }
+  });
+
+  document.querySelector("#inspectBackupButton")?.addEventListener("click", async (event) => {
+    const button = event.currentTarget;
+    const status = document.querySelector("#backupRestoreStatus");
+    const resultBox = document.querySelector("#backupInspectResult");
+    button.disabled = true;
+    status.textContent = "正在读取并解析备份包...";
+    try {
+      const payload = await selectedBackupPayload();
+      const result = await api("/api/admin/backup/inspect", { method: "POST", body: JSON.stringify(payload) });
+      resultBox.hidden = false;
+      resultBox.innerHTML = backupInspectHtml(result.backup);
+      status.textContent = "解析完成，可以执行回档。";
+    } catch (error) {
+      status.textContent = error.message;
+    } finally {
+      button.disabled = false;
+    }
+  });
+
+  document.querySelector("#restoreBackupButton")?.addEventListener("click", async (event) => {
+    const button = event.currentTarget;
+    const status = document.querySelector("#backupRestoreStatus");
+    const resultBox = document.querySelector("#backupInspectResult");
+    const includeUserData = document.querySelector("#restoreUserData")?.checked === true;
+    const message = includeUserData
+      ? "确认执行全量回档？这会覆盖词条、配置、插件清单以及用户、评论、消息、评分数据库。系统会先自动保存当前状态。"
+      : "确认执行内容回档？这会覆盖词条、修订、归档、配置和插件清单。系统会先自动保存当前状态。";
+    if (!(await uiConfirm({ title: "确认回档备份", text: message, icon: "warning", confirmText: "执行回档", danger: true }))) return;
+    button.disabled = true;
+    status.textContent = "正在执行回档...";
+    try {
+      const payload = await selectedBackupPayload();
+      const result = await api("/api/admin/backup/restore", { method: "POST", body: JSON.stringify({ ...payload, includeUserData }) });
+      resultBox.hidden = false;
+      resultBox.innerHTML = backupRestoreHtml(result);
+      await reloadSiteChrome();
+      status.textContent = result.needsRestart ? "回档完成。全量用户数据已写入，建议重启服务。" : "回档完成，站点缓存已刷新。";
+    } catch (error) {
+      status.textContent = error.message;
+    } finally {
+      button.disabled = false;
+    }
+  });
+}
+
+function pluginConfigTextarea(plugin, config) {
+  const pluginConfig = config?.[plugin.id] || {};
+  return `<textarea class="plugin-json compact" data-plugin-config="${escapeHtml(plugin.id)}" spellcheck="false">${escapeHtml(JSON.stringify(pluginConfig, null, 2))}</textarea>`;
+}
+
+function pluginVendorHtml(plugin) {
+  const vendor = plugin.vendor;
+  if (!vendor?.supported) return `<small class="plugin-source-line">来源：${escapeHtml(plugin.source || plugin.directory || "local")}</small>`;
+  const status = vendor.installed ? `已安装 · ${escapeHtml(vendor.commit || "unknown")}` : "未拉取";
+  const pkg = vendor.packageName ? `${vendor.packageName}${vendor.packageVersion ? `@${vendor.packageVersion}` : ""}` : "";
+  return `
+    <div class="plugin-vendor-info ${vendor.installed ? "installed" : "missing"}">
+      <span>${status}</span>
+      <small>${escapeHtml(vendor.path || "")}${pkg ? ` · ${escapeHtml(pkg)}` : ""}${vendor.packageLicense ? ` · ${escapeHtml(vendor.packageLicense)}` : ""}</small>
+      <small>${escapeHtml(vendor.repository || plugin.source || "")}</small>
+    </div>`;
+}
+
+
+function pluginRuntimeHtml(plugin) {
+  const runtime = plugin.runtime || {};
+  if (!runtime.label) return "";
+  const state = String(runtime.state || "manifest-only").replace(/[^\w-]/g, "");
+  return `<span class="plugin-runtime-pill ${escapeHtml(state)}" title="${escapeHtml(runtime.detail || "")}">${escapeHtml(runtime.label)}</span>`;
+}
+
+function pluginVendorButton(plugin) {
+  if (!plugin.vendor?.supported) return "";
+  return `<button class="command-button secondary plugin-vendor-button" type="button" data-plugin-vendor-sync="${escapeHtml(plugin.id)}">${plugin.vendor.installed ? "更新仓库" : "拉取仓库"}</button>`;
+}
+
+function homeProgressJson(homeContent) {
+  return JSON.stringify(homeContent?.progressItems || [], null, 2);
+}
+
+function homeNewsJson(homeContent) {
+  return JSON.stringify(homeContent?.newsItems || [], null, 2);
+}
+
+function siteSettingsForm(site, home, homeContent = {}) {
+  const settingsLanguages = uniqueLanguages([...DEFAULT_LANGUAGE_CODES, ...(site.languages || state.site?.languages || [])]);
+  const mail = site.mail || {};
+  const passportSecurity = site.passportSecurity || {};
+  return `
+    <form class="admin-settings-panel" id="siteSettingsForm">
+      <section class="settings-section"><h2>基础信息</h2><div class="site-settings-grid">
+        <label>站点标题<input name="name" value="${escapeHtml(site.name || "Wikist")}" /></label>
+        <label>默认首页<input name="defaultPage" value="${escapeHtml(site.defaultPage || "home")}" /></label>
+        <label>默认语言<select name="language">${settingsLanguages.map((lang) => `<option value="${lang}" ${lang === (site.language || "zh-CN") ? "selected" : ""}>${languageLabel(lang)}</option>`).join("")}</select></label>
+        <label>协议<input name="license" value="${escapeHtml(site.license || "CC BY-SA 4.0")}" /></label>
+        <label class="wide">站点语言列表<input name="languages" value="${escapeHtml(settingsLanguages.join(", "))}" placeholder="zh-CN, zh-TW, en, fr, ja" /></label>
+        <label class="wide">站点简介<input name="tagline" value="${escapeHtml(site.tagline || "")}" /></label>
+        <label class="wide">MathJax CDN<input name="mathCdn" value="${escapeHtml(site.mathCdn || "")}" /></label>
+        <label class="wide">站点 CDN Base<input name="cdnBase" value="${escapeHtml(site.cdnBase || "")}" placeholder="例如：https://cdn.example.com/wikist" /></label>
+      </div></section>
+      <section class="settings-section"><h2>&#x90AE;&#x4EF6;&#x4E0E;&#x5B89;&#x5168;</h2><div class="site-settings-grid mail-settings-grid">
+        <label class="setting-toggle wide"><input name="mailEnabled" type="checkbox" ${mail.enabled ? "checked" : ""} /><span><strong>&#x542F;&#x7528; SMTP &#x90AE;&#x4EF6;</strong><small>&#x7528;&#x4E8E;&#x6CE8;&#x518C;&#x90AE;&#x7BB1;&#x9A8C;&#x8BC1;&#x3001;&#x627E;&#x56DE;&#x5BC6;&#x7801;&#x548C;&#x5B89;&#x5168;&#x901A;&#x77E5;&#x3002;</small></span></label>
+        <label>SMTP &#x4E3B;&#x673A;<input name="smtpHost" value="${escapeHtml(mail.host || "")}" placeholder="smtp.example.com" /></label>
+        <label>SMTP &#x7AEF;&#x53E3;<input name="smtpPort" type="number" min="1" max="65535" value="${escapeHtml(mail.port || 587)}" /></label>
+        <label class="setting-toggle"><input name="smtpSecure" type="checkbox" ${mail.secure ? "checked" : ""} /><span><strong>SSL/TLS</strong><small>465 &#x901A;&#x5E38;&#x5F00;&#x542F;&#xFF0C;587 &#x901A;&#x5E38;&#x5173;&#x95ED;&#x3002;</small></span></label>
+        <label>SMTP &#x7528;&#x6237;<input name="smtpUser" value="${escapeHtml(mail.user || "")}" autocomplete="off" /></label>
+        <label>SMTP &#x5BC6;&#x7801;<input name="smtpPass" type="password" value="" autocomplete="new-password" placeholder="${mail.smtpPassSet ? "&#x5DF2;&#x914D;&#x7F6E;&#xFF0C;&#x7559;&#x7A7A;&#x4E0D;&#x4FEE;&#x6539;" : "&#x672A;&#x914D;&#x7F6E;"}" /></label>
+        <label>&#x53D1;&#x4EF6;&#x4EBA;&#x540D;&#x79F0;<input name="fromName" value="${escapeHtml(mail.fromName || site.name || "Wikist")}" /></label>
+        <label>&#x53D1;&#x4EF6;&#x90AE;&#x7BB1;<input name="fromAddress" type="email" value="${escapeHtml(mail.fromAddress || "")}" placeholder="no-reply@example.com" /></label>
+        <label class="wide">&#x7AD9;&#x70B9;&#x5916;&#x90E8; URL<input name="mailBaseUrl" value="${escapeHtml(mail.baseUrl || "")}" placeholder="https://wiki.example.com" /></label>
+        <label class="setting-toggle wide"><input name="requireEmailVerification" type="checkbox" ${passportSecurity.requireEmailVerification ? "checked" : ""} /><span><strong>&#x6CE8;&#x518C;&#x540E;&#x5FC5;&#x987B;&#x9A8C;&#x8BC1;&#x90AE;&#x7BB1;&#x624D;&#x80FD;&#x767B;&#x5F55;</strong><small>&#x5EFA;&#x8BAE;&#x5728; SMTP &#x6D4B;&#x8BD5;&#x7A33;&#x5B9A;&#x540E;&#x5F00;&#x542F;&#x3002;</small></span></label>
+        <label>&#x9A8C;&#x8BC1;&#x90AE;&#x4EF6;&#x6709;&#x6548;&#x671F;&#xFF08;&#x79D2;&#xFF09;<input name="emailVerificationTTLSeconds" type="number" min="60" max="86400" value="${escapeHtml(passportSecurity.emailVerificationTTLSeconds || 1800)}" /></label>
+        <label>&#x627E;&#x56DE;&#x5BC6;&#x7801;&#x6709;&#x6548;&#x671F;&#xFF08;&#x79D2;&#xFF09;<input name="passwordResetTTLSeconds" type="number" min="60" max="86400" value="${escapeHtml(passportSecurity.passwordResetTTLSeconds || 1200)}" /></label>
+        <label>TOTP Issuer<input name="twoFactorIssuer" value="${escapeHtml(passportSecurity.twoFactorIssuer || site.name || "Wikist")}" /></label>
+      </div></section>
+      <section class="settings-section"><h2>网页端自定义</h2><p class="muted-line">类似 MediaWiki 的 Common.css / Common.js。这里的 JS 会在前台执行，仅限可信管理员维护。</p><div class="site-code-grid">
+        <label>自定义 CSS<textarea name="customCss" class="site-code-textarea" spellcheck="false">${escapeHtml(site.customCss || "")}</textarea></label>
+        <label>自定义 JS<textarea name="customJs" class="site-code-textarea" spellcheck="false">${escapeHtml(site.customJs || "")}</textarea></label>
+      </div></section>
+      <section class="settings-section"><h2>首页展示内容</h2><div class="site-settings-grid">
+        <label>首页眉标<input name="homeContent.heroKicker" value="${escapeHtml(homeContent.heroKicker || "")}" /></label>
+        <label>首页标题<input name="homeContent.heroTitle" value="${escapeHtml(homeContent.heroTitle || "")}" /></label>
+        <label class="wide">首页简介<textarea name="homeContent.heroSummary" rows="3">${escapeHtml(homeContent.heroSummary || "")}</textarea></label>
+        <label>搜索按钮<input name="homeContent.heroSearch" value="${escapeHtml(homeContent.heroSearch || "")}" /></label>
+        <label>贡献按钮<input name="homeContent.heroContribute" value="${escapeHtml(homeContent.heroContribute || "")}" /></label>
+        <label>资讯按钮<input name="homeContent.heroNews" value="${escapeHtml(homeContent.heroNews || "")}" /></label>
+        <label>资讯雷达标题<input name="homeContent.newsTitle" value="${escapeHtml(homeContent.newsTitle || "")}" /></label>
+        <label class="wide">资讯雷达 JSON<textarea name="homeContent.newsItems" class="site-code-textarea" spellcheck="false">${escapeHtml(homeNewsJson(homeContent))}</textarea></label>
+        <label>入门路径标题<input name="homeContent.pathTitle" value="${escapeHtml(homeContent.pathTitle || "")}" /></label>
+        <label>全球进展标题<input name="homeContent.progressTitle" value="${escapeHtml(homeContent.progressTitle || "")}" /></label>
+        <label>协作区标题<input name="homeContent.actionsTitle" value="${escapeHtml(homeContent.actionsTitle || "")}" /></label>
+        <label class="wide">协作区简介<textarea name="homeContent.actionsSummary" rows="3">${escapeHtml(homeContent.actionsSummary || "")}</textarea></label>
+        <label class="wide">全球数学进展 JSON<textarea name="homeContent.progressItems" class="site-code-textarea" spellcheck="false">${escapeHtml(homeProgressJson(homeContent))}</textarea></label>
+      </div></section>
+      <section class="settings-section"><h2>首页模块</h2><div class="settings-grid">${HOME_SETTING_FIELDS.map((field) => settingToggleHtml(field, home)).join("")}</div></section>
+      <div class="editor-actions"><button class="command-button" type="submit">保存站点设置</button><a class="command-button secondary" href="#/page/${encodeSlug(state.site.defaultPage)}">预览首页</a></div>
+      <div class="status-line" id="siteSettingsStatus"></div>
+    </form>`;
+}
+
+async function renderAdminSettings() {
+  const payload = await api("/api/admin/settings").catch(() => ({ site: state.site || {}, home: state.site?.home || {}, homeContent: state.site?.homeContent || {} }));
+  const site = payload.site || {};
+  const home = payload.home || {};
+  const homeContent = payload.homeContent || {};
+  state.site = { ...state.site, ...site, home, homeContent };
+  const body = `${adminHeader("站点设置", "集中管理站点标题、简介、CDN、首页模块，以及网页端 CSS / JS。")}${siteSettingsForm(site, home, homeContent)}`;
+  el.main.innerHTML = adminShell("settings", body);
+  document.querySelector("#siteSettingsForm")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const status = document.querySelector("#siteSettingsStatus");
+    const data = new FormData(event.currentTarget);
+    const sitePayload = Object.fromEntries(data.entries());
+    sitePayload.mailEnabled = data.has("mailEnabled");
+    sitePayload.smtpSecure = data.has("smtpSecure");
+    sitePayload.requireEmailVerification = data.has("requireEmailVerification");
+    sitePayload.smtpPort = Number(sitePayload.smtpPort || 587);
+    sitePayload.emailVerificationTTLSeconds = Number(sitePayload.emailVerificationTTLSeconds || 1800);
+    sitePayload.passwordResetTTLSeconds = Number(sitePayload.passwordResetTTLSeconds || 1200);
+    sitePayload.baseUrl = sitePayload.mailBaseUrl || "";
+    const homePayload = {};
+    const homeContentPayload = {};
+    HOME_SETTING_FIELDS.forEach(([key]) => { homePayload[key] = data.has(key); });
+    for (const [key, value] of data.entries()) {
+      if (!key.startsWith("homeContent.")) continue;
+      const field = key.slice("homeContent.".length);
+      if (field === "progressItems" || field === "newsItems") {
+        try {
+          homeContentPayload[field] = JSON.parse(value || "[]");
+        } catch (_error) {
+          status.textContent = `${field === "newsItems" ? "资讯雷达" : "全球数学进展"} JSON 格式不正确。`;
+          return;
+        }
+      } else {
+        homeContentPayload[field] = value;
+      }
+      delete sitePayload[key];
+    }
+    status.textContent = "保存中...";
+    try {
+      const saved = await api("/api/admin/settings", { method: "PUT", body: JSON.stringify({ site: sitePayload, home: homePayload, homeContent: homeContentPayload }) });
+      state.site = { ...state.site, ...(saved.site || sitePayload), home: saved.home || homePayload, homeContent: saved.homeContent || homeContentPayload };
+      applySiteCustomizations();
+      el.siteName.textContent = state.site.name;
+      el.siteTagline.textContent = state.site.tagline;
+      status.textContent = "站点设置已保存。";
+    } catch (error) {
+      status.textContent = error.message;
+    }
+  });
+}
+
+function pluginTableRow(plugin, plugins) {
+  const config = plugins?.[plugin.id] || {};
+  return `
+    <tr data-plugin-id="${escapeHtml(plugin.id)}">
+      <td><strong>${escapeHtml(plugin.name)}</strong><small>${escapeHtml(plugin.id)} · ${escapeHtml(plugin.type)}</small></td>
+      <td><span class="plugin-enabled-state">${config.enabled !== false ? "启用" : "停用"}</span><small class="plugin-state-meta">${escapeHtml(plugin.entry || "manifest-only")}</small>${pluginRuntimeHtml(plugin)}</td>
+      <td>${escapeHtml(plugin.description)}${pluginVendorHtml(plugin)}</td>
+      <td><pre class="plugin-doc plugin-doc-inline"><code>${escapeHtml(plugin.syntax.join("\n"))}</code></pre></td>
+      <td>${pluginConfigTextarea(plugin, plugins)}<label class="plugin-enable inline"><input type="checkbox" data-plugin-enabled="${escapeHtml(plugin.id)}" ${config.enabled !== false ? "checked" : ""} />启用插件</label><div class="plugin-row-actions">${pluginVendorButton(plugin)}</div></td>
+    </tr>`;
+}
+
+async function renderAdminPlugins(page = 1, query = "") {
+  const payload = await api("/api/admin/settings").catch(() => ({ plugins: state.site?.plugins || {}, pluginCatalog: state.site?.pluginCatalog || [] }));
+  const plugins = payload.plugins || {};
+  const catalog = payload.pluginCatalog || [];
+  state.site.plugins = plugins;
+  state.site.pluginCatalog = catalog;
+  const limit = 6;
+  const q = String(query || "").trim().toLowerCase();
+  const filtered = q ? catalog.filter((plugin) => [plugin.id, plugin.name, plugin.type, plugin.description, plugin.source, plugin.entry, plugin.clientModule, plugin.serverModule, plugin.repository].join(" ").toLowerCase().includes(q)) : catalog;
+  const pagination = { page, pageSize: limit, total: filtered.length, totalPages: Math.max(1, Math.ceil(filtered.length / limit)), hasPrev: page > 1, hasNext: page < Math.ceil(filtered.length / limit) };
+  const items = filtered.slice((page - 1) * limit, page * limit);
+  const rows = items.length ? items.map((plugin) => pluginTableRow(plugin, plugins)).join("") : `<tr><td colspan="5">没有匹配的插件。</td></tr>`;
+  const body = `
+    ${adminHeader("插件管理", "插件按列表分页展示；新插件以 plugins/<目录>/plugin.json 的 manifest 方式加入，类似 MediaWiki 扩展先放目录再启用配置。")}
+    <form class="admin-settings-panel plugin-create-panel" id="pluginCreateForm">
+      <section class="settings-section"><h2>加入新插件</h2><div class="plugin-create-grid">
+        <label>插件 ID<input name="id" required placeholder="例如：graphTheoryBox" /></label>
+        <label>插件名称<input name="name" required placeholder="例如：图论信息框" /></label>
+        <label>类型<input name="type" value="extension" /></label>
+        <label>入口<input name="entry" value="manifest-only" /></label>
+        <label>客户端模块<input name="clientModule" placeholder="client.js 或 src/index.mjs" /></label>
+        <label>服务端模块<input name="serverModule" placeholder="server.js（预留）" /></label>
+        <label>配置项<input name="configKeys" value="enabled" /></label>
+        <label>Vendor 目录<input name="vendorDirectory" placeholder="例如：markdown-it-plugin" /></label>
+        <label class="wide">来源<input name="source" placeholder="local:my-plugin 或 https://github.com/owner/repo" /></label>
+        <label class="wide">GitHub 仓库<input name="repository" placeholder="https://github.com/owner/repo.git" /></label>
+        <label class="wide">说明<input name="description" placeholder="插件用途说明" /></label>
+        <label class="wide">语法示例<textarea name="syntax" class="plugin-mini-textarea" spellcheck="false" placeholder="::: graph-box\n...\n:::"></textarea></label>
+      </div><div class="editor-actions"><button class="command-button" type="submit">创建插件 Manifest</button></div><div class="status-line" id="pluginCreateStatus"></div></section>
+    </form>
+    ${adminSearchForm("adminPluginSearch", query, "搜索插件名称、类型或来源")}
+    <form class="admin-settings-panel" id="pluginSettingsForm">
+      <div class="admin-table-wrap plugin-table-wrap"><table class="admin-table plugin-table"><thead><tr><th data-sort>插件</th><th data-sort>状态</th><th>说明</th><th>语法</th><th>配置</th></tr></thead><tbody>${rows}</tbody></table></div>
+      ${paginationHtml(pagination, "插件管理")}
+      <div class="editor-actions"><button class="command-button" type="submit">保存本页插件配置</button></div>
+      <div class="status-line" id="pluginSettingsStatus"></div>
+    </form>`;
+  el.main.innerHTML = adminShell("plugins", body);
+  document.querySelector("#pluginCreateForm")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const status = document.querySelector("#pluginCreateStatus");
+    const payload = Object.fromEntries(new FormData(event.currentTarget).entries());
+    status.textContent = "正在创建插件 manifest...";
+    try {
+      await api("/api/admin/plugins", { method: "POST", body: JSON.stringify(payload) });
+      status.textContent = "插件 manifest 已创建。";
+      event.currentTarget.reset();
+      setTimeout(() => renderAdminPlugins(1, query).catch(renderError), 350);
+    } catch (error) {
+      status.textContent = error.message;
+    }
+  });
+  document.querySelector("#adminPluginSearch")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    renderAdminPlugins(1, new FormData(event.currentTarget).get("q") || "").catch(renderError);
+  });
+  document.querySelectorAll("[data-plugin-vendor-sync]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const id = button.dataset.pluginVendorSync;
+      button.disabled = true;
+      button.textContent = "同步中...";
+      try {
+        const synced = await api("/api/admin/plugins/vendor", { method: "POST", body: JSON.stringify({ id }) });
+        state.site.pluginCatalog = synced.pluginCatalog || state.site.pluginCatalog;
+        state.site.plugins = synced.plugins || state.site.plugins;
+        await renderAdminPlugins(page, query);
+      } catch (error) {
+        button.textContent = error.message;
+        setTimeout(() => {
+          button.disabled = false;
+          button.textContent = "重试同步";
+        }, 1600);
+      }
+    });
+  });
+  enhanceTables();
+  adminPager(pagination, (nextPage) => renderAdminPlugins(nextPage, query).catch(renderError));
+  document.querySelector("#pluginSettingsForm")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const status = document.querySelector("#pluginSettingsStatus");
+    const nextPlugins = { ...plugins };
+    try {
+      document.querySelectorAll("[data-plugin-config]").forEach((textarea) => {
+        const id = textarea.dataset.pluginConfig;
+        const parsed = JSON.parse(textarea.value || "{}");
+        parsed.enabled = document.querySelector(`[data-plugin-enabled="${CSS.escape(id)}"]`)?.checked !== false;
+        nextPlugins[id] = parsed;
+      });
+    } catch (error) {
+      status.textContent = `插件配置 JSON 有误：${error.message}`;
+      return;
+    }
+    status.textContent = "保存中...";
+    try {
+      const saved = await api("/api/admin/settings", { method: "PUT", body: JSON.stringify({ plugins: nextPlugins }) });
+      state.site.plugins = saved.plugins || nextPlugins;
+      status.textContent = "插件配置已保存。";
+    } catch (error) {
+      status.textContent = error.message;
+    }
+  });
+}
+function renderError(error) {
+  el.main.innerHTML = `<section class="empty-state"><h1>加载失败</h1><p>${escapeHtml(error.message)}</p></section>`;
+}
+
+async function renderAdmin(section = "overview") {
+  await refreshUser();
+  if (!state.user) { location.hash = "#/login"; return; }
+  if (!canAccessAdmin()) {
+    setChromeTitle("无权访问后台");
+    renderToc([]);
+    el.main.innerHTML = `<section class="empty-state"><h1>无权访问后台</h1><p>后台仅允许资深编辑和管理员访问。普通用户可以继续编辑开放词条与参与评论。</p><a class="command-button" href="#/page/${encodeSlug(state.site.defaultPage)}">返回首页</a></section>`;
+    return;
+  }
+  const parts = String(section || "overview").split("/");
+  const requested = parts[0];
+  const active = ["overview", "users", "pages", "comments", "comment-replies", "messages", "logs", "archives", "backups", "imports", "settings", "plugins"].includes(requested) ? requested : "overview";
+  setChromeTitle(`后台 - ${adminSectionTitle(active === "comment-replies" ? "comment-replies" : active)}`);
+  renderToc([]);
+  el.editLink.href = "#/new";
+  if (active === "users") {
+    if (!canManageUsers()) { await renderAdminOverview(); return; }
+    await renderAdminUsers();
+  }
+  else if (active === "pages") await renderAdminPages();
+  else if (active === "comments") await renderAdminComments();
+  else if (active === "comment-replies") await renderAdminCommentReplies(Number(parts[1]) || 0);
+  else if (active === "messages") await renderAdminMessages();
+  else if (active === "logs") await renderAdminLogs();
+  else if (active === "archives") await renderAdminArchives();
+  else if (active === "backups") await renderAdminBackups();
+  else if (active === "imports") await renderAdminImports();
+  else if (active === "settings") await renderAdminSettings();
+  else if (active === "plugins") await renderAdminPlugins(Number(parts[1]) || 1, "");
+  else await renderAdminOverview();
+}
+function parseRoute() {
+  const hash = location.hash || `#/page/${state.site?.defaultPage || "home"}`;
+  const clean = hash.replace(/^#\/?/, "");
+  const [name, ...rest] = clean.split("/");
+  return { name: name || "page", value: decodeURIComponent(rest.join("/") || "") };
+}
+
+async function route() {
+  const { name, value } = parseRoute();
+  document.body.classList.toggle("admin-mode", name === "admin");
+  if (name !== "edit" && name !== "new") destroyVisualEditor();
+  if (name === "search") await renderSearch(value);
+  else if (name === "edit") await renderEditor(value);
+  else if (name === "new") await renderEditor("");
+  else if (name === "translate") await renderTranslation(value);
+  else if (name === "history") await renderHistory(value);
+  else if (name === "comments") await renderComments(value);
+  else if (name === "permissions") await renderPermissions(value);
+  else if (name === "login") await renderAuth("login");
+  else if (name === "register") await renderAuth("register");
+  else if (name === "forgot-password") await renderForgotPassword();
+  else if (name === "reset-password") await renderResetPassword(value);
+  else if (name === "verify-email") await renderVerifyEmail(value);
+  else if (name === "account") await renderAccount();
+  else if (name === "favorites") await renderFavorites(value);
+  else if (name === "messages") await renderMessages();
+  else if (name === "news") await renderNews();
+  else if (name === "import-export" || name === "imports") await renderImportExport();
+  else if (name === "archive") await renderArchive(value);
+  else if (name === "admin") await renderAdmin(value || "overview");
+  else if (name === "user") await renderUserPage(value);
+  else await renderPage(value || state.site.defaultPage || "home");
+  hydratePlugins();
+  hydrateLanguageConversion(el.main).catch(() => {});
+}
+
+function scrollToWikiAnchor(id) {
+  const target = document.getElementById(String(id || ""));
+  if (!target) return false;
+  target.scrollIntoView({ behavior: "smooth", block: "center" });
+  target.classList.add("anchor-pulse");
+  window.setTimeout(() => target.classList.remove("anchor-pulse"), 1200);
+  return true;
+}
+
+function ensureImageViewer() {
+  let viewer = document.querySelector("#imageViewer");
+  if (viewer) return viewer;
+  document.body.insertAdjacentHTML("beforeend", `
+    <div class="image-viewer" id="imageViewer" role="dialog" aria-modal="true" aria-label="图片查看">
+      <button class="image-viewer-close" type="button" data-image-viewer-close aria-label="关闭图片查看">&times;</button>
+      <figure>
+        <img alt="" />
+        <figcaption></figcaption>
+      </figure>
+    </div>`);
+  viewer = document.querySelector("#imageViewer");
+  viewer.addEventListener("click", (event) => {
+    if (event.target === viewer || event.target.closest("[data-image-viewer-close]")) closeImageViewer();
+  });
+  return viewer;
+}
+
+function openImageViewer(image) {
+  if (!image) return;
+  const frame = image.closest(".wiki-image") || image;
+  const viewer = ensureImageViewer();
+  const src = frame.dataset.wikiImageSrc || image.currentSrc || image.src;
+  const caption = frame.querySelector?.("figcaption")?.textContent?.trim() || frame.dataset.wikiImageCaption || image.alt || "";
+  const target = viewer.querySelector("img");
+  target.src = src;
+  target.alt = frame.dataset.wikiImageAlt || image.alt || caption || "Wikist 图片";
+  viewer.querySelector("figcaption").textContent = caption;
+  viewer.classList.add("active");
+  document.body.classList.add("image-viewer-open");
+}
+
+function closeImageViewer() {
+  const viewer = document.querySelector("#imageViewer");
+  if (!viewer) return;
+  viewer.classList.remove("active");
+  document.body.classList.remove("image-viewer-open");
+  const target = viewer.querySelector("img");
+  if (target) target.removeAttribute("src");
+}
+function submitChromeSearch(input) {
+  const query = input?.value?.trim() || "";
+  location.hash = searchHash({ q: query, page: 1 });
+}
+
+el.searchForm?.addEventListener("submit", (event) => {
+  event.preventDefault();
+  submitChromeSearch(el.searchInput);
+});
+
+el.topSearchForm?.addEventListener("submit", (event) => {
+  event.preventDefault();
+  submitChromeSearch(el.topSearchInput);
+});
+
+el.languageSelect?.addEventListener("change", async (event) => {
+  let value = event.currentTarget.value;
+  if (value === "__custom") {
+    value = await uiPrompt({
+      title: "添加站点语言",
+      text: "输入 BCP 47 语言代码，例如 fr、ja 或 de-DE。",
+      value: state.uiLanguage || "zh-CN",
+      placeholder: "fr / ja / de-DE",
+      validator: (input) => normalizeLanguageCode(input, "") ? undefined : "请输入有效的语言代码。",
+    });
+    if (value === null) { updateLanguageChrome(); return; }
+  }
+  const lang = normalizeLanguageCode(value, "");
+  if (!lang) {
+    updateLanguageChrome();
+    return;
+  }
+  setUiLanguage(lang);
+  const current = parseRoute();
+  if (current.name === "page" || !current.name) {
+    route().catch((error) => {
+      el.main.innerHTML = `<section class="empty-state"><h1>加载失败</h1><p>${escapeHtml(error.message)}</p></section>`;
+    });
+  }
+});
+
+el.themeToggle?.addEventListener("click", () => {
+  applyTheme(document.documentElement.dataset.theme === "light" ? "dark" : "light");
+});
+
+document.addEventListener("click", (event) => {
+  const closeButton = event.target.closest("[data-image-viewer-close]");
+  if (closeButton) {
+    event.preventDefault();
+    closeImageViewer();
+    return;
+  }
+
+  const scrollLink = event.target.closest("a[data-wikist-scroll]");
+  if (scrollLink) {
+    event.preventDefault();
+    scrollToWikiAnchor(scrollLink.dataset.wikistScroll);
+    return;
+  }
+
+  const image = event.target.closest(".wiki-image img[data-wiki-image-trigger]");
+  if (image) {
+    event.preventDefault();
+    openImageViewer(image);
+  }
+});
+
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") closeImageViewer();
+});
+window.addEventListener("hashchange", () => {
+  route().catch((error) => {
+    el.main.innerHTML = `<section class="empty-state"><h1>加载失败</h1><p>${escapeHtml(error.message)}</p></section>`;
+  });
+});
+
+async function boot() {
+  state.site = await api("/api/site");
+  state.uiLanguage = savedLanguage();
+  el.siteName.textContent = state.site.name;
+  el.siteTagline.textContent = state.site.tagline;
+  updateLanguageChrome();
+  injectMathJax();
+  setupMessageMenu();
+  await Promise.all([refreshUser(), refreshChrome()]);
+  await route();
+}
+
+boot().catch((error) => {
+  el.main.innerHTML = `<section class="empty-state"><h1>启动失败</h1><p>${escapeHtml(error.message)}</p></section>`;
+});

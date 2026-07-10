@@ -1,0 +1,32 @@
+{
+  "id": "functionPlot",
+  "name": "函数图像渲染",
+  "type": "render-block",
+  "version": "1.1.0",
+  "source": "mauriciopoppe/function-plot · MIT · D3.js",
+  "description": "把 Wikist 自制函数语法渲染为交互式二维函数图像。",
+  "syntax": [
+    "::: function-plot",
+    "```function-plot",
+    "title: 正弦与余弦",
+    "xDomain: -6.28, 6.28",
+    "yDomain: -1.5, 1.5",
+    "implicit: x^2 + y^2 = 4",
+    "gamma(x)",
+    "engine: mathjs",
+    "sin(x)",
+    "cos(x)",
+    ":::"
+  ],
+  "configKeys": ["enabled", "d3Cdn", "cdn", "mathCdn", "defaultHeight", "samples", "grid"],
+  "defaultConfig": {
+    "enabled": true,
+    "d3Cdn": "",
+    "cdn": "https://cdn.jsdelivr.net/npm/function-plot@1.25.4/dist/function-plot.js",
+    "mathCdn": "https://cdn.jsdelivr.net/npm/mathjs@14.0.1/lib/browser/math.js",
+    "defaultHeight": 360,
+    "samples": 720,
+    "grid": true
+  },
+  "entry": "core:functionPlot"
+}

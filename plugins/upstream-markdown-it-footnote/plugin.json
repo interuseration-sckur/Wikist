@@ -1,0 +1,22 @@
+{
+    "id":  "upstreamFootnote",
+    "name":  "上游 markdown-it-footnote",
+    "type":  "upstream",
+    "version":  "latest",
+    "source":  "https://github.com/markdown-it/markdown-it-footnote",
+    "description":  "markdown-it 官方生态脚注插件，对应 Wikist 当前 [^id] 语法。",
+    "syntax":  [
+                   "[^note]",
+                   "[^note]: footnote text"
+               ],
+    "configKeys":  [
+                       "enabled"
+                   ],
+    "defaultConfig":  {
+                          "enabled":  false
+                      },
+    "entry":  "clone-ready",
+    "repository":  "https://github.com/markdown-it/markdown-it-footnote.git",
+    "vendorDirectory":  "markdown-it-footnote",
+    "license":  "MIT"
+}

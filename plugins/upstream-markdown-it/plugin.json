@@ -1,0 +1,24 @@
+{
+    "id":  "upstreamMarkdownIt",
+    "name":  "上游 markdown-it",
+    "type":  "upstream",
+    "version":  "14.x",
+    "source":  "https://github.com/markdown-it/markdown-it",
+    "description":  "成熟高性能 Markdown 解析器，可作为未来替换自研渲染器的主干。",
+    "syntax":  [
+                   "CommonMark",
+                   "GFM table",
+                   "strikethrough",
+                   "plugin pipeline"
+               ],
+    "configKeys":  [
+                       "enabled"
+                   ],
+    "defaultConfig":  {
+                          "enabled":  false
+                      },
+    "entry":  "clone-ready",
+    "repository":  "https://github.com/markdown-it/markdown-it.git",
+    "vendorDirectory":  "markdown-it",
+    "license":  "MIT"
+}

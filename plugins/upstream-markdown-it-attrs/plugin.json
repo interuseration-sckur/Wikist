@@ -1,0 +1,22 @@
+{
+    "id":  "upstreamAttrs",
+    "name":  "上游 markdown-it-attrs",
+    "type":  "upstream",
+    "version":  "latest",
+    "source":  "https://github.com/arve0/markdown-it-attrs",
+    "description":  "为标题、图片、块元素提供 {#id .class key=value} 属性语法。",
+    "syntax":  [
+                   "## 标题 {#id .class}",
+                   "![alt](src){width=320 .right}"
+               ],
+    "configKeys":  [
+                       "enabled"
+                   ],
+    "defaultConfig":  {
+                          "enabled":  false
+                      },
+    "entry":  "clone-ready",
+    "repository":  "https://github.com/arve0/markdown-it-attrs.git",
+    "vendorDirectory":  "markdown-it-attrs",
+    "license":  "MIT"
+}

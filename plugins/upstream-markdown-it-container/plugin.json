@@ -1,0 +1,23 @@
+{
+    "id":  "upstreamContainer",
+    "name":  "上游 markdown-it-container",
+    "type":  "upstream",
+    "version":  "latest",
+    "source":  "https://github.com/markdown-it/markdown-it-container",
+    "description":  "容器块插件，可映射 Wikist definition/theorem/warning 等结构块。",
+    "syntax":  [
+                   "::: warning",
+                   "content",
+                   ":::"
+               ],
+    "configKeys":  [
+                       "enabled"
+                   ],
+    "defaultConfig":  {
+                          "enabled":  false
+                      },
+    "entry":  "clone-ready",
+    "repository":  "https://github.com/markdown-it/markdown-it-container.git",
+    "vendorDirectory":  "markdown-it-container",
+    "license":  "MIT"
+}
