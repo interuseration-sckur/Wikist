@@ -7,8 +7,9 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
+    "update": "node tools/update.js",
     "plugins:sync": "node tools/sync-vendor-plugins.js",
-    "check": "node --check server.js && node --check src/server/app.js && node --check src/core/markdown.js && node --check src/core/plugin-registry.js && node --check src/core/page-store.js && node --check src/core/import-export.js && node --check src/core/backup.js && node --check public/assets/app.js",
+    "check": "node --check server.js && node --check src/server/app.js && node --check src/core/config.js && node --check src/core/markdown.js && node --check src/core/plugin-registry.js && node --check src/core/page-store.js && node --check src/core/import-export.js && node --check src/core/backup.js && node --check public/assets/app.js && node --check public/assets/install.js && node --check tools/update.js",
     "check:markdown": "node tools/check-markdown-features.js",
     "check:comments": "node tools/check-comment-rating-features.js",
     "check:search": "node tools/check-search-features.js",

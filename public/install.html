@@ -79,6 +79,19 @@
         </div>
         <p class="form-status" id="formStatus" role="status"></p>
       </form>
+
+      <section class="installer-danger" id="uninstallPanel" hidden>
+        <div>
+          <p class="eyebrow">MAINTENANCE</p>
+          <h3>卸载安装配置</h3>
+          <p>该操作只会移走 <code>config/site.config.json</code>，不会删除 <code>content/</code>、<code>data/</code>、SQLite 用户数据、评论或词条。重启后站点会重新进入安装器，便于回滚配置或重新绑定云端参数。</p>
+        </div>
+        <label>确认词<input id="uninstallConfirm" spellcheck="false" placeholder="UNINSTALL_CONFIG" /></label>
+        <div class="installer-actions">
+          <button class="danger-button" id="uninstallButton" type="button">卸载配置并生成备份</button>
+        </div>
+        <p class="form-status" id="uninstallStatus" role="status"></p>
+      </section>
     </section>
   </main>
   <script src="/assets/install.js"></script>

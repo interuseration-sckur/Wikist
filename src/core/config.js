@@ -72,6 +72,26 @@ function hasSiteConfig(rootDir) {
   return fs.existsSync(siteConfigPath(rootDir));
 }
 
+function uninstallSiteConfig(rootDir) {
+  const configPath = siteConfigPath(rootDir);
+  if (!fs.existsSync(configPath)) {
+    const error = new Error("当前站点没有可卸载的安装配置。");
+    error.statusCode = 404;
+    throw error;
+  }
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const backupDir = path.join(rootDir, "data", "backups", "config-uninstall");
+  const backupPath = path.join(backupDir, `site.config.${stamp}.json`);
+  fs.mkdirSync(backupDir, { recursive: true });
+  fs.renameSync(configPath, backupPath);
+  return {
+    ok: true,
+    removed: path.relative(rootDir, configPath).replace(/\\/g, "/"),
+    backupPath: path.relative(rootDir, backupPath).replace(/\\/g, "/"),
+    restartRequired: true,
+  };
+}
+
 function cleanText(value, max = 240) {
   return String(value || "").replace(/\0/g, "").trim().slice(0, max);
 }
@@ -185,5 +205,6 @@ module.exports = {
   hasSiteConfig,
   loadConfig,
   siteConfigPath,
+  uninstallSiteConfig,
   writeInitialConfig,
 };

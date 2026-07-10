@@ -1,5 +1,12 @@
 ﻿# Changelog
 
+## 2026-07-10 - Update Program And Config Uninstall
+
+- Added `tools/update.js`, a deployment updater with Git and local-release strategies, pre-update backups, service stop/start support, dependency install, syntax checks, protected runtime paths, and update reports.
+- Added `npm run update` and expanded `npm run check` to cover installer and update scripts.
+- Added maintenance-mode install config uninstall: `/install.html` can move `config/site.config.json` into `data/backups/config-uninstall/` when started with `WIKIST_INSTALL_MODE=1`.
+- Documented cloud update, rollback, local package sync, and initialization rollback workflows in Chinese and English README sections.
+
 ## 2026-07-10 - Cloud Deployment And First Admin Flow
 
 - Added a full Chinese / English cloud deployment guide covering clone, Node.js, systemd, Nginx, HTTPS, initialization, backups, updates, customization, and troubleshooting.

@@ -389,18 +389,114 @@ sudo tar -czf "$BACKUP_DIR/wikist-$(date +%F).tar.gz" \
 
 #### 10. 更新
 
+Wikist 提供类似 MediaWiki `update.php` 思路的维护脚本：
+
+```bash
+node tools/update.js --help
+```
+
+它会按顺序执行：
+
+- 可选停止 systemd 服务。
+- 生成升级前备份到 `data/backups/`。
+- 按策略同步最新核心代码。
+- 执行 `npm install --omit=dev`。
+- 执行 `npm run check`。
+- 写入升级报告到 `data/updates/latest.json`。
+- 可选重新启动 systemd 服务。
+
+如果你的云端还是旧版本，还没有 `tools/update.js`，先手动拉取一次：
+
 ```bash
 cd "$APP_DIR"
 sudo systemctl stop wikist
-sudo -u "$RUN_USER" git pull --ff-only
+sudo -u "$RUN_USER" git fetch origin main
+sudo -u "$RUN_USER" git merge --ff-only origin/main
 npm install --omit=dev
 npm run check
 sudo systemctl start wikist
 ```
 
-如果使用手动上传包，先备份 `content/`、`data/`、`config/site.config.json` 和环境文件，再覆盖代码文件，不要覆盖本地运行数据。
+之后日常更新可以使用 Git 策略：
 
-#### 11. 高可自定义部署
+```bash
+cd "$APP_DIR"
+sudo node tools/update.js --strategy=git --remote=origin --branch=main --service=wikist --yes
+```
+
+先预演不改文件：
+
+```bash
+node tools/update.js --strategy=git --dry-run
+```
+
+如果服务器访问 GitHub 慢或失败，可以在本地下载/解压新版 Wikist，然后上传到服务器旁边，例如 `...你的路径.../wikist-release`，再使用本地包策略：
+
+```bash
+cd "$APP_DIR"
+sudo node tools/update.js --strategy=local --source=...你的路径.../wikist-release --service=wikist --yes
+```
+
+本地包策略只同步核心代码和内置插件目录，默认保护：
+
+- `data/`
+- `logs/`
+- `content/pages/`
+- `content/revisions/`
+- `content/deleted/`
+- `config/site.config.json`
+- `plugins/vendor/`
+- `node_modules/`
+
+升级失败时优先查看：
+
+```bash
+cat "$APP_DIR/data/updates/latest.json"
+journalctl -u wikist -f
+```
+
+如果需要回滚站点数据，可用升级前生成的 `data/backups/wikist-pre-update-*.json.gz` 在后台“全站备份”中恢复。代码层回滚建议优先使用 Git 回到上一个稳定提交，再执行 `npm install --omit=dev` 和 `npm run check`。
+
+#### 11. 卸载配置与初始化回滚
+
+当你需要重新走安装器、回滚错误站点配置、重新绑定域名/SMTP/SQLite 路径时，不要手动删除数据。推荐流程：
+
+1. 在环境文件中临时加入：
+
+```ini
+WIKIST_INSTALL_MODE=1
+```
+
+2. 重启：
+
+```bash
+sudo systemctl restart wikist
+```
+
+3. 打开：
+
+```text
+https://wiki.example.com/install.html
+```
+
+4. 在维护区输入确认词：
+
+```text
+UNINSTALL_CONFIG
+```
+
+安装器会把 `config/site.config.json` 移动到 `data/backups/config-uninstall/`，不会删除 `content/`、`data/`、用户、评论、消息或词条。随后重启服务，站点会重新进入安装器。
+
+如果要恢复被卸载的配置，把备份文件复制回：
+
+```bash
+cp "$APP_DIR/data/backups/config-uninstall/site.config....json" "$APP_DIR/config/site.config.json"
+sudo systemctl restart wikist
+```
+
+恢复完成后移除 `WIKIST_INSTALL_MODE=1` 并再次重启，避免安装器长期处于维护模式。
+
+#### 12. 高可自定义部署
 
 你可以按自己的基础设施调整：
 
@@ -841,18 +937,114 @@ sudo tar -czf "$BACKUP_DIR/wikist-$(date +%F).tar.gz" \
 
 #### 10. Updates
 
+Wikist includes a maintenance updater inspired by MediaWiki's update workflow:
+
+```bash
+node tools/update.js --help
+```
+
+It performs:
+
+- Optional systemd service stop.
+- Pre-update backup into `data/backups/`.
+- Core code synchronization according to the selected strategy.
+- `npm install --omit=dev`.
+- `npm run check`.
+- Update report writing to `data/updates/latest.json`.
+- Optional systemd service start.
+
+If your cloud server is still on an older version without `tools/update.js`, pull it once manually:
+
 ```bash
 cd "$APP_DIR"
 sudo systemctl stop wikist
-sudo -u "$RUN_USER" git pull --ff-only
+sudo -u "$RUN_USER" git fetch origin main
+sudo -u "$RUN_USER" git merge --ff-only origin/main
 npm install --omit=dev
 npm run check
 sudo systemctl start wikist
 ```
 
-When updating from an uploaded archive, back up `content/`, `data/`, `config/site.config.json`, and the environment file first. Do not overwrite runtime data.
+After that, use the Git strategy for routine updates:
 
-#### 11. Customization
+```bash
+cd "$APP_DIR"
+sudo node tools/update.js --strategy=git --remote=origin --branch=main --service=wikist --yes
+```
+
+Dry run:
+
+```bash
+node tools/update.js --strategy=git --dry-run
+```
+
+If GitHub access is slow or blocked, upload an extracted Wikist release directory such as `...your-path.../wikist-release`, then use the local strategy:
+
+```bash
+cd "$APP_DIR"
+sudo node tools/update.js --strategy=local --source=...your-path.../wikist-release --service=wikist --yes
+```
+
+The local strategy syncs core code and built-in plugin directories while protecting:
+
+- `data/`
+- `logs/`
+- `content/pages/`
+- `content/revisions/`
+- `content/deleted/`
+- `config/site.config.json`
+- `plugins/vendor/`
+- `node_modules/`
+
+When an update fails, inspect:
+
+```bash
+cat "$APP_DIR/data/updates/latest.json"
+journalctl -u wikist -f
+```
+
+To roll back site data, restore the generated `data/backups/wikist-pre-update-*.json.gz` from the admin backup page. To roll back code, return to the previous stable Git commit, then run `npm install --omit=dev` and `npm run check`.
+
+#### 11. Uninstall Config And Initialization Rollback
+
+When you need to rerun the installer, roll back a bad site configuration, or rebind domain / SMTP / SQLite settings, do not delete runtime data manually.
+
+1. Temporarily add this to your environment file:
+
+```ini
+WIKIST_INSTALL_MODE=1
+```
+
+2. Restart:
+
+```bash
+sudo systemctl restart wikist
+```
+
+3. Open:
+
+```text
+https://wiki.example.com/install.html
+```
+
+4. In the maintenance section, enter:
+
+```text
+UNINSTALL_CONFIG
+```
+
+The installer moves `config/site.config.json` into `data/backups/config-uninstall/`. It does not delete `content/`, `data/`, users, comments, messages, or articles. Restart the service and the site will enter the installer again.
+
+To restore an uninstalled config:
+
+```bash
+cp "$APP_DIR/data/backups/config-uninstall/site.config....json" "$APP_DIR/config/site.config.json"
+sudo systemctl restart wikist
+```
+
+Remove `WIKIST_INSTALL_MODE=1` and restart again after maintenance.
+
+#### 12. Customization
 
 You can customize:
 

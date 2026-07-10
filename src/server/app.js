@@ -2,7 +2,7 @@ const fs = require("fs");
 const http = require("http");
 const path = require("path");
 const { createBackupPackage, inspectBackupPackage, restoreBackupPackage } = require("../core/backup");
-const { hasSiteConfig, loadConfig, writeInitialConfig } = require("../core/config");
+const { hasSiteConfig, loadConfig, uninstallSiteConfig, writeInitialConfig } = require("../core/config");
 const { readJsonBody, safeJoin, sendJson, sendText, serveStatic } = require("../core/http");
 const { fetchWikipediaPage, parseWikistImport } = require("../core/import-export");
 const { publicMailSettings, sendWikistMail, siteBaseUrl } = require("../core/mailer");
@@ -444,6 +444,7 @@ function createWikistServer(options) {
   const config = loadConfig(rootDir);
   const installerForceMode = process.env.WIKIST_INSTALL_MODE === "1";
   let installWroteConfig = false;
+  let installRemovedConfig = false;
   const installerStatus = () => {
     const configured = hasSiteConfig(rootDir);
     const installedConfig = configured ? loadConfig(rootDir) : config;
@@ -451,7 +452,8 @@ function createWikistServer(options) {
       configured,
       setupAllowed: !configured || installerForceMode,
       forceMode: installerForceMode,
-      restartRequired: installWroteConfig || (configured && !configuredAtStartup),
+      uninstallAllowed: configured && installerForceMode,
+      restartRequired: installWroteConfig || installRemovedConfig || (configured && !configuredAtStartup),
       database: String(installedConfig.passport?.database || "data/wikist.sqlite"),
     };
   };
@@ -489,6 +491,25 @@ function createWikistServer(options) {
             database: result.config.passport.database,
             mailEnabled: result.config.mail.enabled,
           },
+        });
+        return;
+      }
+
+      if (pathname === "/api/install/uninstall" && req.method === "POST") {
+        if (!installerForceMode) {
+          sendJson(res, 403, { error: "卸载安装配置必须先以 WIKIST_INSTALL_MODE=1 重启服务。" });
+          return;
+        }
+        const body = await readJsonBody(req);
+        if (body.confirm !== "UNINSTALL_CONFIG") {
+          sendJson(res, 400, { error: "请确认输入 UNINSTALL_CONFIG 后再卸载安装配置。" });
+          return;
+        }
+        const result = uninstallSiteConfig(rootDir);
+        installRemovedConfig = true;
+        sendJson(res, 200, {
+          ...result,
+          note: "仅移除了安装配置文件；content/、data/、用户、评论和词条不会被删除。请重启服务后重新进入安装器。",
         });
         return;
       }

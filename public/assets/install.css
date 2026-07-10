@@ -66,5 +66,13 @@ code { color: var(--cyan); }
 .form-status { min-height: 22px; margin: 0; color: var(--muted); line-height: 1.55; }
 .form-status.error { color: #ffb0c4; }
 .form-status.success { color: var(--green); }
+.installer-danger { display: grid; gap: 14px; margin-top: 24px; border: 1px solid rgba(255,127,159,.38); border-radius: 8px; padding: 16px; background: rgba(255,127,159,.07); }
+.installer-danger[hidden] { display: none; }
+.installer-danger .eyebrow { margin: 0 0 8px; color: var(--rose); }
+.installer-danger h3 { margin: 0 0 8px; font-size: 1.1rem; letter-spacing: 0; }
+.installer-danger p { margin-bottom: 0; color: var(--muted); line-height: 1.65; }
+.danger-button { min-height: 42px; border: 1px solid rgba(255,127,159,.58); border-radius: 7px; padding: 0 15px; color: #fff4f7; background: rgba(160,32,64,.70); font: 800 .9rem inherit; cursor: pointer; }
+.danger-button:hover { filter: brightness(1.08); }
+.danger-button:disabled { cursor: not-allowed; opacity: .52; }
 @media (max-width: 880px) { .installer-shell { grid-template-columns: 1fr; padding: 32px 0; } .installer-intro { padding-bottom: 0; } .installer-intro .eyebrow { margin-top: 25px; } .installer-signals { margin-top: 26px; grid-template-columns: repeat(3, minmax(0, 1fr)); } .installer-signals div { grid-template-columns: 1fr; } }
 @media (max-width: 600px) { .installer-shell { width: min(100% - 26px, 620px); gap: 28px; } .field-grid.two, .installer-signals { grid-template-columns: 1fr; } .installer-panel { padding: 20px 16px; } .installer-head { display: grid; } .installer-head .install-status { justify-self: start; } }
