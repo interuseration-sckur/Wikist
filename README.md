@@ -557,6 +557,27 @@ sudo systemctl restart wikist
 - 前端资源：通过后台配置 CDN、自定义 CSS、自定义 JS
 - 插件：通过 `plugins/*/plugin.json` 管理，第三方源码缓存放在本地 `plugins/vendor/`
 
+#### 13. 中文区访问慢与 CDN 调整
+
+如果站点在中文区访问缓慢，常见原因是浏览器加载 MathJax、Vditor、function-plot、Chart.js、JSXGraph、OpenCC 等前端资源时跨境网络不稳定。建议优先使用配置方式调整，不要直接修改核心代码。
+
+可选方案：
+
+- 在安装器中填写“资源 CDN 基址”，或安装后进入后台设置里的 CDN / 自定义资源配置。
+- 将常用前端资源同步到你自己的对象存储、CDN 或同机静态目录，然后把 CDN 基址改为你的域名。
+- 对数学公式较多的站点，优先保证 MathJax CDN 可访问。
+- 对可视化词条较多的站点，优先保证 function-plot、Chart.js、JSXGraph 相关资源可访问。
+- 若使用 Nginx，可为 `/assets/`、`/plugins/`、静态图片和自托管库增加缓存头。
+
+排查方式：
+
+```bash
+curl -I https://你的CDN域名/...
+journalctl -u wikist -f
+```
+
+浏览器里可以打开开发者工具的 Network 面板，查看是否有 CDN 脚本长时间 pending、timeout 或 blocked。确认慢点来自 CDN 后，再替换 CDN 基址。
+
 ### 常见部署问题
 
 **`curl http://127.0.0.1:8899/install.html` 成功，但公网 IP 失败。**

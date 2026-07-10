@@ -1,5 +1,11 @@
 ﻿# Changelog
 
+## 2026-07-10 - Home Portal Fallback And CDN Notes
+
+- Kept the configured home portal modules visible even when the default home article has not been created.
+- Added a home body fallback that says no related content exists and links directly to create the home article.
+- Added Chinese README notes for slow access in Chinese regions and CDN replacement/self-hosting strategies.
+
 ## 2026-07-10 - Dirty Working Tree Update Handling
 
 - Added `--stash-dirty` to `tools/update.js` so cloud updates can preserve local tracked changes before syncing upstream code.

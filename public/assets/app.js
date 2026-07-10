@@ -1418,6 +1418,8 @@ function pageCard(page, label = "词条") {
 }
 
 function renderHomePortal(page) {
+  const homeSlug = page?.slug || state.site?.defaultPage || "home";
+  const homeBodyHtml = page?.html || `<div class="empty-state home-empty-body"><h2>无相关内容</h2><p>请创建词条。</p><div class="editor-actions"><a class="command-button" href="#/edit/${encodeSlug(homeSlug)}">创建首页词条</a></div></div>`;
   const homeConfig = {
     showFeatured: true,
     showNews: true,
@@ -1462,7 +1464,7 @@ function renderHomePortal(page) {
     homeConfig.showPath ? `<article class="wiki-box sci-box sci-box-path"><h2>${escapeHtml(homeText.pathTitle)}</h2><div class="wiki-link-grid"><a href="#/page/markup-guide">标记规范</a><a href="#/page/tutorial">教程</a><a href="#/page/protocol">协议</a><a href="#/page/contribution-guide">贡献规范</a></div></article>` : "",
     homeConfig.showProgress ? `<article class="wiki-box sci-box sci-box-progress"><h2>${escapeHtml(homeText.progressTitle)}</h2>${progress.map((item) => `<a class="progress-item" href="${escapeHtml(item.href)}" target="_blank" rel="noreferrer"><span>${escapeHtml(item.tag)}</span><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.body)}</small></a>`).join("")}</article>` : "",
     homeConfig.showStable ? `<article class="wiki-box sci-box sci-box-stable"><h2>稳定内容</h2>${stable.length ? stable.map((item) => pageCard(item, item.quality || "稳定")).join("") : "<p>暂无稳定词条。</p>"}</article>` : "",
-    homeConfig.showOriginal ? `<article class="wiki-box sci-box sci-box-wide sci-box-origin"><h2>首页正文</h2><article class="article-body home-original-body">${page.html || ""}</article></article>` : "",
+    homeConfig.showOriginal ? `<article class="wiki-box sci-box sci-box-wide sci-box-origin"><h2>首页正文</h2><article class="article-body home-original-body">${homeBodyHtml}</article></article>` : "",
     homeConfig.showCategories ? `<article class="wiki-box sci-box sci-box-wide sci-box-categories"><h2>分类索引</h2><div class="wiki-category-cloud">${categories.length ? categories.map((item) => `<span>${escapeHtml(item)}</span>`).join("") : "<span>等待分类</span>"}</div></article>` : "",
     homeConfig.showActions ? `<article class="wiki-box sci-box sci-box-actions"><h2>${escapeHtml(homeText.actionsTitle)}</h2><p>${escapeHtml(page.summary || homeText.actionsSummary)}</p><div class="wiki-link-grid"><a href="#/new">新建词条</a><a href="#/search/群">搜索示例</a>${canAccessAdmin() ? '<a href="#/admin/overview">后台控制台</a>' : '<a href="#/login">登录通行证</a>'}</div></article>` : "",
   ].filter(Boolean).join("");
@@ -1543,6 +1545,17 @@ async function renderPage(value) {
     await Promise.all([loadPageTranslations(page.slug, activeLang), loadPageFavorite(page.slug), loadPageRating(page.slug), loadPageEdits(page.slug, "pageEditTimeline", { limit: 6, page: 1 })]);
     typesetMath();
   } catch (_error) {
+    if (state.currentSlug === (state.site.defaultPage || "home")) {
+      renderHomePortal({
+        slug: state.currentSlug,
+        title: state.site.name || "Wikist",
+        summary: "",
+        html: "",
+        toc: [],
+      });
+      hydratePlugins();
+      return;
+    }
     setChromeTitle("未创建");
     renderToc([]);
     el.main.innerHTML = `<section class="empty-state"><h1>词条尚未创建</h1><p>${escapeHtml(state.currentSlug)}</p><div class="editor-actions"><a class="command-button" href="#/edit/${encodeSlug(state.currentSlug)}">创建词条</a><a class="command-button secondary" href="#/page/${encodeSlug(state.site.defaultPage)}">返回首页</a></div></section>`;
