@@ -1,5 +1,11 @@
 ﻿# Changelog
 
+## 2026-07-10 - Chinese README And Framework Positioning
+
+- Rewrote README in Chinese.
+- Added Wikist framework positioning, target scenarios, core strengths, install-first release scope, and production notes.
+- Added a full comparison with MediaWiki across deployment, storage, math rendering, visualization, editing, permissions, plugins, customization, and scale.
+
 ## 2026-07-10 - Portable GitHub Release
 
 - Prepared the repository for a minimal, install-first GitHub publication.
@@ -15,3 +21,5 @@
 - Added mathematical rendering plugins for function plots, JSXGraph geometry boards, and Chart.js data models.
 - Added backup inspection and restore support with path allowlists and safety backups.
 - Added Windows launch scripts and fixed-port restart behavior for local deployment.
+
+
