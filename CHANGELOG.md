@@ -1,5 +1,11 @@
 ﻿# Changelog
 
+## 2026-07-10 - Git Safe Directory Update Fix
+
+- Fixed `tools/update.js` Git strategy when the updater is run through `sudo` against a repository owned by the `wikist` user.
+- Git commands now use a command-scoped `safe.directory` for the current Wikist root instead of requiring global Git configuration.
+- Documented the `fatal: detected dubious ownership in repository` error and the short-term / long-term fixes in the README.
+
 ## 2026-07-10 - Update Program And Config Uninstall
 
 - Added `tools/update.js`, a deployment updater with Git and local-release strategies, pre-update backups, service stop/start support, dependency install, syntax checks, protected runtime paths, and update reports.

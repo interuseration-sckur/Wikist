@@ -41,6 +41,10 @@ function bin(name) {
   return name;
 }
 
+function gitArgs(args) {
+  return ["-c", `safe.directory=${rootDir}`, ...args];
+}
+
 function parseArgs(argv) {
   const options = {
     strategy: "git",
@@ -165,7 +169,7 @@ function service(command, options) {
 
 function ensureCleanGit(options) {
   if (!fs.existsSync(path.join(rootDir, ".git"))) throw new Error("Git strategy requires a .git directory.");
-  const status = capture("git", ["status", "--porcelain"], { cwd: rootDir });
+  const status = capture("git", gitArgs(["status", "--porcelain"]), { cwd: rootDir });
   if (status && !options.allowDirty) {
     throw new Error("Tracked working tree changes exist. Commit/stash them first, or use --allow-dirty after reviewing them.");
   }
@@ -173,7 +177,7 @@ function ensureCleanGit(options) {
 
 function currentGitSha() {
   try {
-    return capture("git", ["rev-parse", "HEAD"], { cwd: rootDir });
+    return capture("git", gitArgs(["rev-parse", "HEAD"]), { cwd: rootDir });
   } catch (_error) {
     return "";
   }
@@ -182,13 +186,13 @@ function currentGitSha() {
 function updateFromGit(options) {
   ensureCleanGit(options);
   const before = currentGitSha();
-  run("git", ["fetch", options.remote, options.branch], options);
-  const target = capture("git", ["rev-parse", `${options.remote}/${options.branch}`], { cwd: rootDir });
-  const ancestor = childProcess.spawnSync("git", ["merge-base", "--is-ancestor", "HEAD", `${options.remote}/${options.branch}`], { cwd: rootDir });
+  run("git", gitArgs(["fetch", options.remote, options.branch]), options);
+  const target = capture("git", gitArgs(["rev-parse", `${options.remote}/${options.branch}`]), { cwd: rootDir });
+  const ancestor = childProcess.spawnSync("git", gitArgs(["merge-base", "--is-ancestor", "HEAD", `${options.remote}/${options.branch}`]), { cwd: rootDir });
   if (ancestor.status !== 0) {
     throw new Error(`Current HEAD is not an ancestor of ${options.remote}/${options.branch}. Refusing non-fast-forward update.`);
   }
-  run("git", ["merge", "--ff-only", `${options.remote}/${options.branch}`], options);
+  run("git", gitArgs(["merge", "--ff-only", `${options.remote}/${options.branch}`]), options);
   return { before, target, after: options.dryRun ? before : currentGitSha() };
 }
 

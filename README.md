@@ -457,6 +457,20 @@ journalctl -u wikist -f
 
 如果需要回滚站点数据，可用升级前生成的 `data/backups/wikist-pre-update-*.json.gz` 在后台“全站备份”中恢复。代码层回滚建议优先使用 Git 回到上一个稳定提交，再执行 `npm install --omit=dev` 和 `npm run check`。
 
+如果更新时出现：
+
+```text
+fatal: detected dubious ownership in repository at '/opt/wikist'
+```
+
+这是因为使用 `sudo node tools/update.js` 时，Git 进程身份是 `root`，而仓库目录通常归 `wikist` 用户所有。新版 `tools/update.js` 会对当前命令自动加入临时 `safe.directory`，不需要污染全局 Git 配置。旧版本脚本可先临时执行：
+
+```bash
+sudo git config --global --add safe.directory /opt/wikist
+```
+
+随后重新运行更新命令。更推荐的长期方式是更新到包含该修复的新版 `tools/update.js`。
+
 #### 11. 卸载配置与初始化回滚
 
 当你需要重新走安装器、回滚错误站点配置、重新绑定域名/SMTP/SQLite 路径时，不要手动删除数据。推荐流程：
@@ -1004,6 +1018,20 @@ journalctl -u wikist -f
 ```
 
 To roll back site data, restore the generated `data/backups/wikist-pre-update-*.json.gz` from the admin backup page. To roll back code, return to the previous stable Git commit, then run `npm install --omit=dev` and `npm run check`.
+
+If the updater reports:
+
+```text
+fatal: detected dubious ownership in repository at '/opt/wikist'
+```
+
+Git is protecting a repository owned by a different user. This commonly happens when `sudo node tools/update.js` runs as `root` while `/opt/wikist` is owned by `wikist`. The newer `tools/update.js` adds a temporary `safe.directory` only for the current Git command, so global Git configuration is not polluted. For an older updater, run:
+
+```bash
+sudo git config --global --add safe.directory /opt/wikist
+```
+
+Then run the update command again. The preferred long-term fix is to update to the version of `tools/update.js` that includes this handling.
 
 #### 11. Uninstall Config And Initialization Rollback
 
