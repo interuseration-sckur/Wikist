@@ -1,5 +1,13 @@
 ﻿# Changelog
 
+## 2026-07-10 - Cloud Asset Performance And Site Icon
+
+- Added static asset `ETag`, `Last-Modified`, `304`, Brotli/gzip, and versioned cache handling to reduce slow cloud CSS / JS loads.
+- Deferred SweetAlert2 and MathJax loading so ordinary homepage visits do not fetch nonessential UI or math CDN assets.
+- Added configurable site icon support through the installer, admin settings, runtime HTML, and `config/site.config.example.json`.
+- Added `public/uploads/` as a site-local protected directory for icons and similar public files.
+- Updated README deployment, CDN, Nginx gzip, update-protection, and troubleshooting notes.
+
 ## 2026-07-10 - Home Portal Fallback And CDN Notes
 
 - Kept the configured home portal modules visible even when the default home article has not been created.

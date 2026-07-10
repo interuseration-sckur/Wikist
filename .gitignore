@@ -20,6 +20,10 @@ content/deleted/*
 # Upstream source caches, re-synced and reviewed locally.
 plugins/vendor/
 
+# Site-local public uploads such as custom icons.
+public/uploads/*
+!public/uploads/.gitkeep
+
 # Local scratch artifacts.
 *.tmp
 *.bak

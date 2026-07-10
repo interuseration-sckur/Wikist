@@ -12,6 +12,12 @@ const defaults = {
     provider: "mathjax",
     cdn: "https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js",
   },
+  assets: {
+    cdnBase: "",
+    customCss: "",
+    customJs: "",
+    siteIcon: "/assets/wikist-emblem.svg",
+  },
   editing: {
     open: true,
     requireLogin: false,
@@ -110,6 +116,14 @@ function cleanLanguage(value) {
   return /^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})?$/.test(language) ? language : "zh-CN";
 }
 
+function cleanAssetUrl(value, fallback = "") {
+  const text = cleanText(value, 500);
+  if (!text) return fallback;
+  if (/^https?:\/\/[^\s"'<>]+$/i.test(text)) return text;
+  if (/^\/[^\s"'<>\\]+$/.test(text) && !text.startsWith("//")) return text;
+  return fallback;
+}
+
 function cleanDatabasePath(value) {
   const database = cleanText(value || "data/wikist.sqlite", 260).replace(/\\/g, "/");
   if (!database || database.startsWith("/") || database.includes(":") || database.split("/").some((part) => part === ".." || !part)) {
@@ -143,6 +157,7 @@ function createInitialConfig(input = {}) {
     license: cleanText(input.license || "CC BY-SA 4.0", 80),
     assets: {
       cdnBase: cleanText(input.cdnBase, 500),
+      siteIcon: cleanAssetUrl(input.siteIcon, defaults.assets.siteIcon),
       customCss: "",
       customJs: "",
     },
@@ -196,7 +211,7 @@ function writeInitialConfig(rootDir, input = {}, options = {}) {
 function loadConfig(rootDir) {
   const configPath = siteConfigPath(rootDir);
   if (!fs.existsSync(configPath)) return defaults;
-  const userConfig = JSON.parse(fs.readFileSync(configPath, "utf8"));
+  const userConfig = JSON.parse(fs.readFileSync(configPath, "utf8").replace(/^\uFEFF/, ""));
   return mergeDeep(defaults, userConfig);
 }
 

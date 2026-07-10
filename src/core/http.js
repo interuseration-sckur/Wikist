@@ -1,5 +1,6 @@
 const fs = require("fs");
 const path = require("path");
+const zlib = require("zlib");
 
 const MIME_TYPES = {
   ".html": "text/html; charset=utf-8",
@@ -14,6 +15,8 @@ const MIME_TYPES = {
   ".webp": "image/webp",
   ".ico": "image/x-icon",
 };
+
+const COMPRESSIBLE_TYPES = /^(text\/|application\/(?:javascript|json|xml)|image\/svg\+xml)/i;
 
 function sendJson(res, statusCode, payload) {
   const body = JSON.stringify(payload);
@@ -67,6 +70,7 @@ function readJsonBody(req, limitBytes = 1024 * 1024) {
 function serveStatic(res, filePath, options = {}) {
   const ext = path.extname(filePath).toLowerCase();
   const contentType = MIME_TYPES[ext] || "application/octet-stream";
+  const req = options.req || options.request || null;
 
   fs.stat(filePath, (statError, stat) => {
     if (statError || !stat.isFile()) {
@@ -74,16 +78,73 @@ function serveStatic(res, filePath, options = {}) {
       return;
     }
 
+    const etag = `W/"${stat.size.toString(16)}-${Math.floor(stat.mtimeMs).toString(16)}"`;
+    const lastModified = stat.mtime.toUTCString();
     const headers = {
       "content-type": contentType,
-      "content-length": stat.size,
-      "last-modified": stat.mtime.toUTCString(),
+      "last-modified": lastModified,
+      "etag": etag,
       "cache-control": options.cacheControl || "public, max-age=3600",
+      "x-content-type-options": "nosniff",
     };
 
+    if (isNotModified(req, etag, stat)) {
+      res.writeHead(304, headers);
+      res.end();
+      return;
+    }
+
+    const encoding = selectCompression(req, contentType, stat.size, options);
+    if (encoding) {
+      headers["content-encoding"] = encoding;
+      headers.vary = "Accept-Encoding";
+    } else {
+      headers["content-length"] = stat.size;
+    }
+
     res.writeHead(200, headers);
-    fs.createReadStream(filePath).pipe(res);
+    if (req?.method === "HEAD") {
+      res.end();
+      return;
+    }
+
+    const stream = fs.createReadStream(filePath);
+    stream.on("error", () => res.destroy());
+    if (encoding === "br") {
+      stream.pipe(zlib.createBrotliCompress({
+        params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 5 },
+      })).pipe(res);
+    } else if (encoding === "gzip") {
+      stream.pipe(zlib.createGzip({ level: 6 })).pipe(res);
+    } else {
+      stream.pipe(res);
+    }
   });
+}
+
+function isNotModified(req, etag, stat) {
+  if (!req?.headers) return false;
+  const ifNoneMatch = String(req.headers["if-none-match"] || "");
+  if (ifNoneMatch && (ifNoneMatch === "*" || ifNoneMatch.split(",").map((item) => item.trim()).includes(etag))) {
+    return true;
+  }
+  if (ifNoneMatch) return false;
+
+  const ifModifiedSince = Date.parse(req.headers["if-modified-since"] || "");
+  if (!Number.isFinite(ifModifiedSince)) return false;
+  return ifModifiedSince >= Math.floor(stat.mtimeMs / 1000) * 1000;
+}
+
+function selectCompression(req, contentType, size, options) {
+  if (options.compress === false || !req?.headers || req.headers.range) return "";
+  if (req.method && req.method !== "GET" && req.method !== "HEAD") return "";
+  if (size < (options.compressMinBytes || 1024)) return "";
+  if (!COMPRESSIBLE_TYPES.test(contentType)) return "";
+
+  const accepted = String(req.headers["accept-encoding"] || "");
+  if (/\bbr\b/i.test(accepted) && typeof zlib.createBrotliCompress === "function") return "br";
+  if (/\bgzip\b/i.test(accepted)) return "gzip";
+  return "";
 }
 
 function safeJoin(baseDir, requestedPath) {

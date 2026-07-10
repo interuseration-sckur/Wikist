@@ -2,6 +2,7 @@ const THEME_KEY = "wikist-theme";
 const LANG_KEY = "wikist-language";
 const VDITOR_VERSION = "3.11.2";
 const VDITOR_CDN = `https://cdn.jsdelivr.net/npm/vditor@${VDITOR_VERSION}`;
+const SWEETALERT_VERSION = "11.26.25";
 let activeEditor = null;
 let vditorAssetsPromise = null;
 let functionPlotAssetsPromise = null;
@@ -9,6 +10,7 @@ let functionPlotAssetsKey = "";
 let functionPlotResizeObserver = null;
 let mathJsAssetsPromise = null;
 let mathJsAssetsKey = "";
+let sweetAlertAssetsPromise = null;
 let messagePopoverRequestId = 0;
 let urgentMessageCheck = false;
 const urgentMessagePopupIds = new Set();
@@ -41,6 +43,8 @@ const el = {
   passportLink: document.querySelector("#passportLink"),
   passportText: document.querySelector("#passportText"),
   themeToggle: document.querySelector("#themeToggle"),
+  siteIconLink: document.querySelector("#siteIconLink"),
+  siteBrandIcon: document.querySelector("#siteBrandIcon"),
   messageMenu: document.querySelector("#messageMenu"),
   messageLink: document.querySelector("#messageLink"),
   messageBadge: document.querySelector("#messageBadge"),
@@ -83,14 +87,73 @@ function sweetAlertOptions(options = {}) {
   };
 }
 
+function siteAssetValue(key) {
+  if (Object.prototype.hasOwnProperty.call(state.site || {}, key)) return state.site[key] || "";
+  return state.site?.assets?.[key] || "";
+}
+
+function withCdnBase(path) {
+  const value = String(path || "").trim();
+  const configuredBase = String(siteAssetValue("cdnBase") || "").replace(/\/+$/, "");
+  const base = /^https?:\/\//i.test(configuredBase) ? configuredBase : "";
+  if (!value || value.startsWith("data:") || value.startsWith("blob:")) return value;
+  const jsdelivr = value.match(/^https:\/\/cdn\.jsdelivr\.net\/npm\/(.+)$/i);
+  if (base && jsdelivr) return `${base}/npm/${jsdelivr[1]}`;
+  if (/^(?:https?:)?\/\//i.test(value)) return value;
+  if (!base || !/^\/(?:assets|plugins)\//.test(value)) return value;
+  return `${base}${value}`;
+}
+
+function safeSiteIconUrl(value) {
+  const fallback = "/assets/wikist-emblem.svg";
+  const raw = String(value || fallback).trim();
+  if (/^https?:\/\/[^\s"'<>]+$/i.test(raw)) return raw;
+  if (/^\/[^\s"'<>\\]+$/.test(raw) && !raw.startsWith("//")) return withCdnBase(raw);
+  return withCdnBase(fallback);
+}
+
+function applySiteIcon() {
+  const icon = safeSiteIconUrl(siteAssetValue("siteIcon"));
+  const link = el.siteIconLink || document.querySelector("link[rel~='icon']");
+  if (link) link.href = icon;
+  if (el.siteBrandIcon) el.siteBrandIcon.src = icon;
+}
+
+function ensureStylesheet(href, marker) {
+  if (!href) return;
+  const selector = marker ? `link[data-wikist-style="${marker}"]` : `link[href="${href}"]`;
+  if (document.querySelector(selector)) return;
+  const link = document.createElement("link");
+  link.rel = "stylesheet";
+  link.href = href;
+  if (marker) link.dataset.wikistStyle = marker;
+  document.head.appendChild(link);
+}
+
+async function ensureSweetAlert() {
+  if (window.Swal?.fire) return window.Swal;
+  if (!sweetAlertAssetsPromise) {
+    sweetAlertAssetsPromise = (async () => {
+      ensureStylesheet(withCdnBase(`/assets/vendor/sweetalert2/sweetalert2.min.css?v=${SWEETALERT_VERSION}`), "sweetalert2");
+      await loadScript(withCdnBase(`/assets/vendor/sweetalert2/sweetalert2.all.min.js?v=${SWEETALERT_VERSION}`), "Swal", "弹窗资源加载失败。");
+      await loadScript(withCdnBase(`/assets/vendor/sweetalert2/wikist-adapter.js?v=${SWEETALERT_VERSION}`), "", "弹窗适配器加载失败。");
+      if (!window.Swal?.fire) throw new Error("弹窗资源已加载，但没有暴露 window.Swal。");
+      return window.Swal;
+    })();
+  }
+  return sweetAlertAssetsPromise;
+}
+
 async function uiAlert(title, text = "", icon = "info") {
-  if (!window.Swal) return undefined;
-  return window.Swal.fire(sweetAlertOptions({ title, text, icon, confirmButtonText: "知道了" }));
+  const Swal = await ensureSweetAlert().catch(() => null);
+  if (!Swal) return undefined;
+  return Swal.fire(sweetAlertOptions({ title, text, icon, confirmButtonText: "知道了" }));
 }
 
 async function uiConfirm({ title, text = "", icon = "question", confirmText = "确认", cancelText = "取消", danger = false } = {}) {
-  if (!window.Swal) return false;
-  const result = await window.Swal.fire(sweetAlertOptions({
+  const Swal = await ensureSweetAlert().catch(() => null);
+  if (!Swal) return false;
+  const result = await Swal.fire(sweetAlertOptions({
     title,
     text,
     icon,
@@ -105,8 +168,9 @@ async function uiConfirm({ title, text = "", icon = "question", confirmText = "�
 }
 
 async function uiPrompt({ title, text = "", value = "", placeholder = "", confirmText = "确定", validator } = {}) {
-  if (!window.Swal) return null;
-  const result = await window.Swal.fire(sweetAlertOptions({
+  const Swal = await ensureSweetAlert().catch(() => null);
+  if (!Swal) return null;
+  const result = await Swal.fire(sweetAlertOptions({
     title,
     text,
     input: "text",
@@ -121,9 +185,10 @@ async function uiPrompt({ title, text = "", value = "", placeholder = "", confir
   return result.isConfirmed ? String(result.value || "").trim() : null;
 }
 
-function uiToast(title, icon = "success") {
-  if (!window.Swal) return Promise.resolve();
-  return window.Swal.fire(sweetAlertOptions({
+async function uiToast(title, icon = "success") {
+  const Swal = await ensureSweetAlert().catch(() => null);
+  if (!Swal) return undefined;
+  return Swal.fire(sweetAlertOptions({
     title,
     icon,
     toast: true,
@@ -402,7 +467,7 @@ const EN_UI_REPLACEMENTS = [
 ];
 
 function openccSource() {
-  return state.site?.plugins?.openccChinese?.cdn || "/plugins/vendor/opencc-js/full.js";
+  return withCdnBase(state.site?.plugins?.openccChinese?.cdn || "/plugins/vendor/opencc-js/full.js");
 }
 
 async function ensureOpenCC() {
@@ -475,11 +540,6 @@ function setUiLanguage(lang, persist = true) {
   hydrateLanguageConversion(document.body).catch(() => {});
 }
 
-function siteAssetValue(key) {
-  if (Object.prototype.hasOwnProperty.call(state.site || {}, key)) return state.site[key] || "";
-  return state.site?.assets?.[key] || "";
-}
-
 function applySiteCustomizations() {
   const css = siteAssetValue("customCss");
   let style = document.querySelector("style[data-wikist-custom-css]");
@@ -510,6 +570,7 @@ function destroyVisualEditor() {
 
 function loadScript(src, globalName = "", errorMessage = "资源加载失败。") {
   return new Promise((resolve, reject) => {
+    src = withCdnBase(src);
     if (globalName && window[globalName]) { resolve(); return; }
     const existing = document.querySelector(`script[src="${src}"]`);
     if (existing) {
@@ -521,6 +582,7 @@ function loadScript(src, globalName = "", errorMessage = "资源加载失败。"
     const script = document.createElement("script");
     script.src = src;
     script.async = true;
+    script.defer = true;
     script.onload = () => { script.dataset.loaded = "true"; resolve(); };
     script.onerror = () => reject(new Error(errorMessage));
     document.head.appendChild(script);
@@ -532,7 +594,7 @@ function ensureVisualEditorAssets() {
   if (!document.querySelector("link[data-vditor-css]")) {
     const link = document.createElement("link");
     link.rel = "stylesheet";
-    link.href = `${VDITOR_CDN}/dist/index.css`;
+    link.href = withCdnBase(`${VDITOR_CDN}/dist/index.css`);
     link.dataset.vditorCss = "true";
     document.head.appendChild(link);
   }
@@ -555,7 +617,7 @@ async function mountVisualEditor(value) {
       height: 560,
       minHeight: 420,
       lang: "zh_CN",
-      cdn: VDITOR_CDN,
+      cdn: withCdnBase(VDITOR_CDN),
       theme: vditorThemeName(),
       cache: { enable: false },
       toolbarConfig: { pin: true },
@@ -661,8 +723,9 @@ async function renderMessagePopover() {
 }
 
 async function showUrgentMessage(message) {
-  if (!window.Swal) return;
-  const result = await window.Swal.fire(sweetAlertOptions({
+  const Swal = await ensureSweetAlert().catch(() => null);
+  if (!Swal) return;
+  const result = await Swal.fire(sweetAlertOptions({
     title: message.title || "\u6700\u9ad8\u4f18\u5148\u7ea7\u6d88\u606f",
     text: message.body || "\u4f60\u6709\u4e00\u6761\u9700\u8981\u53ca\u65f6\u67e5\u770b\u7684\u7ad9\u5185\u6d88\u606f\u3002",
     icon: "warning",
@@ -738,8 +801,8 @@ function functionPlotTheme() {
 }
 
 function ensureFunctionPlotAssets(settings) {
-  const cdn = settings.cdn || "https://cdn.jsdelivr.net/npm/function-plot@1.25.4/dist/function-plot.js";
-  const d3 = settings.d3Cdn || "";
+  const cdn = withCdnBase(settings.cdn || "https://cdn.jsdelivr.net/npm/function-plot@1.25.4/dist/function-plot.js");
+  const d3 = settings.d3Cdn ? withCdnBase(settings.d3Cdn) : "";
   const key = `${d3}|${cdn}`;
   if (!functionPlotAssetsPromise || functionPlotAssetsKey !== key) {
     functionPlotAssetsKey = key;
@@ -753,7 +816,7 @@ function ensureFunctionPlotAssets(settings) {
 }
 
 function ensureMathJsAssets(settings) {
-  const cdn = settings.mathCdn || "https://cdn.jsdelivr.net/npm/mathjs@14.0.1/lib/browser/math.js";
+  const cdn = withCdnBase(settings.mathCdn || "https://cdn.jsdelivr.net/npm/mathjs@14.0.1/lib/browser/math.js");
   if (!mathJsAssetsPromise || mathJsAssetsKey !== cdn) {
     mathJsAssetsKey = cdn;
     mathJsAssetsPromise = (async () => {
@@ -975,9 +1038,16 @@ function hydratePlugins() {
   loadClientPluginModules();
   document.dispatchEvent(new CustomEvent("wikist:plugins-hydrate", { detail: { root: el.main, state } }));
 }
-function injectMathJax() {
-  const source = state.site?.math?.cdn;
+function rootNeedsMath(root = el.main) {
+  if (!root) return false;
+  if (root.querySelector(".math-inline,.math-display,.math-block,script[type^='math/tex']")) return true;
+  return /(?:\$\$[\s\S]+?\$\$|\\\([\s\S]+?\\\)|\\\[[\s\S]+?\\\])/.test(root.textContent || "");
+}
+
+function injectMathJax(root = el.main) {
+  const source = withCdnBase(state.site?.math?.cdn || "");
   if (!source || document.querySelector("script[data-wikist-math]")) return;
+  if (!rootNeedsMath(root)) return;
   window.MathJax = { tex: { inlineMath: [["\\(", "\\)"]], displayMath: [["$$", "$$"]], processEscapes: true } };
   const script = document.createElement("script");
   script.src = source;
@@ -987,6 +1057,7 @@ function injectMathJax() {
 }
 
 function typesetMath() {
+  injectMathJax(el.main);
   if (window.MathJax?.typesetPromise) window.MathJax.typesetPromise([el.main]).catch(() => {});
   hydratePlugins();
 }
@@ -1039,9 +1110,9 @@ async function reloadSiteChrome() {
   state.site = await api("/api/site");
   el.siteName.textContent = state.site.name;
   el.siteTagline.textContent = state.site.tagline;
+  applySiteIcon();
   updateLanguageChrome();
   applySiteCustomizations();
-  injectMathJax();
   await refreshChrome();
 }
 
@@ -3802,6 +3873,7 @@ function siteSettingsForm(site, home, homeContent = {}) {
         <label class="wide">站点简介<input name="tagline" value="${escapeHtml(site.tagline || "")}" /></label>
         <label class="wide">MathJax CDN<input name="mathCdn" value="${escapeHtml(site.mathCdn || "")}" /></label>
         <label class="wide">站点 CDN Base<input name="cdnBase" value="${escapeHtml(site.cdnBase || "")}" placeholder="例如：https://cdn.example.com/wikist" /></label>
+        <label class="wide">站点图标 URL<input name="siteIcon" value="${escapeHtml(site.siteIcon || "/assets/wikist-emblem.svg")}" placeholder="/uploads/site-icon.png 或 https://cdn.example.com/icon.png" /></label>
       </div></section>
       <section class="settings-section"><h2>&#x90AE;&#x4EF6;&#x4E0E;&#x5B89;&#x5168;</h2><div class="site-settings-grid mail-settings-grid">
         <label class="setting-toggle wide"><input name="mailEnabled" type="checkbox" ${mail.enabled ? "checked" : ""} /><span><strong>&#x542F;&#x7528; SMTP &#x90AE;&#x4EF6;</strong><small>&#x7528;&#x4E8E;&#x6CE8;&#x518C;&#x90AE;&#x7BB1;&#x9A8C;&#x8BC1;&#x3001;&#x627E;&#x56DE;&#x5BC6;&#x7801;&#x548C;&#x5B89;&#x5168;&#x901A;&#x77E5;&#x3002;</small></span></label>
@@ -3888,6 +3960,7 @@ async function renderAdminSettings() {
       applySiteCustomizations();
       el.siteName.textContent = state.site.name;
       el.siteTagline.textContent = state.site.tagline;
+      applySiteIcon();
       status.textContent = "站点设置已保存。";
     } catch (error) {
       status.textContent = error.message;
@@ -4215,8 +4288,8 @@ async function boot() {
   state.uiLanguage = savedLanguage();
   el.siteName.textContent = state.site.name;
   el.siteTagline.textContent = state.site.tagline;
+  applySiteIcon();
   updateLanguageChrome();
-  injectMathJax();
   setupMessageMenu();
   await Promise.all([refreshUser(), refreshChrome()]);
   await route();

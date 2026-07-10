@@ -8,6 +8,12 @@
     "provider": "mathjax",
     "cdn": "https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js"
   },
+  "assets": {
+    "cdnBase": "",
+    "siteIcon": "/assets/wikist-emblem.svg",
+    "customCss": "",
+    "customJs": ""
+  },
   "editing": {
     "open": true,
     "requireLogin": false,

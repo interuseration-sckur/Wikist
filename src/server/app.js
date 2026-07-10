@@ -134,6 +134,44 @@ function sendDownload(res, backup) {
   res.end(backup.buffer);
 }
 
+function escapeHtml(value) {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function assetUrl(config, urlPath) {
+  const value = String(urlPath || "");
+  const base = String(config.assets?.cdnBase || "").trim().replace(/\/+$/, "");
+  if (!base || !/^https?:\/\/[^\s"'<>]+$/i.test(base) || !/^\/(?:assets|plugins)\//.test(value)) return value;
+  return `${base}${value}`;
+}
+
+function siteIconUrl(config) {
+  const icon = cleanAssetUrl(config.assets?.siteIcon || "/assets/wikist-emblem.svg", "/assets/wikist-emblem.svg");
+  return icon.startsWith("/") ? assetUrl(config, icon) : icon;
+}
+
+function serveIndexHtml(req, res, indexPath, config) {
+  const icon = siteIconUrl(config);
+  const html = fs.readFileSync(indexPath, "utf8")
+    .replace(/href="\/assets\/styles\.css\?v=wikist-core-20260710-47"/g, `href="${escapeHtml(assetUrl(config, "/assets/styles.css?v=wikist-core-20260710-47"))}"`)
+    .replace(/src="\/assets\/app\.js\?v=wikist-core-20260710-47"/g, `src="${escapeHtml(assetUrl(config, "/assets/app.js?v=wikist-core-20260710-47"))}"`)
+    .replace(/href="\/assets\/wikist-emblem\.svg"/g, `href="${escapeHtml(icon)}"`)
+    .replace(/src="\/assets\/wikist-emblem\.svg"/g, `src="${escapeHtml(icon)}"`)
+    .replace(/<title>Wikist<\/title>/, `<title>${escapeHtml(config.name || "Wikist")}</title>`);
+  res.writeHead(200, {
+    "content-type": "text/html; charset=utf-8",
+    "content-length": Buffer.byteLength(html),
+    "cache-control": "no-cache",
+    "x-content-type-options": "nosniff",
+  });
+  if (req.method === "HEAD") res.end();
+  else res.end(html);
+}
+
 function pagePreviewPayload(page) {
   if (!page) return null;
   return {
@@ -229,7 +267,7 @@ function sanitizeHomeContent(input, current = {}) {
 
 function saveSiteConfig(rootDir, runtimeConfig, changes) {
   const configPath = path.join(rootDir, "config", "site.config.json");
-  const disk = fs.existsSync(configPath) ? JSON.parse(fs.readFileSync(configPath, "utf8")) : {};
+  const disk = fs.existsSync(configPath) ? JSON.parse(fs.readFileSync(configPath, "utf8").replace(/^\uFEFF/, "")) : {};
   const next = { ...disk, ...changes };
   fs.writeFileSync(configPath, `${JSON.stringify(next, null, 2)}\n`, "utf8");
   Object.assign(runtimeConfig, changes);
@@ -285,6 +323,7 @@ function siteSettingsPayload(config) {
     license: config.license || "CC BY-SA 4.0",
     mathCdn: config.math?.cdn || "",
     cdnBase: config.assets?.cdnBase || "",
+    siteIcon: config.assets?.siteIcon || "/assets/wikist-emblem.svg",
     customCss: config.assets?.customCss || "",
     customJs: config.assets?.customJs || "",
     mail: {
@@ -297,6 +336,14 @@ function siteSettingsPayload(config) {
 
 function cleanSettingText(value, max = 500) {
   return String(value || "").trim().slice(0, max);
+}
+
+function cleanAssetUrl(value, fallback = "") {
+  const text = cleanSettingText(value, 500);
+  if (!text) return fallback;
+  if (/^https?:\/\/[^\s"'<>]+$/i.test(text)) return text;
+  if (/^\/[^\s"'<>\\]+$/.test(text) && !text.startsWith("//")) return text;
+  return fallback;
 }
 
 function normalizeLanguageCode(value, fallback = "") {
@@ -367,6 +414,7 @@ function sanitizeSiteSettings(input, current = {}) {
     assets: {
       ...(current.assets || {}),
       cdnBase: cleanSettingText(source.cdnBase ?? current.assets?.cdnBase ?? "", 500),
+      siteIcon: cleanAssetUrl(source.siteIcon ?? current.assets?.siteIcon ?? "/assets/wikist-emblem.svg", "/assets/wikist-emblem.svg"),
       customCss: String(source.customCss ?? current.assets?.customCss ?? "").slice(0, 20000),
       customJs: String(source.customJs ?? current.assets?.customJs ?? "").slice(0, 20000),
     },
@@ -1602,17 +1650,31 @@ function createWikistServer(options) {
           sendText(res, 403, "禁止访问");
           return;
         }
-        const pluginCache = /\.(css|m?js)$/i.test(pluginAssetPath) ? "no-store" : "public, max-age=86400";
-        serveStatic(res, pluginAssetPath, { cacheControl: pluginCache });
+        const pluginCache = /\.(css|m?js)$/i.test(pluginAssetPath)
+          ? "public, max-age=300, must-revalidate"
+          : "public, max-age=86400";
+        serveStatic(res, pluginAssetPath, { req, cacheControl: pluginCache });
         return;
       }
 
       if (pathname === "/install.html") {
         const installerPath = path.join(publicDir, "install.html");
         if (fs.existsSync(installerPath)) {
-          serveStatic(res, installerPath, { cacheControl: "no-store" });
+          serveStatic(res, installerPath, { req, cacheControl: "no-store" });
           return;
         }
+      }
+
+      if (pathname.startsWith("/uploads/")) {
+        const uploadPath = safeJoin(path.join(publicDir, "uploads"), stripPrefix(pathname, "/uploads/"));
+        const ext = uploadPath ? path.extname(uploadPath).toLowerCase() : "";
+        const allowed = new Set([".svg", ".png", ".jpg", ".jpeg", ".webp", ".ico"]);
+        if (!uploadPath || !allowed.has(ext)) {
+          sendText(res, 403, "禁止访问");
+          return;
+        }
+        serveStatic(res, uploadPath, { req, cacheControl: "public, max-age=86400, must-revalidate" });
+        return;
       }
 
       if (pathname.startsWith("/assets/")) {
@@ -1621,14 +1683,20 @@ function createWikistServer(options) {
           sendText(res, 403, "禁止访问");
           return;
         }
-        const assetCache = /\.(css|js)$/i.test(assetPath) ? "no-store" : "public, max-age=86400";
-        serveStatic(res, assetPath, { cacheControl: assetCache });
+        const versioned = url.searchParams.has("v");
+        const mutableCore = /\/assets\/(?:app|styles|install)\.(?:css|js)$/i.test(pathname);
+        const assetCache = versioned
+          ? "public, max-age=31536000, immutable"
+          : mutableCore
+            ? "public, max-age=300, must-revalidate"
+            : "public, max-age=86400, must-revalidate";
+        serveStatic(res, assetPath, { req, cacheControl: assetCache });
         return;
       }
 
       const indexPath = path.join(publicDir, "index.html");
       if (fs.existsSync(indexPath)) {
-        serveStatic(res, indexPath, { cacheControl: "no-store" });
+        serveIndexHtml(req, res, indexPath, config);
         return;
       }
 

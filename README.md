@@ -303,6 +303,10 @@ server {
     server_name wiki.example.com;
 
     client_max_body_size 50m;
+    gzip on;
+    gzip_comp_level 5;
+    gzip_min_length 1024;
+    gzip_types text/plain text/css application/javascript application/json image/svg+xml;
 
     location / {
         proxy_pass http://127.0.0.1:8899;
@@ -376,6 +380,7 @@ sudo systemctl restart wikist
 - `...你的路径.../wikist/content/`
 - `...你的路径.../wikist/data/`
 - `...你的路径.../wikist/config/site.config.json`
+- `...你的路径.../wikist/public/uploads/`
 - `...你的路径.../wikist.env`
 
 示例：
@@ -446,6 +451,7 @@ sudo node tools/update.js --strategy=local --source=...你的路径.../wikist-re
 - `content/deleted/`
 - `config/site.config.json`
 - `plugins/vendor/`
+- `public/uploads/`
 - `node_modules/`
 
 升级失败时优先查看：
@@ -555,28 +561,58 @@ sudo systemctl restart wikist
 - HTTPS：Certbot、云证书、Caddy 自动证书均可
 - 邮件：后台或安装器配置 SMTP
 - 前端资源：通过后台配置 CDN、自定义 CSS、自定义 JS
+- 站点图标：把图片放到 `public/uploads/` 后在后台填写 `/uploads/site-icon.png`，或填写 HTTPS 图标地址
 - 插件：通过 `plugins/*/plugin.json` 管理，第三方源码缓存放在本地 `plugins/vendor/`
 
 #### 13. 中文区访问慢与 CDN 调整
 
 如果站点在中文区访问缓慢，常见原因是浏览器加载 MathJax、Vditor、function-plot、Chart.js、JSXGraph、OpenCC 等前端资源时跨境网络不稳定。建议优先使用配置方式调整，不要直接修改核心代码。
 
+本地加载 CSS / JS 很快而云端需要 7-8 秒，通常不是文件本身体积问题。`app.js` 和 `styles.css` 只有数百 KB，本地 `127.0.0.1` 没有公网时延；云端慢多半来自未命中浏览器缓存、未压缩传输、Nginx/网关没有正确透传缓存头，或首屏触发了跨境 CDN 请求。
+
+新版 Wikist 已内置这些优化：
+
+- `/assets/` 静态资源支持 `ETag`、`Last-Modified`、`304 Not Modified`、Brotli/gzip 压缩。
+- 带 `?v=wikist-core-...` 的核心 CSS / JS 使用长期缓存；升级时版本号会变化。
+- `index.html` 保持 `no-cache`，保证后台配置、CDN Base 和图标变更能及时生效。
+- SweetAlert2 改为首次弹窗时按需加载，不再占用首页首屏请求。
+- MathJax 改为页面检测到公式后再加载，普通首页不会被数学 CDN 拖慢。
+- `public/uploads/` 用于站点本地图标等资源，并被更新程序保护。
+
 可选方案：
 
 - 在安装器中填写“资源 CDN 基址”，或安装后进入后台设置里的 CDN / 自定义资源配置。
-- 将常用前端资源同步到你自己的对象存储、CDN 或同机静态目录，然后把 CDN 基址改为你的域名。
+- 将常用前端资源同步到你自己的对象存储、CDN 或同机静态目录，然后把 CDN 基址改为你的域名。若 CDN Base 为 `https://你的CDN域名/wikist`，则本地资源会映射到 `/wikist/assets/...`、插件资源会映射到 `/wikist/plugins/...`，jsDelivr npm 资源会映射到 `/wikist/npm/...`。
 - 对数学公式较多的站点，优先保证 MathJax CDN 可访问。
 - 对可视化词条较多的站点，优先保证 function-plot、Chart.js、JSXGraph 相关资源可访问。
-- 若使用 Nginx，可为 `/assets/`、`/plugins/`、静态图片和自托管库增加缓存头。
+- 若使用 Nginx，确认没有把 `/assets/` 强制改成 `no-store`，并启用 gzip；如果由对象存储/CDN 托管静态资源，给 `/assets/`、`/plugins/`、`/uploads/` 设置合适缓存头。
 
 排查方式：
 
 ```bash
-curl -I https://你的CDN域名/...
+curl -I -H "Accept-Encoding: br,gzip" https://你的域名/assets/app.js?v=wikist-core-20260710-47
+curl -I https://你的CDN域名/wikist/assets/styles.css?v=wikist-core-20260710-47
 journalctl -u wikist -f
 ```
 
-浏览器里可以打开开发者工具的 Network 面板，查看是否有 CDN 脚本长时间 pending、timeout 或 blocked。确认慢点来自 CDN 后，再替换 CDN 基址。
+重点看响应头里是否有 `cache-control`、`etag`、`content-encoding: br` 或 `content-encoding: gzip`。浏览器里可以打开开发者工具的 Network 面板，查看是否有 CDN 脚本长时间 pending、timeout 或 blocked。确认慢点来自 CDN 后，再替换 CDN 基址。
+
+更换站点图标：
+
+```bash
+sudo mkdir -p ...你的路径.../wikist/public/uploads
+sudo cp ...你的路径.../site-icon.png ...你的路径.../wikist/public/uploads/site-icon.png
+sudo chown -R wikist:wikist ...你的路径.../wikist/public/uploads
+sudo systemctl restart wikist
+```
+
+然后进入后台“站点设置”，把“站点图标 URL”设置为：
+
+```text
+/uploads/site-icon.png
+```
+
+也可以直接填写 HTTPS 图标地址，例如 `https://你的CDN域名/wikist/uploads/site-icon.png`。
 
 ### 常见部署问题
 
@@ -920,6 +956,10 @@ server {
     server_name wiki.example.com;
 
     client_max_body_size 50m;
+    gzip on;
+    gzip_comp_level 5;
+    gzip_min_length 1024;
+    gzip_types text/plain text/css application/javascript application/json image/svg+xml;
 
     location / {
         proxy_pass http://127.0.0.1:8899;
@@ -991,6 +1031,7 @@ Back up:
 - `...your-path.../wikist/content/`
 - `...your-path.../wikist/data/`
 - `...your-path.../wikist/config/site.config.json`
+- `...your-path.../wikist/public/uploads/`
 - `...your-path.../wikist.env`
 
 Example:
@@ -1061,6 +1102,7 @@ The local strategy syncs core code and built-in plugin directories while protect
 - `content/deleted/`
 - `config/site.config.json`
 - `plugins/vendor/`
+- `public/uploads/`
 - `node_modules/`
 
 When an update fails, inspect:
@@ -1170,6 +1212,7 @@ You can customize:
 - HTTPS: Certbot, cloud certificates, or Caddy automation
 - Mail: SMTP from the installer or admin settings
 - Assets: CDN base, custom CSS, and custom JS from admin settings
+- Site icon: place a file in `public/uploads/` and set `/uploads/site-icon.png` in admin settings, or use an HTTPS icon URL
 - Plugins: `plugins/*/plugin.json`, with reviewed vendor source in local `plugins/vendor/`
 
 ### Deployment Troubleshooting
@@ -1185,6 +1228,16 @@ Temporarily set `WIKIST_HOST=0.0.0.0` and open `8899`, but switch back to `127.0
 **Nginx returns 502.**
 
 Check `sudo systemctl status wikist`, test `curl http://127.0.0.1:8899/install.html`, then inspect `journalctl -u wikist -f`.
+
+**CSS / JS is fast locally but slow on the cloud server.**
+
+Localhost hides latency. On a public server, repeated uncached transfers, missing compression, proxy header overrides, or slow external CDNs become visible. Current Wikist emits `ETag`, `Last-Modified`, versioned long-cache headers, and Brotli/gzip for static assets. Verify:
+
+```bash
+curl -I -H "Accept-Encoding: br,gzip" https://your-domain/assets/app.js?v=wikist-core-20260710-47
+```
+
+Look for `cache-control`, `etag`, and `content-encoding`. If you set a CDN Base, mirror local assets under `/assets/...`, plugin assets under `/plugins/...`, and jsDelivr-compatible packages under `/npm/...`.
 
 **`node:sqlite` is missing.**
 

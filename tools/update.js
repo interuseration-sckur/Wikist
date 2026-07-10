@@ -19,7 +19,9 @@ const CODE_PATHS = [
   "docs",
   "package-lock.json",
   "package.json",
-  "public",
+  "public/assets",
+  "public/index.html",
+  "public/install.html",
   "server.js",
   "src",
   "tools",
@@ -34,6 +36,7 @@ const PROTECTED_PATHS = [
   "logs",
   "node_modules",
   "plugins/vendor",
+  "public/uploads",
 ];
 
 function bin(name) {
@@ -260,6 +263,7 @@ function updateFromLocal(options) {
     copied.push(copyPath(configExample, path.join(rootDir, "config", "site.config.example.json"), options));
   }
   copied.push(...copyLocalPlugins(sourceRoot, options));
+  if (!options.dryRun) fs.mkdirSync(path.join(rootDir, "public", "uploads"), { recursive: true });
   return { source: sourceRoot, copied };
 }
 
