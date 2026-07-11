@@ -1,12 +1,22 @@
 # Changelog
 
-## 2026-07-11 - Sci-Fi Home And Passport UI
+## 2026-07-11 - Sci-Fi Cosmic Experience Plugin
 
 - Replaced the previous dashboard-style home/auth visuals with animated canvas cosmic scenes: starfields, nebula glow, spiral arms, and comet-like warp streaks.
 - Reworked the home portal around a cinematic orbital data stage with rotating rings, planet-like core metrics, and floating readouts.
-- Reworked the Wikist Passport login/register UI into a cosmic access console with animated space background, orbit lock, scan lines, and stronger form hierarchy.
+- Reworked the Wikist Passport login/register UI into a cosmic access console with live animated site metrics: registered users, public pages, recent updates, and current identity.
+- Added the `cosmicExperience` client plugin for a full-screen warp intro, mouse-parallax nebula, login black-hole accretion disk, homepage title particle aggregation, and sci-fi route-loading progress HUD.
+- Added language-aware cosmic UI text for Simplified Chinese, Traditional Chinese, and English.
+- Improved light/dark theme adaptation for the homepage hero, Wikist Passport panel, orbital readouts, sci-fi content panels, route loader, warp intro, black-hole accretion disk, and title particles.
+- Added theme-aware captcha SVG recoloring so the human verification image uses a light palette in light mode and a dark palette in dark mode.
+- Fixed light-theme code block contrast so rendered code text no longer stays white on pale code panels.
+- Kept homepage title text readable while particle aggregation plays, increased particle sampling density, and removed login/register engineering jargon such as `SESSION HANDSHAKE`.
+- Split the homepage title so `欢迎来到` stays as a readable white label while only `Wikist` is rendered as particles, keeping the desktop title on one line.
+- Re-centered the Passport cosmic stage in the left panel and expanded the animation area to remove the large empty space below the orbital visual.
+- Changed route loading into a full-screen warp-style loading layer so sci-fi loading appears whenever route work takes noticeable time.
+- Versioned trusted client plugin imports with the core asset version to avoid stale CDN/browser caches after cloud updates.
 - Added reduced-motion handling and responsive rules for the new cosmic visual components.
-- Bumped the core frontend asset version to `wikist-core-20260711-50`.
+- Bumped the core frontend asset version to `wikist-core-20260711-62`.
 
 ## 2026-07-11 - Route And Admin Responsiveness
 

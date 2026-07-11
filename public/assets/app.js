@@ -1,5 +1,6 @@
 const THEME_KEY = "wikist-theme";
 const LANG_KEY = "wikist-language";
+const CORE_ASSET_VERSION = "wikist-core-20260711-62";
 const VDITOR_VERSION = "3.11.2";
 const VDITOR_CDN = `https://cdn.jsdelivr.net/npm/vditor@${VDITOR_VERSION}`;
 const SWEETALERT_VERSION = "11.26.25";
@@ -284,6 +285,7 @@ function applyTheme(theme, persist = true) {
   }
   syncVisualEditorTheme(next);
   refreshFunctionPlots();
+  document.dispatchEvent(new CustomEvent("wikist:theme-change", { detail: { theme: next } }));
 }
 
 const UI_LABELS = {
@@ -404,6 +406,7 @@ function updateLanguageChrome() {
   }
   const passportText = el.passportText;
   if (passportText && !state.user) passportText.textContent = labels.login;
+  document.dispatchEvent(new CustomEvent("wikist:language-change", { detail: { language: lang, state } }));
 }
 
 const EN_UI_REPLACEMENTS = [
@@ -1019,7 +1022,7 @@ function pluginClientModuleUrl(plugin) {
   const parts = modulePath.split("/").filter(Boolean);
   if (!parts.length || parts.some((part) => !/^[\w.-]+$/.test(part))) return "";
   if (!/\.m?js$/i.test(parts[parts.length - 1])) return "";
-  return `/plugins/${encodeURIComponent(directory)}/${parts.map(encodeURIComponent).join("/")}`;
+  return `/plugins/${encodeURIComponent(directory)}/${parts.map(encodeURIComponent).join("/")}?v=${encodeURIComponent(CORE_ASSET_VERSION)}`;
 }
 
 function loadClientPluginModules(root = el.main) {
@@ -1047,6 +1050,7 @@ function hydratePlugins(root = el.main) {
   hydrateFunctionPlots(targetRoot).catch(() => {});
   enhanceWikiLinks(targetRoot);
   hydrateCosmicScenes(targetRoot);
+  hydrateAuthMetrics(targetRoot);
   loadClientPluginModules(targetRoot);
   document.dispatchEvent(new CustomEvent("wikist:plugins-hydrate", { detail: { root: targetRoot, state } }));
 }
@@ -1102,7 +1106,7 @@ function typesetMath(root = el.main) {
   schedulePostRenderHydration(root);
 }
 
-const cosmicScenes = new WeakMap();
+const cosmicScenes = new Map();
 
 function createCosmicScene(canvas) {
   const context = canvas.getContext("2d");
@@ -1115,6 +1119,10 @@ function createCosmicScene(canvas) {
   let dpr = 1;
   let frame = 0;
   let animation = 0;
+
+  function lightTheme() {
+    return document.documentElement.dataset.theme === "light";
+  }
 
   function resize() {
     const rect = canvas.getBoundingClientRect();
@@ -1156,13 +1164,14 @@ function createCosmicScene(canvas) {
   }
 
   function nebula(time) {
+    const light = lightTheme();
     const cx = width * (scene === "auth" ? .68 : .58);
     const cy = height * (scene === "auth" ? .42 : .48);
     const radius = Math.max(width, height) * .62;
     const gradient = context.createRadialGradient(cx, cy, 0, cx, cy, radius);
-    gradient.addColorStop(0, "rgba(56, 232, 255, .34)");
-    gradient.addColorStop(.28, "rgba(124, 255, 180, .14)");
-    gradient.addColorStop(.52, "rgba(255, 209, 102, .055)");
+    gradient.addColorStop(0, light ? "rgba(0, 126, 167, .18)" : "rgba(56, 232, 255, .34)");
+    gradient.addColorStop(.28, light ? "rgba(0, 139, 95, .10)" : "rgba(124, 255, 180, .14)");
+    gradient.addColorStop(.52, light ? "rgba(163, 107, 0, .055)" : "rgba(255, 209, 102, .055)");
     gradient.addColorStop(1, "rgba(0, 0, 0, 0)");
     context.fillStyle = gradient;
     context.fillRect(0, 0, width, height);
@@ -1181,7 +1190,7 @@ function createCosmicScene(canvas) {
         if (step === 0) context.moveTo(x, y);
         else context.lineTo(x, y);
       }
-      context.strokeStyle = `rgba(56, 232, 255, ${scene === "auth" ? .18 : .22})`;
+      context.strokeStyle = light ? `rgba(0, 126, 167, ${scene === "auth" ? .13 : .16})` : `rgba(56, 232, 255, ${scene === "auth" ? .18 : .22})`;
       context.lineWidth = 1.4;
       context.stroke();
     }
@@ -1189,16 +1198,19 @@ function createCosmicScene(canvas) {
   }
 
   function draw(time = 0) {
+    const light = lightTheme();
     frame += 1;
     context.clearRect(0, 0, width, height);
-    context.fillStyle = "#03070b";
+    context.fillStyle = light ? "#f7fcfb" : "#03070b";
     context.fillRect(0, 0, width, height);
     nebula(time);
 
     stars.forEach((star, index) => {
       const pulse = Math.sin(time * .0015 * star.drift + index) * .22 + .78;
       context.beginPath();
-      context.fillStyle = `hsla(${star.hue}, 95%, 78%, ${star.a * pulse})`;
+      context.fillStyle = light
+        ? `hsla(${star.hue}, 70%, 36%, ${star.a * pulse * .62})`
+        : `hsla(${star.hue}, 95%, 78%, ${star.a * pulse})`;
       context.arc(star.x, star.y, star.r * pulse, 0, Math.PI * 2);
       context.fill();
       if (!reducedMotion) {
@@ -1218,8 +1230,8 @@ function createCosmicScene(canvas) {
         comet.y = Math.random() * height * .55;
       }
       const gradient = context.createLinearGradient(comet.x - comet.length, comet.y - comet.length * .35, comet.x, comet.y);
-      gradient.addColorStop(0, "rgba(56, 232, 255, 0)");
-      gradient.addColorStop(1, "rgba(255, 255, 255, .74)");
+      gradient.addColorStop(0, light ? "rgba(0, 126, 167, 0)" : "rgba(56, 232, 255, 0)");
+      gradient.addColorStop(1, light ? "rgba(0, 126, 167, .35)" : "rgba(255, 255, 255, .74)");
       context.strokeStyle = gradient;
       context.lineWidth = 1.2;
       context.beginPath();
@@ -1237,6 +1249,10 @@ function createCosmicScene(canvas) {
   const onResize = () => resize();
   window.addEventListener("resize", onResize);
   return {
+    refresh() {
+      resize();
+      if (reducedMotion) draw(performance.now());
+    },
     destroy() {
       cancelAnimationFrame(animation);
       window.removeEventListener("resize", onResize);
@@ -1246,6 +1262,12 @@ function createCosmicScene(canvas) {
 
 function hydrateCosmicScenes(root = el.main) {
   const scope = root || document;
+  cosmicScenes.forEach((scene, canvas) => {
+    if (!canvas.isConnected) {
+      scene.destroy?.();
+      cosmicScenes.delete(canvas);
+    }
+  });
   const canvases = [
     ...(scope.matches?.("canvas[data-cosmic-scene]") ? [scope] : []),
     ...Array.from(scope.querySelectorAll?.("canvas[data-cosmic-scene]") || []),
@@ -1253,6 +1275,40 @@ function hydrateCosmicScenes(root = el.main) {
   canvases.forEach((canvas) => {
     if (cosmicScenes.has(canvas)) return;
     cosmicScenes.set(canvas, createCosmicScene(canvas));
+  });
+}
+
+document.addEventListener("wikist:theme-change", () => {
+  cosmicScenes.forEach((scene) => scene.refresh?.());
+});
+
+function hydrateAuthMetrics(root = el.main) {
+  const scope = root || document;
+  const metrics = [
+    ...(scope.matches?.("[data-auth-metric]") ? [scope] : []),
+    ...Array.from(scope.querySelectorAll?.("[data-auth-metric]") || []),
+  ];
+  const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+  metrics.forEach((metric) => {
+    if (metric.dataset.metricHydrated === "true") return;
+    metric.dataset.metricHydrated = "true";
+    const target = Number(metric.dataset.authMetric || 0);
+    if (!Number.isFinite(target)) return;
+    if (reducedMotion || target <= 0) {
+      metric.textContent = String(Math.max(0, Math.round(target)));
+      return;
+    }
+    metric.textContent = "0";
+    const start = performance.now();
+    const duration = Math.min(1680, 720 + target * 28);
+    const easeOut = (value) => 1 - Math.pow(1 - value, 3);
+    const tick = (now) => {
+      if (!metric.isConnected) return;
+      const progress = Math.min(1, (now - start) / duration);
+      metric.textContent = String(Math.round(target * easeOut(progress)));
+      if (progress < 1) requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
   });
 }
 
@@ -1700,6 +1756,15 @@ function pageCard(page, label = "词条") {
   return `<a class="wiki-mini-card" href="#/page/${encodeSlug(page.slug)}"><span>${escapeHtml(label)}</span><strong>${escapeHtml(page.title)}</strong><small>${escapeHtml(page.summary || page.slug)}</small></a>`;
 }
 
+function cosmicHeroTitleHtml(title) {
+  const raw = String(title || "欢迎来到 Wikist").trim();
+  const match = raw.match(/^(.*?)(Wikist)(.*)$/i);
+  if (!match) return `<h1>${escapeHtml(raw)}</h1>`;
+  const label = match[1].trim() || "欢迎来到";
+  const suffix = match[3].trim();
+  return `<h1 class="cosmic-title-split"><span class="cosmic-title-label">${escapeHtml(label)}</span><span class="cosmic-title-brand" data-cosmic-title>${escapeHtml(match[2])}</span>${suffix ? `<span class="cosmic-title-label">${escapeHtml(suffix)}</span>` : ""}</h1>`;
+}
+
 function renderHomePortal(page) {
   const homeSlug = page?.slug || state.site?.defaultPage || "home";
   const homeBodyHtml = page?.html || `<div class="empty-state home-empty-body"><h2>无相关内容</h2><p>请创建词条。</p><div class="editor-actions"><a class="command-button" href="#/edit/${encodeSlug(homeSlug)}">创建首页词条</a></div></div>`;
@@ -1735,6 +1800,11 @@ function renderHomePortal(page) {
     ],
     ...(state.site?.homeContent || {}),
   };
+  const homeLabels = (normalizeLanguageCode(state.uiLanguage || state.site?.language, "zh-CN") === "en")
+    ? { pages: "pages", fields: "active fields", signals: "recent signals" }
+    : normalizeLanguageCode(state.uiLanguage || state.site?.language, "zh-CN") === "zh-TW"
+      ? { pages: "詞條", fields: "活躍領域", signals: "最近信號" }
+      : { pages: "词条", fields: "活跃领域", signals: "最近信号" };
   const featured = state.pages.filter((item) => !["home", "news"].includes(item.slug)).slice(0, 5);
   const stable = state.pages.filter((item) => item.quality === "A" || item.status === "stable").slice(0, 6);
   const categories = [...new Set(state.pages.flatMap((item) => item.categories || []))].slice(0, 14);
@@ -1760,7 +1830,7 @@ function renderHomePortal(page) {
         <div class="cosmic-vignette" aria-hidden="true"></div>
         <div class="sci-hero-copy">
           <span class="system-kicker">${escapeHtml(homeText.heroKicker)}</span>
-          <h1>${escapeHtml(homeText.heroTitle)}</h1>
+          ${cosmicHeroTitleHtml(homeText.heroTitle)}
           <p>${escapeHtml(homeText.heroSummary)}</p>
           <div class="sci-hero-actions"><a href="#/search/群">${escapeHtml(homeText.heroSearch)}</a><a href="#/page/tutorial">${escapeHtml(homeText.heroContribute)}</a><a href="#/page/news">${escapeHtml(homeText.heroNews)}</a></div>
         </div>
@@ -1768,9 +1838,9 @@ function renderHomePortal(page) {
           <div class="cosmic-ring ring-1" aria-hidden="true"></div>
           <div class="cosmic-ring ring-2" aria-hidden="true"></div>
           <div class="cosmic-ring ring-3" aria-hidden="true"></div>
-          <div class="cosmic-core"><strong>${state.pages.length}</strong><span>pages</span></div>
-          <div class="cosmic-readout readout-a"><span>${categories.length}</span><small>active fields</small></div>
-          <div class="cosmic-readout readout-b"><span>${state.recent.length || 0}</span><small>recent signals</small></div>
+          <div class="cosmic-core"><strong>${state.pages.length}</strong><span>${escapeHtml(homeLabels.pages)}</span></div>
+          <div class="cosmic-readout readout-a"><span>${categories.length}</span><small>${escapeHtml(homeLabels.fields)}</small></div>
+          <div class="cosmic-readout readout-b"><span>${state.recent.length || 0}</span><small>${escapeHtml(homeLabels.signals)}</small></div>
         </aside>
       </header>
 
@@ -2551,13 +2621,68 @@ function authShell(mode) {
   return `<section class="auth-layout"><div class="auth-copy"><span class="system-kicker">Wikist Passport</span><h1>${isRegister ? "加入开放知识网络" : "进入知识通行证"}</h1><p>${isRegister ? "注册后可留下贡献身份，并为后续审核、权限、组织协作铺好基础。" : "使用 Wikist Passport 访问账户中心、管理密码，并在编辑词条时记录可信署名。"}</p><div class="auth-signals"><span>SQLite 可迁移</span><span>HttpOnly 会话</span><span>scrypt 加密</span><span>验证码校验</span></div></div><form class="auth-panel" id="authForm"><div class="auth-tabs"><a class="${!isRegister ? "active" : ""}" href="#/login">登录</a><a class="${isRegister ? "active" : ""}" href="#/register">注册</a></div>${isRegister ? `<label>用户名<input name="username" autocomplete="username" placeholder="wikist_user" required /></label><label>显示名称<input name="displayName" autocomplete="nickname" placeholder="你的知识署名" required /></label><label>邮箱<input name="email" type="email" autocomplete="email" placeholder="name@example.com" /></label>` : `<label>用户名或邮箱<input name="identifier" autocomplete="username" required /></label>`}<label>密码<input name="password" type="password" autocomplete="${isRegister ? "new-password" : "current-password"}" minlength="8" required /></label>${isRegister ? '<label>确认密码<input name="confirmPassword" type="password" autocomplete="new-password" minlength="8" required /></label>' : ""}<input name="captchaId" type="hidden" /><label>人机验证<span class="captcha-row"><img class="captcha-image" id="captchaImage" alt="验证码" /><button class="icon-button" id="refreshCaptcha" type="button" title="刷新验证码" aria-label="刷新验证码"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.34-5.66M20 4v6h-6"/></svg></button></span><input name="captchaAnswer" inputmode="numeric" autocomplete="off" placeholder="输入算式结果" required /></label><div class="editor-actions"><button class="command-button" type="submit">${isRegister ? "创建通行证" : "登录"}</button><a class="command-button secondary" href="#/page/${encodeSlug(state.site.defaultPage)}">返回 wiki</a></div><div class="status-line" id="authStatus"></div></form></section>`;
 }
 
+function authCosmicText(mode) {
+  const isRegister = mode === "register";
+  const lang = normalizeLanguageCode(state.uiLanguage || state.site?.language, "zh-CN");
+  if (lang === "en") {
+    return {
+      title: isRegister ? "Join Star Atlas" : "Wikist Passport",
+      intro: isRegister ? "Create a recoverable identity for collaboration, review, and long-term knowledge contribution." : "Sign in to manage your account, messages, security, and page contributions.",
+      formTitle: isRegister ? "Create Wikist Passport" : "Sign in Wikist",
+      formIntro: isRegister ? "Build a trackable, recoverable knowledge identity." : "Continue editing, collecting, reading messages, and entering your knowledge workspace.",
+      formKicker: isRegister ? "Create account" : "Sign in",
+      phase: isRegister ? "NEW ACCOUNT" : "SIGN IN",
+      signals: ["Email verified", "SMTP recovery", "TOTP second factor", "scrypt hash"],
+      users: "Users",
+      pages: "Pages",
+      recent: "Recent",
+      identity: "Identity",
+      online: "Online",
+      guest: "Guest",
+    };
+  }
+  if (lang === "zh-TW") {
+    return {
+      title: isRegister ? "加入星圖" : "知識通行證",
+      intro: isRegister ? "註冊後請完成信箱驗證，用於找回密碼和保護貢獻身份。" : "登入後可管理帳號、訊息、安全設定與詞條貢獻。",
+      formTitle: isRegister ? "建立 Wikist 通行證" : "登入 Wikist",
+      formIntro: isRegister ? "建立一個可追蹤、可恢復、可參與協作的知識身份。" : "繼續編輯、收藏、查看訊息，並進入你的知識工作台。",
+      formKicker: isRegister ? "建立帳號" : "身份驗證",
+      phase: isRegister ? "新身份接入" : "身份接入",
+      signals: ["信箱驗證", "SMTP 找回", "TOTP 二次驗證", "scrypt 加密"],
+      users: "註冊用戶",
+      pages: "公開詞條",
+      recent: "最近更新",
+      identity: "目前身份",
+      online: "在線",
+      guest: "訪客",
+    };
+  }
+  return {
+    title: isRegister ? "加入星图" : "知识通行证",
+    intro: isRegister ? "注册后请完成邮箱验证，用于找回密码和保护贡献身份。" : "登录后可管理账户、消息、安全设置与词条贡献。",
+    formTitle: isRegister ? "创建 Wikist 通行证" : "登录 Wikist",
+    formIntro: isRegister ? "建立一个可追踪、可恢复、可参与协作的知识身份。" : "继续编辑、收藏、查看消息，并进入你的知识工作台。",
+    formKicker: isRegister ? "创建账号" : "身份验证",
+    phase: isRegister ? "新身份接入" : "身份接入",
+    signals: ["邮箱验证", "SMTP 找回", "TOTP 二次验证", "scrypt 加密"],
+    users: "注册用户",
+    pages: "公开词条",
+    recent: "最近更新",
+    identity: "当前身份",
+    online: "在线",
+    guest: "访客",
+  };
+}
+
 function secureAuthShell(mode) {
   const isRegister = mode === "register";
-  const title = isRegister ? "加入开放知识网络" : "进入知识通行证";
-  const intro = isRegister ? "注册后请完成邮箱验证，用于找回密码和保护贡献身份。" : "登录后可管理账户、消息、安全设置与词条贡献。";
-  const formTitle = isRegister ? "创建 Wikist 通行证" : "登录 Wikist";
-  const formIntro = isRegister ? "建立一个可追踪、可恢复、可参与协作的知识身份。" : "继续编辑、收藏、查看消息，并进入你的知识工作台。";
-  const phase = isRegister ? "NEW IDENTITY" : "SESSION HANDSHAKE";
+  const copy = authCosmicText(mode);
+  const authStats = {
+    users: Number(state.site?.setup?.users || state.site?.users || 0),
+    pages: Number(state.pages?.length || 0),
+    recent: Number(state.recent?.length || 0),
+  };
   const registerFields = `
     <label>用户名<input name="username" autocomplete="username" placeholder="wikist_user" required /></label>
     <label>显示名称<input name="displayName" autocomplete="nickname" placeholder="你的知识署名" required /></label>
@@ -2571,24 +2696,25 @@ function secureAuthShell(mode) {
       <canvas class="cosmic-canvas auth-cosmic-canvas" data-cosmic-scene="auth" aria-hidden="true"></canvas>
       <div class="cosmic-vignette" aria-hidden="true"></div>
       <span class="system-kicker">Wikist Passport</span>
-      <h1>${title}</h1>
-      <p>${intro}</p>
-      <div class="auth-signals"><span>邮箱验证</span><span>SMTP 找回</span><span>TOTP 二次验证</span><span>scrypt 加密</span></div>
-      <div class="auth-cosmic-console" aria-hidden="true">
+      <h1>${escapeHtml(copy.title)}</h1>
+      <p>${escapeHtml(copy.intro)}</p>
+      <div class="auth-cosmic-console" aria-label="Wikist Passport 宇宙数据概览">
         <div class="auth-orbit-lock">
-          <span>${phase}</span>
-          <strong>wikist/passport</strong>
+          <span>${escapeHtml(copy.phase)}</span>
+          <strong data-auth-metric="${authStats.users}">${authStats.users}</strong>
+          <small>${escapeHtml(copy.users)}</small>
         </div>
-        <div class="auth-scanlines">
-          <span><strong>01</strong> identity.hash()</span>
-          <span><strong>02</strong> session.httpOnly()</span>
-          <span><strong>03</strong> audit.timeline()</span>
+        <div class="auth-stat-pods">
+          <div class="auth-stat-pod pod-pages"><strong data-auth-metric="${authStats.pages}">${authStats.pages}</strong><span>${escapeHtml(copy.pages)}</span></div>
+          <div class="auth-stat-pod pod-recent"><strong data-auth-metric="${authStats.recent}">${authStats.recent}</strong><span>${escapeHtml(copy.recent)}</span></div>
+          <div class="auth-stat-pod pod-secure"><strong>${escapeHtml(state.user ? copy.online : copy.guest)}</strong><span>${escapeHtml(copy.identity)}</span></div>
         </div>
       </div>
+      <div class="auth-signals">${copy.signals.map((item) => `<span>${escapeHtml(item)}</span>`).join("")}</div>
     </div>
     <form class="auth-panel auth-passport-panel" id="authForm">
       <div class="auth-tabs"><a class="${!isRegister ? "active" : ""}" href="#/login">登录</a><a class="${isRegister ? "active" : ""}" href="#/register">注册</a></div>
-      <div class="auth-form-head"><span>${isRegister ? "Create account" : "Sign in"}</span><h2>${formTitle}</h2><p>${formIntro}</p></div>
+      <div class="auth-form-head"><span>${escapeHtml(copy.formKicker)}</span><h2>${escapeHtml(copy.formTitle)}</h2><p>${escapeHtml(copy.formIntro)}</p></div>
       ${isRegister ? registerFields : loginFields}
       <label>密码<input name="password" type="password" autocomplete="${isRegister ? "new-password" : "current-password"}" minlength="8" required /></label>
       ${isRegister ? '<label>确认密码<input name="confirmPassword" type="password" autocomplete="new-password" minlength="8" required /></label>' : ""}
@@ -2603,6 +2729,33 @@ function secureAuthShell(mode) {
 
 function svgToDataUri(svg) {
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+}
+
+function themedCaptchaSvg(svg, theme = document.documentElement.dataset.theme) {
+  if (theme !== "light") return svg;
+  return String(svg || "")
+    .replace(/fill="#080d0c"/g, 'fill="#f8fffd"')
+    .replace(/stroke="rgba\(124,255,180,\.28\)"/g, 'stroke="rgba(0,126,167,.24)"')
+    .replace(/stroke="rgba\(56,232,255,\.22\)"/g, 'stroke="rgba(0,126,167,.22)"')
+    .replace(/stroke="rgba\(255,209,102,\.42\)"/g, 'stroke="rgba(163,107,0,.32)"')
+    .replace(/fill="#7cffb4"/g, 'fill="#008b5f"')
+    .replace(/fill="#38e8ff"/g, 'fill="#007ea7"')
+    .replace(/fill="#ffd166"/g, 'fill="#a36b00"')
+    .replace(/fill="#9bb0a8"/g, 'fill="#4b655d"')
+    .replace(/fill="#edf7f2"/g, 'fill="#143129"');
+}
+
+function renderCaptchaSvg(svg) {
+  const image = document.querySelector("#captchaImage");
+  if (!image) return;
+  image.dataset.captchaSvg = svg || "";
+  image.src = svgToDataUri(themedCaptchaSvg(svg));
+}
+
+function refreshCaptchaTheme() {
+  document.querySelectorAll(".captcha-image[data-captcha-svg]").forEach((image) => {
+    image.src = svgToDataUri(themedCaptchaSvg(image.dataset.captchaSvg || ""));
+  });
 }
 
 function setupAdminShell() {
@@ -2634,9 +2787,11 @@ async function loadCaptcha() {
   if (!form) return;
   const captcha = await api("/api/passport/captcha");
   form.elements.captchaId.value = captcha.id;
-  document.querySelector("#captchaImage").src = svgToDataUri(captcha.svg);
+  renderCaptchaSvg(captcha.svg);
   form.elements.captchaAnswer.value = "";
 }
+
+document.addEventListener("wikist:theme-change", refreshCaptchaTheme);
 
 async function renderAuth(mode) {
   await refreshUser();
@@ -4343,6 +4498,7 @@ function renderError(error) {
 
 function beginRouteTransition() {
   window.clearTimeout(routePendingTimer);
+  document.dispatchEvent(new CustomEvent("wikist:route-loading", { detail: { state } }));
   routePendingTimer = window.setTimeout(() => {
     el.main?.classList.add("route-pending");
   }, 120);
@@ -4352,6 +4508,7 @@ function endRouteTransition() {
   window.clearTimeout(routePendingTimer);
   routePendingTimer = 0;
   el.main?.classList.remove("route-pending");
+  document.dispatchEvent(new CustomEvent("wikist:route-ready", { detail: { state } }));
 }
 
 async function renderAdmin(section = "overview") {

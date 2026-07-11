@@ -1,0 +1,32 @@
+{
+  "id": "cosmicExperience",
+  "name": "Wikist 星际视觉体验",
+  "type": "visual-extension",
+  "version": "1.0.0",
+  "source": "Wikist Core / Native Canvas",
+  "license": "MIT",
+  "description": "为首页和 Wikist Passport 提供可开关的科幻视觉层：星际穿梭开场、鼠标视差星云、登录黑洞吸积盘、首页标题粒子聚合和路由加载进度 HUD。",
+  "syntax": [
+    "后台 -> 插件管理 -> Wikist 星际视觉体验",
+    "enabled: true",
+    "intro: true",
+    "parallaxNebula: true",
+    "authBlackHole: true",
+    "titleParticles: true",
+    "routeLoader: true"
+  ],
+  "configKeys": ["enabled", "intensity", "intro", "introOnce", "parallaxNebula", "authBlackHole", "titleParticles", "routeLoader", "maxDpr"],
+  "defaultConfig": {
+    "enabled": true,
+    "intensity": "balanced",
+    "intro": true,
+    "introOnce": true,
+    "parallaxNebula": true,
+    "authBlackHole": true,
+    "titleParticles": true,
+    "routeLoader": true,
+    "maxDpr": 1.5
+  },
+  "entry": "clientModule",
+  "clientModule": "cosmic.mjs"
+}
