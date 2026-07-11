@@ -1,5 +1,12 @@
 ﻿# Changelog
 
+## 2026-07-11 - Sci-Fi Home And Passport UI
+
+- Refined the home portal with a GitHub-inspired code window, contribution-style activity matrix, knowledge signal panel, and denser sci-fi dashboard layout.
+- Reworked the Wikist Passport login/register UI into a clearer console-style flow with stronger form hierarchy, security signals, and account activity visuals.
+- Added light-theme handling and responsive rules for the new home/auth visual components.
+- Bumped the core frontend asset version to `wikist-core-20260711-49`.
+
 ## 2026-07-11 - Route And Admin Responsiveness
 
 - Batched post-render math rendering, function plots, plugin hydration, and language conversion into a single idle task per route change.

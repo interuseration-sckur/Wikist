@@ -1586,6 +1586,10 @@ function renderHomePortal(page) {
   const news = state.pages.find((item) => item.slug === "news");
   const newsItems = Array.isArray(homeText.newsItems) ? homeText.newsItems : [];
   const progress = Array.isArray(homeText.progressItems) ? homeText.progressItems : [];
+  const activityCells = Array.from({ length: 42 }, (_, index) => {
+    const level = (index + state.pages.length + state.recent.length + categories.length) % 5;
+    return `<span class="level-${level}" aria-hidden="true"></span>`;
+  }).join("");
   const modules = [
     homeConfig.showFeatured ? `<article class="wiki-box sci-box sci-box-feature"><h2>特色词条</h2>${featured.length ? featured.map((item) => pageCard(item, item.quality || "词条")).join("") : "<p>暂无特色词条。</p>"}</article>` : "",
     homeConfig.showNews ? `<article class="wiki-box sci-box sci-box-news"><h2>${escapeHtml(homeText.newsTitle)}</h2>${newsItems.length ? `<div class="wiki-news-list">${newsItems.map((item) => `<a href="${escapeHtml(item.href || "#/news")}"><span>${escapeHtml(item.date || item.tag || "资讯")}</span>${escapeHtml(item.title)}${item.body ? `<small>${escapeHtml(item.body)}</small>` : ""}</a>`).join("")}</div>` : (news ? `<a class="wiki-news-link" href="#/page/news"><strong>${escapeHtml(news.title)}</strong><span>${escapeHtml(news.summary)}</span></a>` : `<p>${escapeHtml(homeText.newsEmpty)}</p>`)}<div class="wiki-news-list">${state.recent.slice(0, 4).map((item) => `<a href="#/page/${encodeSlug(item.slug)}"><span>${fmtDate(item.updatedAt)}</span>${escapeHtml(item.title)}</a>`).join("")}</div></article>` : "",
@@ -1607,7 +1611,19 @@ function renderHomePortal(page) {
           <p>${escapeHtml(homeText.heroSummary)}</p>
           <div class="sci-hero-actions"><a href="#/search/群">${escapeHtml(homeText.heroSearch)}</a><a href="#/page/tutorial">${escapeHtml(homeText.heroContribute)}</a><a href="#/page/news">${escapeHtml(homeText.heroNews)}</a></div>
         </div>
-        <div class="sci-orbit-panel" aria-label="Wikist 数据概览"><strong>${state.pages.length}</strong><span>公开页面</span><small>${categories.length} 个活跃分类</small></div>
+        <aside class="sci-hero-visual" aria-label="Wikist 数据概览">
+          <div class="sci-code-window" aria-hidden="true">
+            <div class="sci-code-bar"><span></span><span></span><span></span><strong>wikist/core</strong></div>
+            <code><span>commit</span> proof.graph.sync()</code>
+            <code><span>merge</span> theorem.review.queue</code>
+            <code><span>build</span> functionPlot.render()</code>
+          </div>
+          <div class="sci-orbit-panel"><strong>${state.pages.length}</strong><span>公开页面</span><small>${categories.length} 个活跃分类</small></div>
+          <div class="sci-contrib-card">
+            <div><span>知识活跃度</span><strong>${state.recent.length || 0} recent signals</strong></div>
+            <div class="sci-contrib-grid">${activityCells}</div>
+          </div>
+        </aside>
       </header>
 
       <section class="sci-dashboard-strip">
@@ -2391,6 +2407,10 @@ function secureAuthShell(mode) {
   const isRegister = mode === "register";
   const title = isRegister ? "加入开放知识网络" : "进入知识通行证";
   const intro = isRegister ? "注册后请完成邮箱验证，用于找回密码和保护贡献身份。" : "登录后可管理账户、消息、安全设置与词条贡献。";
+  const formTitle = isRegister ? "创建 Wikist 通行证" : "登录 Wikist";
+  const formIntro = isRegister ? "建立一个可追踪、可恢复、可参与协作的知识身份。" : "继续编辑、收藏、查看消息，并进入你的知识工作台。";
+  const phase = isRegister ? "NEW IDENTITY" : "SESSION HANDSHAKE";
+  const graphCells = Array.from({ length: 35 }, (_, index) => `<span class="level-${(index + (isRegister ? 2 : 4)) % 5}" aria-hidden="true"></span>`).join("");
   const registerFields = `
     <label>用户名<input name="username" autocomplete="username" placeholder="wikist_user" required /></label>
     <label>显示名称<input name="displayName" autocomplete="nickname" placeholder="你的知识署名" required /></label>
@@ -2399,7 +2419,35 @@ function secureAuthShell(mode) {
     <label>用户名或邮箱<input name="identifier" autocomplete="username" required /></label>
     <label>二次验证码<input name="twoFactorCode" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="已开启二次验证时填写" /></label>
     <a class="mini-link auth-forgot-link" href="#/forgot-password">忘记密码？</a>`;
-  return `<section class="auth-layout"><div class="auth-copy"><span class="system-kicker">Wikist Passport</span><h1>${title}</h1><p>${intro}</p><div class="auth-signals"><span>邮箱验证</span><span>SMTP 找回</span><span>TOTP 二次验证</span><span>scrypt 加密</span></div></div><form class="auth-panel" id="authForm"><div class="auth-tabs"><a class="${!isRegister ? "active" : ""}" href="#/login">登录</a><a class="${isRegister ? "active" : ""}" href="#/register">注册</a></div>${isRegister ? registerFields : loginFields}<label>密码<input name="password" type="password" autocomplete="${isRegister ? "new-password" : "current-password"}" minlength="8" required /></label>${isRegister ? '<label>确认密码<input name="confirmPassword" type="password" autocomplete="new-password" minlength="8" required /></label>' : ""}<input name="captchaId" type="hidden" /><label>人机验证<span class="captcha-row"><img class="captcha-image" id="captchaImage" alt="验证码" /><button class="icon-button" id="refreshCaptcha" type="button" title="刷新验证码" aria-label="刷新验证码"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.34-5.66M20 4v6h-6"/></svg></button></span><input name="captchaAnswer" inputmode="numeric" autocomplete="off" placeholder="输入算式结果" required /></label><div class="editor-actions"><button class="command-button" type="submit">${isRegister ? "创建通行证" : "登录"}</button><a class="command-button secondary" href="#/page/${encodeSlug(state.site.defaultPage)}">返回 wiki</a></div><div class="status-line" id="authStatus"></div></form></section>`;
+  return `<section class="auth-layout auth-cyber-layout">
+    <div class="auth-copy auth-cyber-copy">
+      <span class="system-kicker">Wikist Passport</span>
+      <h1>${title}</h1>
+      <p>${intro}</p>
+      <div class="auth-signals"><span>邮箱验证</span><span>SMTP 找回</span><span>TOTP 二次验证</span><span>scrypt 加密</span></div>
+      <div class="auth-branch-visual" aria-hidden="true">
+        <div class="auth-branch-head"><span>${phase}</span><strong>wikist/passport</strong></div>
+        <div class="auth-graph-grid">${graphCells}</div>
+        <div class="auth-flow-lines">
+          <span><strong>01</strong> identity.hash()</span>
+          <span><strong>02</strong> session.httpOnly()</span>
+          <span><strong>03</strong> audit.timeline()</span>
+        </div>
+      </div>
+    </div>
+    <form class="auth-panel auth-passport-panel" id="authForm">
+      <div class="auth-tabs"><a class="${!isRegister ? "active" : ""}" href="#/login">登录</a><a class="${isRegister ? "active" : ""}" href="#/register">注册</a></div>
+      <div class="auth-form-head"><span>${isRegister ? "Create account" : "Sign in"}</span><h2>${formTitle}</h2><p>${formIntro}</p></div>
+      ${isRegister ? registerFields : loginFields}
+      <label>密码<input name="password" type="password" autocomplete="${isRegister ? "new-password" : "current-password"}" minlength="8" required /></label>
+      ${isRegister ? '<label>确认密码<input name="confirmPassword" type="password" autocomplete="new-password" minlength="8" required /></label>' : ""}
+      <input name="captchaId" type="hidden" />
+      <label>人机验证<span class="captcha-row"><img class="captcha-image" id="captchaImage" alt="验证码" /><button class="icon-button" id="refreshCaptcha" type="button" title="刷新验证码" aria-label="刷新验证码"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.34-5.66M20 4v6h-6"/></svg></button></span><input name="captchaAnswer" inputmode="numeric" autocomplete="off" placeholder="输入算式结果" required /></label>
+      <div class="editor-actions"><button class="command-button" type="submit">${isRegister ? "创建通行证" : "登录"}</button><a class="command-button secondary" href="#/page/${encodeSlug(state.site.defaultPage)}">返回 wiki</a></div>
+      <div class="auth-trust-line"><span>HttpOnly Session</span><span>SQLite Portable</span><span>Audit Ready</span></div>
+      <div class="status-line" id="authStatus"></div>
+    </form>
+  </section>`;
 }
 
 function svgToDataUri(svg) {
