@@ -1,3 +1,5 @@
+const { runSearchEnhancementHooks } = require("./plugin-registry");
+
 function normalizeText(value) {
   return String(value || "").toLowerCase();
 }
@@ -176,6 +178,14 @@ class SearchIndex {
     return status;
   }
 
+  enhance(result, query, options) {
+    return runSearchEnhancementHooks(result, {
+      query: String(query || ""),
+      options,
+      pluginSettings: this.pluginSettings(),
+    });
+  }
+
   search(query, optionsOrLimit = {}) {
     if (typeof optionsOrLimit === "number") {
       return this.search(query, { limit: optionsOrLimit }).items;
@@ -190,7 +200,7 @@ class SearchIndex {
       prefix: optionsOrLimit.prefix ?? plugin.prefix,
     });
     if (!raw && !options.category && !options.quality && !options.difficulty) {
-      return this.emptyResult(raw, options);
+      return this.enhance(this.emptyResult(raw, options), raw, options);
     }
 
     const parsed = parseQuery(raw);
@@ -201,7 +211,7 @@ class SearchIndex {
       difficulty: options.difficulty || parsed.filters.difficulty || "",
     };
     const persistent = this.persistentIndex?.search(raw, options);
-    if (persistent && (persistent.total > 0 || options.fuzzy === false)) return persistent;
+    if (persistent && (persistent.total > 0 || options.fuzzy === false)) return this.enhance(persistent, raw, options);
     const q = parsed.text || raw;
     const queryTokens = tokenize(q);
     const normalizedQuery = normalizeText(q);
@@ -243,7 +253,7 @@ class SearchIndex {
     const facets = this.facets(scored);
     const total = scored.length;
     const items = scored.slice(options.offset, options.offset + options.limit);
-    return {
+    return this.enhance({
       query: raw,
       items,
       total,
@@ -257,7 +267,7 @@ class SearchIndex {
         hasPrev: options.page > 1,
         hasNext: options.page < Math.ceil(total / options.limit),
       },
-    };
+    }, raw, options);
   }
 
   facets(results) {

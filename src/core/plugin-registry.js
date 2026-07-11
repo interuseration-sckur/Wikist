@@ -3,6 +3,36 @@ const path = require("path");
 const childProcess = require("child_process");
 const VENDOR_STATUS_TTL_MS = 30000;
 const vendorStatusCache = new Map();
+const HOOK_API_VERSION = "1.0";
+const HOOK_DEFINITIONS = Object.freeze({
+  "markdown.preprocess": {
+    side: "server",
+    permission: "content:transform",
+    label: "Markdown 预处理",
+    description: "在 Markdown 解析前转换受控文本。",
+  },
+  "markdown.block": {
+    side: "server",
+    permission: "content:render",
+    label: "块渲染",
+    description: "把声明的围栏块转换为受控 HTML 占位结构。",
+  },
+  "search.enhance": {
+    side: "server",
+    permission: "search:enhance",
+    label: "搜索增强",
+    description: "在结果返回前整理受控搜索元数据。",
+  },
+  "admin.panel": {
+    side: "client",
+    permission: "ui:admin-panel",
+    label: "后台面板",
+    description: "注册一个受后台权限保护的前端管理面板。",
+  },
+});
+const HOOK_NAMES = new Set(Object.keys(HOOK_DEFINITIONS));
+const HOOK_PERMISSIONS = new Set(Object.values(HOOK_DEFINITIONS).map((item) => item.permission));
+const coreHookHandlers = new Map(Object.keys(HOOK_DEFINITIONS).map((name) => [name, []]));
 const DEFAULT_PLUGINS = {
   magicWords: {
     enabled: true,
@@ -51,6 +81,8 @@ const PLUGIN_CATALOG = [
       "{{#ifeq: A | B | 相等 | 不相等 }}",
     ],
     configKeys: ["enabled", "custom"],
+    hooks: ["markdown.preprocess"],
+    permissions: ["content:transform"],
   },
   {
     id: "functionPlot",
@@ -69,6 +101,8 @@ const PLUGIN_CATALOG = [
       ":::",
     ],
     configKeys: ["enabled", "d3Cdn", "cdn", "defaultHeight", "grid"],
+    hooks: ["markdown.block"],
+    permissions: ["content:render"],
   },
   {
     id: "advancedSearch",
@@ -96,6 +130,8 @@ const PLUGIN_CATALOG = [
       bodyWeight: 1,
       categoryWeight: 6,
     },
+    hooks: ["search.enhance"],
+    permissions: ["search:enhance"],
   },
   {
     id: "openccChinese",
@@ -119,6 +155,61 @@ const PLUGIN_CATALOG = [
   },
 ];
 
+function manifestList(value, max = 40) {
+  const source = Array.isArray(value) ? value : String(value || "").split(/[\n,]/);
+  return [...new Set(source.map((item) => String(item || "").trim()).filter(Boolean))].slice(0, max);
+}
+
+function normalizePluginHooks(value) {
+  return manifestList(value).filter((name) => HOOK_NAMES.has(name));
+}
+
+function normalizePluginPermissions(value) {
+  return manifestList(value).filter((name) => HOOK_PERMISSIONS.has(name));
+}
+
+function pluginHookCapabilities(manifest = {}) {
+  const permissions = new Set(normalizePluginPermissions(manifest.permissions));
+  return normalizePluginHooks(manifest.hooks).map((name) => {
+    const definition = HOOK_DEFINITIONS[name];
+    const granted = permissions.has(definition.permission);
+    return {
+      name,
+      side: definition.side,
+      permission: definition.permission,
+      label: definition.label,
+      description: definition.description,
+      granted,
+      state: granted ? "declared" : "blocked",
+      detail: granted
+        ? `${definition.permission} 已在 manifest 中声明。`
+        : `缺少 ${definition.permission} 权限声明，Hook 不可注册。`,
+    };
+  });
+}
+
+function registerCoreHook(pluginId, hookName, handler) {
+  const definition = HOOK_DEFINITIONS[hookName];
+  if (!definition || definition.side !== "server" || typeof handler !== "function") return false;
+  const handlers = coreHookHandlers.get(hookName);
+  if (!handlers || handlers.some((item) => item.pluginId === pluginId && item.handler === handler)) return false;
+  handlers.push({ pluginId: String(pluginId || "core"), handler });
+  return true;
+}
+
+function runCoreHook(hookName, value, context = {}) {
+  const handlers = coreHookHandlers.get(hookName) || [];
+  return handlers.reduce((current, item) => {
+    try {
+      const next = item.handler(current, context);
+      return next === undefined || next === null ? current : next;
+    } catch (error) {
+      console.warn(`Wikist core hook failed (${item.pluginId}:${hookName}):`, error.message);
+      return current;
+    }
+  }, value);
+}
+
 function cleanManifest(manifest, directory = "core") {
   if (!manifest || typeof manifest !== "object" || !manifest.id) return null;
   const id = String(manifest.id || "").trim();
@@ -132,6 +223,8 @@ function cleanManifest(manifest, directory = "core") {
     description: String(manifest.description || "").slice(0, 500),
     syntax: Array.isArray(manifest.syntax) ? manifest.syntax.map((item) => String(item).slice(0, 500)).slice(0, 40) : [],
     configKeys: Array.isArray(manifest.configKeys) ? manifest.configKeys.map((item) => String(item).slice(0, 60)).slice(0, 40) : ["enabled"],
+    hooks: normalizePluginHooks(manifest.hooks),
+    permissions: normalizePluginPermissions(manifest.permissions),
     defaultConfig: manifest.defaultConfig && typeof manifest.defaultConfig === "object" ? manifest.defaultConfig : { enabled: true },
     entry: String(manifest.entry || "manifest-only").slice(0, 120),
     serverModule: cleanModulePath(manifest.serverModule),
@@ -310,7 +403,8 @@ function pluginRuntimeStatus(manifest, vendor = null) {
 function enrichPlugin(rootDir, manifest) {
   const vendor = pluginVendorStatus(rootDir, manifest);
   const runtime = pluginRuntimeStatus(manifest, vendor);
-  return vendor ? { ...manifest, vendor, runtime } : { ...manifest, runtime };
+  const hookCapabilities = pluginHookCapabilities(manifest);
+  return vendor ? { ...manifest, hookApiVersion: HOOK_API_VERSION, hookCapabilities, vendor, runtime } : { ...manifest, hookApiVersion: HOOK_API_VERSION, hookCapabilities, runtime };
 }
 
 function readPluginManifests(rootDir = process.cwd()) {
@@ -623,7 +717,7 @@ function renderParserFunction(raw, context) {
 }
 
 function applyMagicWords(source, context = {}, settings = DEFAULT_PLUGINS.magicWords) {
-  if (!settings.enabled) return String(source || "");
+  if (!settings?.enabled) return String(source || "");
   return String(source || "").replace(/\{\{\s*([^{}]+?)\s*\}\}/g, (match, raw) => {
     const parserValue = raw.trim().startsWith("#") ? renderParserFunction(raw, context) : null;
     if (parserValue !== null) return parserValue;
@@ -632,21 +726,51 @@ function applyMagicWords(source, context = {}, settings = DEFAULT_PLUGINS.magicW
   });
 }
 
-function renderPluginFence(lang, blockLines, context = {}) {
+function runMarkdownPreprocessHooks(source, context = {}) {
+  return runCoreHook("markdown.preprocess", String(source || ""), context);
+}
+
+function runMarkdownBlockHooks(input, context = {}) {
+  const result = runCoreHook("markdown.block", { ...input, settings: pluginSettings(context.config || {}) }, context);
+  return result?.handled ? result : null;
+}
+
+function runSearchEnhancementHooks(result, context = {}) {
+  return runCoreHook("search.enhance", result, context);
+}
+
+registerCoreHook("magicWords", "markdown.preprocess", (source, context) => {
   const settings = pluginSettings(context.config || {});
-  if (/^(function-plot|functionPlot|plot)$/i.test(String(lang || "").trim())) {
-    if (!settings.functionPlot?.enabled) return "";
-    return functionPlotHtml(blockLines, settings.functionPlot);
-  }
-  if (/^(geometry|jsxgraph|math-geometry)$/i.test(String(lang || "").trim())) {
-    if (!settings.geometryBoard?.enabled) return "";
-    return geometryHtml(blockLines, settings.geometryBoard);
-  }
-  if (/^(math-chart|chart|model-chart)$/i.test(String(lang || "").trim())) {
-    if (!settings.mathChart?.enabled) return "";
-    return mathChartHtml(blockLines, settings.mathChart);
-  }
-  return null;
+  return applyMagicWords(source, context, settings.magicWords);
+});
+
+function matchesBlock(name, aliases) {
+  return aliases.test(String(name || "").trim());
+}
+
+registerCoreHook("functionPlot", "markdown.block", (input) => {
+  if (!matchesBlock(input.name, /^(function-plot|functionPlot|plot)$/i)) return null;
+  const settings = input.settings.functionPlot || {};
+  return { handled: true, html: settings.enabled === false ? "" : functionPlotHtml(input.lines || [], settings) };
+});
+
+registerCoreHook("geometryBoard", "markdown.block", (input) => {
+  if (!matchesBlock(input.name, /^(geometry|jsxgraph|math-geometry)$/i)) return null;
+  const settings = input.settings.geometryBoard || {};
+  return { handled: true, html: settings.enabled === false ? "" : geometryHtml(input.lines || [], settings) };
+});
+
+registerCoreHook("mathChart", "markdown.block", (input) => {
+  if (!matchesBlock(input.name, /^(math-chart|chart|model-chart)$/i)) return null;
+  const settings = input.settings.mathChart || {};
+  return { handled: true, html: settings.enabled === false ? "" : mathChartHtml(input.lines || [], settings) };
+});
+
+registerCoreHook("advancedSearch", "search.enhance", (result) => result);
+
+function renderPluginFence(lang, blockLines, context = {}) {
+  const result = runMarkdownBlockHooks({ style: "fence", name: lang, lines: blockLines }, context);
+  return result ? result.html : null;
 }
 
 function matchPluginColonFence(line) {
@@ -661,54 +785,39 @@ function isPluginColonFenceClose(line, marker) {
 }
 
 function renderPluginBlock(lines, start, context = {}) {
-  const settings = pluginSettings(context.config || {});
   const trimmed = lines[start].trim();
   const fence = matchPluginColonFence(trimmed);
-  if (fence && /^(function-plot|functionPlot|plot)$/i.test(fence.name)) {
-    const block = [];
-    let index = start + 1;
-    while (index < lines.length && !isPluginColonFenceClose(lines[index], fence.marker)) {
-      block.push(lines[index]);
-      index += 1;
-    }
-    if (index < lines.length) index += 1;
-    if (!settings.functionPlot?.enabled) {
-      return { html: "", next: index };
-    }
-    return { html: functionPlotHtml(block, settings.functionPlot), next: index };
+  if (!fence) return null;
+  const block = [];
+  let index = start + 1;
+  while (index < lines.length && !isPluginColonFenceClose(lines[index], fence.marker)) {
+    block.push(lines[index]);
+    index += 1;
   }
-  if (fence && /^(geometry|jsxgraph|math-geometry)$/i.test(fence.name)) {
-    const block = [];
-    let index = start + 1;
-    while (index < lines.length && !isPluginColonFenceClose(lines[index], fence.marker)) {
-      block.push(lines[index]);
-      index += 1;
-    }
-    if (index < lines.length) index += 1;
-    return { html: settings.geometryBoard?.enabled ? geometryHtml(block, settings.geometryBoard) : "", next: index };
-  }
-  if (fence && /^(math-chart|chart|model-chart)$/i.test(fence.name)) {
-    const block = [];
-    let index = start + 1;
-    while (index < lines.length && !isPluginColonFenceClose(lines[index], fence.marker)) {
-      block.push(lines[index]);
-      index += 1;
-    }
-    if (index < lines.length) index += 1;
-    return { html: settings.mathChart?.enabled ? mathChartHtml(block, settings.mathChart) : "", next: index };
-  }
+  if (index < lines.length) index += 1;
+  const result = runMarkdownBlockHooks({ style: "colon", name: fence.name, meta: fence.meta, lines: block }, context);
+  if (result) return { html: result.html, next: index };
   return null;
 }
 module.exports = {
+  HOOK_API_VERSION,
+  HOOK_DEFINITIONS,
   DEFAULT_PLUGINS,
   PLUGIN_CATALOG,
+  cleanManifest,
   basePluginCatalog,
   pluginCatalog,
   readPluginManifests,
   pluginVendorStatus,
   pluginRuntimeStatus,
+  pluginHookCapabilities,
+  normalizePluginHooks,
+  normalizePluginPermissions,
+  registerCoreHook,
   syncVendorPlugin,
   applyMagicWords,
+  runMarkdownPreprocessHooks,
+  runSearchEnhancementHooks,
   pluginSettings,
   renderPluginBlock,
   renderPluginFence,

@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-07-11 - Controlled Plugin Hook API
+
+- Defined manifest-declared Hook contracts for Markdown preprocessing, block rendering, search enhancement, and admin panels, each with an explicit required permission.
+- Routed first-party magic words, mathematical block renderers, and search-result finishing through the core Hook dispatcher without changing the trusted server-module boundary.
+- Kept every external `serverModule` declarative and non-executable by default; only code explicitly registered in the Wikist core can supply server-side Hook handlers.
+- Added a trusted `pluginHooks` client module and **Admin -> Hook API** panel that exposes each plugin's declared or blocked capabilities, including the service-side execution boundary.
+- Added manifest validation, Hook capability chips in Plugin management, `npm run check:hooks`, and updater coverage.
+- Bumped the framework package to `0.7.0` and the frontend asset version to `wikist-core-20260711-72`.
+
 ## 2026-07-11 - SQLite FTS5 Persistent Search
 
 - Added an optional SQLite FTS5 full-text index in the existing Passport database; no Elasticsearch, service process, or startup-wide Markdown scan is required.

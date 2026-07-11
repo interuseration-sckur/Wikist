@@ -1,0 +1,22 @@
+{
+  "id": "pluginHooks",
+  "name": "Wikist 插件 Hook API",
+  "type": "developer-tools",
+  "version": "1.0.0",
+  "source": "Wikist Core / Controlled Plugin Hooks",
+  "license": "MIT",
+  "description": "展示受控 Hook 声明、权限边界与已登记插件能力；服务端模块只登记，不会自动执行。",
+  "syntax": [
+    "hooks: [\"admin.panel\"]",
+    "permissions: [\"ui:admin-panel\"]",
+    "context.hooks.register(\"admin.panel\", { id, title, render })"
+  ],
+  "configKeys": ["enabled"],
+  "defaultConfig": {
+    "enabled": true
+  },
+  "entry": "clientModule",
+  "clientModule": "hooks.mjs",
+  "hooks": ["admin.panel"],
+  "permissions": ["ui:admin-panel"]
+}

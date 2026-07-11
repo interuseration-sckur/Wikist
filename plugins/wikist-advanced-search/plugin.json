@@ -23,6 +23,8 @@
     "bodyWeight",
     "categoryWeight"
   ],
+  "hooks": ["search.enhance"],
+  "permissions": ["search:enhance"],
   "defaultConfig": {
     "enabled": true,
     "engine": "wikist-mini",

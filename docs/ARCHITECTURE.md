@@ -99,6 +99,8 @@ Article source remains portable Markdown. Optional front matter fields `aliases`
 
 Plugin manifests are metadata first. Only trusted core plugins and reviewed `clientModule` entries execute. Third-party repositories can be cloned to `plugins/vendor/` for inspection, but are not automatically executed.
 
+The controlled Hook API names Markdown preprocessing, block rendering, search enhancement, and administration panels explicitly. Server-side Hook handlers are registered only by code already compiled into the Wikist core; a manifest's `serverModule` is descriptive and is never auto-imported. Trusted client modules must declare both `admin.panel` and `ui:admin-panel` before they can register a protected dashboard page. See [Controlled Plugin Hook API](PLUGIN_HOOKS.md).
+
 ## Source Records, Search, Translation, And Import
 
 `src/core/citations.js` normalizes portable front-matter reference records and validates citation keys, DOI, arXiv, URLs, author lists, year, and bibliographic fields. Markdown uses `[@key]` clusters for numbered back-linked citations and keeps `[^note]` as a separate explanatory-footnote system. Citation quality is calculated at page render time, so no additional database or external service is needed for ordinary reads.

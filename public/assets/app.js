@@ -1,6 +1,6 @@
 const THEME_KEY = "wikist-theme";
 const LANG_KEY = "wikist-language";
-const CORE_ASSET_VERSION = "wikist-core-20260711-71";
+const CORE_ASSET_VERSION = "wikist-core-20260711-72";
 const VDITOR_VERSION = "3.11.2";
 const VDITOR_CDN = `https://cdn.jsdelivr.net/npm/vditor@${VDITOR_VERSION}`;
 const SWEETALERT_VERSION = "11.26.25";
@@ -18,6 +18,7 @@ const urgentMessagePopupIds = new Set();
 let openccAssetsPromise = null;
 let openccConverter = null;
 let pluginModulePromises = new Map();
+const pluginAdminPanels = new Map();
 let hydrationTask = null;
 let hydrationRoot = null;
 let routeGeneration = 0;
@@ -1025,15 +1026,62 @@ function pluginClientModuleUrl(plugin) {
   return `/plugins/${encodeURIComponent(directory)}/${parts.map(encodeURIComponent).join("/")}?v=${encodeURIComponent(CORE_ASSET_VERSION)}`;
 }
 
-function loadClientPluginModules(root = el.main) {
+function pluginHookAllowed(plugin, hookName) {
+  const permission = { "admin.panel": "ui:admin-panel" }[hookName];
+  return Boolean(permission && plugin?.hooks?.includes(hookName) && plugin?.permissions?.includes(permission));
+}
+
+function activePluginAdminPanels() {
+  return [...pluginAdminPanels.values()]
+    .filter((panel) => state.site?.plugins?.[panel.pluginId]?.enabled !== false)
+    .sort((a, b) => a.order - b.order || a.title.localeCompare(b.title, "zh-CN"));
+}
+
+function createPluginHookApi(plugin) {
+  const registerAdminPanel = (definition = {}) => {
+    if (!pluginHookAllowed(plugin, "admin.panel")) throw new Error("manifest 未声明 admin.panel Hook 或 ui:admin-panel 权限。");
+    const id = String(definition.id || "").trim();
+    if (!/^[a-z][a-z0-9-]{1,40}$/i.test(id)) throw new Error("后台面板 ID 只能使用字母、数字和短横线。");
+    if (typeof definition.render !== "function") throw new Error("后台面板必须提供 render 函数。");
+    const routeId = `plugin-${String(plugin.id || "plugin").toLowerCase()}-${id.toLowerCase()}`;
+    const title = String(definition.title || plugin.name || plugin.id || "插件面板").trim().slice(0, 80);
+    const panel = {
+      routeId,
+      pluginId: plugin.id,
+      title: title || "插件面板",
+      description: String(definition.description || plugin.description || "").trim().slice(0, 300),
+      order: Math.max(0, Math.min(Number(definition.order) || 900, 9999)),
+      render: definition.render,
+    };
+    pluginAdminPanels.set(routeId, panel);
+    document.dispatchEvent(new CustomEvent("wikist:plugin-admin-panels", { detail: { pluginId: plugin.id, routeId } }));
+    return () => pluginAdminPanels.delete(routeId);
+  };
+  return Object.freeze({
+    version: "1.0",
+    allows: (hookName) => pluginHookAllowed(plugin, hookName),
+    register: (hookName, definition) => {
+      if (hookName !== "admin.panel") throw new Error(`客户端 Hook 不支持：${hookName}`);
+      return registerAdminPanel(definition);
+    },
+    registerAdminPanel,
+  });
+}
+
+async function loadClientPluginModules(root = el.main) {
   const catalog = state.site?.pluginCatalog || [];
   const settings = state.site?.plugins || {};
+  const pending = [];
   catalog.forEach((plugin) => {
     if (settings?.[plugin.id]?.enabled === false) return;
     if (!plugin.runtime?.executable || plugin.runtime?.state !== "client-active") return;
     const src = pluginClientModuleUrl(plugin);
-    if (!src || pluginModulePromises.has(src)) return;
-    const context = { api, route, state, root: root || el.main, plugin, hydratePlugins };
+    if (!src) return;
+    if (pluginModulePromises.has(src)) {
+      pending.push(pluginModulePromises.get(src));
+      return;
+    }
+    const context = { api, route, state, root: root || el.main, plugin, hooks: createPluginHookApi(plugin), hydratePlugins };
     const promise = import(src)
       .then((module) => {
         const activate = module.activate || module.default;
@@ -1042,7 +1090,9 @@ function loadClientPluginModules(root = el.main) {
       })
       .catch((error) => console.warn(`Wikist plugin module failed: ${plugin.id}`, error));
     pluginModulePromises.set(src, promise);
+    pending.push(promise);
   });
+  await Promise.all(pending);
 }
 
 function hydratePlugins(root = el.main) {
@@ -4081,7 +4131,7 @@ function adminSectionTitleLegacy(section) {
 }
 
 function adminSectionTitle(section) {
-  return ({ overview: "概览", users: "用户管理", pages: "词条管理", knowledge: "知识网络", citations: "来源审阅", reviews: "版本审阅", "search-index": "搜索索引", comments: "评论管理", "comment-replies": "二级评论", messages: "消息管理", logs: "更新日志", archives: "归档页面", backups: "全站备份", settings: "站点设置", imports: "导入导出", plugins: "插件管理" })[section] || "概览";
+  return ({ overview: "概览", users: "用户管理", pages: "词条管理", knowledge: "知识网络", citations: "来源审阅", reviews: "版本审阅", "search-index": "搜索索引", comments: "评论管理", "comment-replies": "二级评论", messages: "消息管理", logs: "更新日志", archives: "归档页面", backups: "全站备份", settings: "站点设置", imports: "导入导出", plugins: "插件管理" })[section] || pluginAdminPanels.get(section)?.title || "概览";
 }
 
 function adminShellLegacy(active, body) {
@@ -4099,6 +4149,7 @@ function adminShellLegacy(active, body) {
     ["imports", "导入导出"],
     ["settings", "站点设置"],
     ["plugins", "插件管理"],
+    ...activePluginAdminPanels().map((panel) => [panel.routeId, panel.title]),
   ];
   return `
     <section class="admin-layout">
@@ -4133,6 +4184,16 @@ function adminShell(active, body) {
 
 function adminHeader(title, summary) {
   return `<header class="article-head admin-head"><div class="article-title-row"><h1>${escapeHtml(title)}</h1><span class="quality-badge">后台</span></div><p class="article-summary">${escapeHtml(summary)}</p></header>`;
+}
+
+async function renderPluginAdminPanel(panel) {
+  el.main.innerHTML = adminShell(panel.routeId, `${adminHeader(panel.title, panel.description || "由可信客户端模块通过 Hook API 注册的后台面板。")}<section class="admin-settings-panel plugin-hook-panel"><div id="pluginHookPanelRoot"></div></section>`);
+  const root = document.querySelector("#pluginHookPanelRoot");
+  try {
+    await panel.render({ root, api, state, route, plugin: (state.site?.pluginCatalog || []).find((item) => item.id === panel.pluginId) || null });
+  } catch (error) {
+    root.innerHTML = `<p class="status-line error">${escapeHtml(error.message || "插件后台面板加载失败。")}</p>`;
+  }
 }
 
 function adminSearchForm(id, value, placeholder, extra = "") {
@@ -5196,6 +5257,12 @@ function pluginRuntimeHtml(plugin) {
   return `<span class="plugin-runtime-pill ${escapeHtml(state)}" title="${escapeHtml(runtime.detail || "")}">${escapeHtml(runtime.label)}</span>`;
 }
 
+function pluginHookHtml(plugin) {
+  const hooks = plugin.hookCapabilities || [];
+  if (!hooks.length) return '<small class="plugin-hook-empty">未声明 Hook；服务端模块不会自动执行。</small>';
+  return `<div class="plugin-hook-list">${hooks.map((hook) => `<span class="plugin-hook-chip ${hook.granted ? "declared" : "blocked"}" title="${escapeHtml(hook.detail || hook.description || "")}">${escapeHtml(hook.name)} · ${escapeHtml(hook.permission)}</span>`).join("")}</div>`;
+}
+
 function pluginVendorButton(plugin) {
   if (!plugin.vendor?.supported) return "";
   return `<button class="command-button secondary plugin-vendor-button" type="button" data-plugin-vendor-sync="${escapeHtml(plugin.id)}">${plugin.vendor.installed ? "更新仓库" : "拉取仓库"}</button>`;
@@ -5325,7 +5392,7 @@ function pluginTableRow(plugin, plugins) {
     <tr data-plugin-id="${escapeHtml(plugin.id)}">
       <td><strong>${escapeHtml(plugin.name)}</strong><small>${escapeHtml(plugin.id)} · ${escapeHtml(plugin.type)}</small></td>
       <td><span class="plugin-enabled-state">${config.enabled !== false ? "启用" : "停用"}</span><small class="plugin-state-meta">${escapeHtml(plugin.entry || "manifest-only")}</small>${pluginRuntimeHtml(plugin)}</td>
-      <td>${escapeHtml(plugin.description)}${pluginVendorHtml(plugin)}</td>
+      <td>${escapeHtml(plugin.description)}${pluginHookHtml(plugin)}${pluginVendorHtml(plugin)}</td>
       <td><pre class="plugin-doc plugin-doc-inline"><code>${escapeHtml(plugin.syntax.join("\n"))}</code></pre></td>
       <td>${pluginConfigTextarea(plugin, plugins)}<label class="plugin-enable inline"><input type="checkbox" data-plugin-enabled="${escapeHtml(plugin.id)}" ${config.enabled !== false ? "checked" : ""} />启用插件</label><div class="plugin-row-actions">${pluginVendorButton(plugin)}</div></td>
     </tr>`;
@@ -5353,6 +5420,8 @@ async function renderAdminPlugins(page = 1, query = "") {
         <label>入口<input name="entry" value="manifest-only" /></label>
         <label>客户端模块<input name="clientModule" placeholder="client.js 或 src/index.mjs" /></label>
         <label>服务端模块<input name="serverModule" placeholder="server.js（预留）" /></label>
+        <label>Hooks<input name="hooks" placeholder="admin.panel, markdown.block" /></label>
+        <label>权限<input name="permissions" placeholder="ui:admin-panel, content:render" /></label>
         <label>配置项<input name="configKeys" value="enabled" /></label>
         <label>Vendor 目录<input name="vendorDirectory" placeholder="例如：markdown-it-plugin" /></label>
         <label class="wide">来源<input name="source" placeholder="local:my-plugin 或 https://github.com/owner/repo" /></label>
@@ -5462,9 +5531,11 @@ async function renderAdmin(section = "overview") {
     el.main.innerHTML = `<section class="empty-state"><h1>无权访问后台</h1><p>后台仅允许资深编辑和管理员访问。普通用户可以继续编辑开放词条与参与评论。</p><a class="command-button" href="#/page/${encodeSlug(state.site.defaultPage)}">返回首页</a></section>`;
     return;
   }
+  await loadClientPluginModules(el.main);
   const parts = String(section || "overview").split("/");
   const requested = parts[0];
-  const active = ["overview", "users", "pages", "knowledge", "citations", "reviews", "search-index", "comments", "comment-replies", "messages", "logs", "archives", "backups", "imports", "settings", "plugins"].includes(requested) ? requested : "overview";
+  const pluginPanel = activePluginAdminPanels().find((panel) => panel.routeId === requested) || null;
+  const active = ["overview", "users", "pages", "knowledge", "citations", "reviews", "search-index", "comments", "comment-replies", "messages", "logs", "archives", "backups", "imports", "settings", "plugins"].includes(requested) || pluginPanel ? requested : "overview";
   setChromeTitle(`后台 - ${adminSectionTitle(active === "comment-replies" ? "comment-replies" : active)}`);
   renderToc([]);
   el.editLink.href = "#/new";
@@ -5486,6 +5557,7 @@ async function renderAdmin(section = "overview") {
   else if (active === "imports") await renderAdminImports();
   else if (active === "settings") await renderAdminSettings();
   else if (active === "plugins") await renderAdminPlugins(Number(parts[1]) || 1, "");
+  else if (pluginPanel) await renderPluginAdminPanel(pluginPanel);
   else await renderAdminOverview();
 }
 function parseRoute() {

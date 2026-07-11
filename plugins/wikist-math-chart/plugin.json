@@ -16,6 +16,8 @@
     ":::"
   ],
   "configKeys": ["enabled", "cdn", "defaultHeight", "grid"],
+  "hooks": ["markdown.block"],
+  "permissions": ["content:render"],
   "defaultConfig": {
     "enabled": true,
     "cdn": "https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.min.js",

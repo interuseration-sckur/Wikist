@@ -13,6 +13,8 @@
     "{{#ifeq: A | B | 相等 | 不相等 }}"
   ],
   "configKeys": ["enabled", "custom"],
+  "hooks": ["markdown.preprocess"],
+  "permissions": ["content:transform"],
   "defaultConfig": {
     "enabled": true,
     "custom": {}

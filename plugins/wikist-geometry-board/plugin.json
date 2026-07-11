@@ -19,6 +19,8 @@
     ":::"
   ],
   "configKeys": ["enabled", "cdn", "cssCdn", "defaultHeight", "axis", "grid"],
+  "hooks": ["markdown.block"],
+  "permissions": ["content:render"],
   "defaultConfig": {
     "enabled": true,
     "cdn": "https://cdn.jsdelivr.net/npm/jsxgraph@1.10.1/distrib/jsxgraphcore.js",

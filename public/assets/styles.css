@@ -7642,6 +7642,94 @@ body.admin-mode .plugin-json.compact {
 }
 
 /* v0.6.0: Wikist-native subscription, review, and persistent search controls. */
+
+/* v0.7.0: Controlled plugin Hook API surfaces. */
+.plugin-hook-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 9px;
+}
+
+.plugin-hook-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 3px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--panel) 84%, transparent);
+  font-size: .76rem;
+  line-height: 1.15;
+}
+
+.plugin-hook-chip.declared {
+  border-color: color-mix(in srgb, var(--cyan) 52%, var(--line));
+  color: var(--cyan);
+}
+
+.plugin-hook-chip.blocked {
+  border-color: color-mix(in srgb, var(--pink) 55%, var(--line));
+  color: var(--pink);
+}
+
+.plugin-hook-empty,
+.plugin-hook-server-note {
+  display: block;
+  margin-top: 9px;
+  color: var(--muted);
+}
+
+.plugin-hook-server-note { color: var(--amber); }
+
+.plugin-hook-panel { min-height: 260px; }
+
+.plugin-hook-intro {
+  padding: 16px;
+  border: 1px solid color-mix(in srgb, var(--cyan) 30%, var(--line));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--panel-strong) 84%, transparent);
+}
+
+.plugin-hook-intro strong { color: var(--cyan); }
+.plugin-hook-intro p { margin: 7px 0 0; color: var(--muted); line-height: 1.7; }
+
+.plugin-hook-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.plugin-hook-card {
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.plugin-hook-card-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.plugin-hook-card-head strong { color: var(--text); }
+.plugin-hook-card-head small { min-width: 0; color: var(--muted); overflow-wrap: anywhere; }
+
+html[data-theme="light"] .plugin-hook-chip { background: #f4fbfa; border-color: #b8d5d0; color: #425653; }
+html[data-theme="light"] .plugin-hook-chip.declared { border-color: #74b9b0; color: #087d73; }
+html[data-theme="light"] .plugin-hook-chip.blocked { border-color: #e3a5ae; color: #b4233c; }
+html[data-theme="light"] .plugin-hook-intro { background: #f7fcfb; border-color: #a7dcd5; }
+html[data-theme="light"] .plugin-hook-card { background: #ffffff; border-color: #c8ddd9; }
+
+@media (max-width: 620px) {
+  .plugin-hook-grid { grid-template-columns: 1fr; }
+  .plugin-hook-card-head { align-items: flex-start; flex-direction: column; gap: 3px; }
+}
 .watchlist-manage-action {
   display: flex;
   margin-top: auto;

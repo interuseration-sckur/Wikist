@@ -9,7 +9,7 @@ const { fetchWikipediaPage, parseWikistImport } = require("../core/import-export
 const { publicMailSettings, sendWikistMail, siteBaseUrl } = require("../core/mailer");
 const { renderMarkdown } = require("../core/markdown");
 const { PersistentFtsIndex } = require("../core/fts-index");
-const { pluginCatalog, pluginSettings, syncVendorPlugin } = require("../core/plugin-registry");
+const { HOOK_DEFINITIONS, normalizePluginHooks, normalizePluginPermissions, pluginCatalog, pluginSettings, syncVendorPlugin } = require("../core/plugin-registry");
 const { PageStore } = require("../core/page-store");
 const { PassportStore, clearSessionCookie, sessionCookie } = require("../core/passport-store");
 const { buildLineDiff } = require("../core/revision-review");
@@ -192,8 +192,8 @@ function siteIconUrl(config) {
 function serveIndexHtml(req, res, indexPath, config) {
   const icon = siteIconUrl(config);
   const html = fs.readFileSync(indexPath, "utf8")
-    .replace(/href="\/assets\/styles\.css\?v=wikist-core-20260711-71"/g, `href="${escapeHtml(assetUrl(config, "/assets/styles.css?v=wikist-core-20260711-71"))}"`)
-    .replace(/src="\/assets\/app\.js\?v=wikist-core-20260711-71"/g, `src="${escapeHtml(assetUrl(config, "/assets/app.js?v=wikist-core-20260711-71"))}"`)
+    .replace(/href="\/assets\/styles\.css\?v=wikist-core-20260711-72"/g, `href="${escapeHtml(assetUrl(config, "/assets/styles.css?v=wikist-core-20260711-72"))}"`)
+    .replace(/src="\/assets\/app\.js\?v=wikist-core-20260711-72"/g, `src="${escapeHtml(assetUrl(config, "/assets/app.js?v=wikist-core-20260711-72"))}"`)
     .replace(/href="\/assets\/wikist-emblem\.svg"/g, `href="${escapeHtml(icon)}"`)
     .replace(/src="\/assets\/wikist-emblem\.svg"/g, `src="${escapeHtml(icon)}"`)
     .replace(/<title>Wikist<\/title>/, `<title>${escapeHtml(config.name || "Wikist")}</title>`);
@@ -470,6 +470,32 @@ function cleanPluginId(value) {
   return id;
 }
 
+function manifestList(value) {
+  const source = Array.isArray(value) ? value : String(value || "").split(/[\n,]/);
+  return [...new Set(source.map((item) => String(item || "").trim()).filter(Boolean))].slice(0, 40);
+}
+
+function validatePluginManifestDeclarations(input = {}) {
+  const hooks = manifestList(input.hooks);
+  const permissions = manifestList(input.permissions);
+  const validHooks = normalizePluginHooks(hooks);
+  const validPermissions = normalizePluginPermissions(permissions);
+  const invalidHook = hooks.find((item) => !Object.prototype.hasOwnProperty.call(HOOK_DEFINITIONS, item));
+  const validPermissionNames = new Set(Object.values(HOOK_DEFINITIONS).map((item) => item.permission));
+  const invalidPermission = permissions.find((item) => !validPermissionNames.has(item));
+  if (invalidHook) {
+    const error = new Error(`不支持的 Hook：${invalidHook}`);
+    error.statusCode = 400;
+    throw error;
+  }
+  if (invalidPermission) {
+    const error = new Error(`不支持的插件权限：${invalidPermission}`);
+    error.statusCode = 400;
+    throw error;
+  }
+  return { hooks: validHooks, permissions: validPermissions };
+}
+
 function createPluginManifest(rootDir, input = {}) {
   const id = cleanPluginId(input.id);
   const dirName = id.replace(/([a-z])([A-Z])/g, "$1-$2").toLowerCase();
@@ -481,9 +507,10 @@ function createPluginManifest(rootDir, input = {}) {
     error.statusCode = 409;
     throw error;
   }
-  fs.mkdirSync(pluginDir, { recursive: true });
   const configKeys = Array.isArray(input.configKeys) ? input.configKeys : String(input.configKeys || "enabled").split(",").map((item) => item.trim()).filter(Boolean);
   const syntax = Array.isArray(input.syntax) ? input.syntax : String(input.syntax || "").split("\n").map((item) => item.trim()).filter(Boolean);
+  const declarations = validatePluginManifestDeclarations(input);
+  fs.mkdirSync(pluginDir, { recursive: true });
   const manifest = {
     id,
     name: cleanSettingText(input.name || id, 80) || id,
@@ -495,6 +522,8 @@ function createPluginManifest(rootDir, input = {}) {
     description: cleanSettingText(input.description || "", 500),
     syntax,
     configKeys: configKeys.length ? configKeys : ["enabled"],
+    hooks: declarations.hooks,
+    permissions: declarations.permissions,
     defaultConfig: input.defaultConfig && typeof input.defaultConfig === "object" ? input.defaultConfig : { enabled: true },
     entry: cleanSettingText(input.entry || "manifest-only", 120) || "manifest-only",
     serverModule: cleanSettingText(input.serverModule || "", 180),

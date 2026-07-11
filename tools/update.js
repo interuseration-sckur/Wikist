@@ -293,6 +293,7 @@ function runChecks(options) {
   if (!options.check) return;
   run(bin("npm"), ["run", "check"], options);
   run(bin("npm"), ["run", "check:search"], options);
+  run(bin("npm"), ["run", "check:hooks"], options);
   run(bin("npm"), ["run", "check:knowledge"], options);
   run(bin("npm"), ["run", "check:citations"], options);
   run(bin("npm"), ["run", "check:reviews"], options);

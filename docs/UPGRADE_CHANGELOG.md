@@ -1,5 +1,14 @@
 # Wikist 站点升级日志
 
+## 2026-07-11 - 可控插件 Hook API
+
+- 新增 `markdown.preprocess`、`markdown.block`、`search.enhance` 与 `admin.panel` 四类显式 Hook，并要求 manifest 同时声明所需权限。
+- 魔法词、函数/几何/图表块和搜索结果整理已切换到核心 Hook 分发；既有语法和可信模块边界保持兼容。
+- 外部 `serverModule` 即使在 manifest 中声明，也只显示为“服务端模块已声明”，框架不会自动导入或执行；只有已并入核心发行版的处理器才能注册服务端 Hook。
+- 新增 `plugins/wikist-plugin-hooks/` 示例和后台“Hook API”页面，插件管理同时显示 Hook、权限与阻断状态。
+- 新增 `npm run check:hooks`，更新程序会自动执行该检查。
+- 框架升级为 `0.7.0`，核心前端资源升级为 `wikist-core-20260711-72`。
+
 ## 2026-07-11 - SQLite FTS5 持久搜索索引
 
 - 新增可选 SQLite FTS5 持久全文索引，复用 Passport 现有数据库；无需 Elasticsearch、独立服务或启动时遍历全量 Markdown。

@@ -19,6 +19,8 @@
     ":::"
   ],
   "configKeys": ["enabled", "d3Cdn", "cdn", "mathCdn", "defaultHeight", "samples", "grid"],
+  "hooks": ["markdown.block"],
+  "permissions": ["content:render"],
   "defaultConfig": {
     "enabled": true,
     "d3Cdn": "",

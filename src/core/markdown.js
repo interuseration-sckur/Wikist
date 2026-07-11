@@ -1,4 +1,4 @@
-const { applyMagicWords, pluginSettings, renderPluginBlock, renderPluginFence } = require("./plugin-registry");
+const { pluginSettings, renderPluginBlock, renderPluginFence, runMarkdownPreprocessHooks } = require("./plugin-registry");
 const { slugToId } = require("./slug");
 const { normalizeReferences, referenceQuality, formatReferenceText } = require("./citations");
 
@@ -517,7 +517,7 @@ function renderContainer(lines, start, context, runtime) {
 }
 
 function renderMarkdown(source, context = {}) {
-  const preparedSource = applyMagicWords(source, context, context.config?.plugins?.magicWords);
+  const preparedSource = runMarkdownPreprocessHooks(source, context);
   const preparedLines = String(preparedSource || "").replace(/\r\n/g, "\n").split("\n");
   const footnotesEnabled = markdownFeatureEnabled(context, "upstreamFootnote");
   const extracted = footnotesEnabled ? extractFootnotes(preparedLines) : { lines: preparedLines, footnotes: new Map() };
