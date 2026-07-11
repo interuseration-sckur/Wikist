@@ -6,6 +6,7 @@ const { normalizeArxiv, normalizeCitationId, normalizeDoi, normalizeUrl } = requ
 const { hasSiteConfig, loadConfig, uninstallSiteConfig, writeInitialConfig } = require("../core/config");
 const { readJsonBody, safeJoin, sendJson, sendText, serveStatic } = require("../core/http");
 const { fetchWikipediaPage, parseWikistImport } = require("../core/import-export");
+const { categoryDetail, categorySnapshot, topicDetail } = require("../core/knowledge-navigation");
 const { publicMailSettings, sendWikistMail, siteBaseUrl } = require("../core/mailer");
 const { renderMarkdown } = require("../core/markdown");
 const { PersistentFtsIndex } = require("../core/fts-index");
@@ -192,8 +193,8 @@ function siteIconUrl(config) {
 function serveIndexHtml(req, res, indexPath, config) {
   const icon = siteIconUrl(config);
   const html = fs.readFileSync(indexPath, "utf8")
-    .replace(/href="\/assets\/styles\.css\?v=wikist-core-20260711-72"/g, `href="${escapeHtml(assetUrl(config, "/assets/styles.css?v=wikist-core-20260711-72"))}"`)
-    .replace(/src="\/assets\/app\.js\?v=wikist-core-20260711-72"/g, `src="${escapeHtml(assetUrl(config, "/assets/app.js?v=wikist-core-20260711-72"))}"`)
+    .replace(/href="\/assets\/styles\.css\?v=wikist-core-20260711-73"/g, `href="${escapeHtml(assetUrl(config, "/assets/styles.css?v=wikist-core-20260711-73"))}"`)
+    .replace(/src="\/assets\/app\.js\?v=wikist-core-20260711-73"/g, `src="${escapeHtml(assetUrl(config, "/assets/app.js?v=wikist-core-20260711-73"))}"`)
     .replace(/href="\/assets\/wikist-emblem\.svg"/g, `href="${escapeHtml(icon)}"`)
     .replace(/src="\/assets\/wikist-emblem\.svg"/g, `src="${escapeHtml(icon)}"`)
     .replace(/<title>Wikist<\/title>/, `<title>${escapeHtml(config.name || "Wikist")}</title>`);
@@ -1740,9 +1741,24 @@ function createWikistServer(options) {
           sendJson(res, 404, { error: "词条不存在。", slug: resolved.requestedSlug });
           return;
         }
+        const linkLimit = Math.max(4, Math.min(Number(url.searchParams.get("limit")) || 8, 40));
+        const linkOptions = {
+          defaultSlug: config.defaultPage || "home",
+          linkLimit,
+          backlinksPage: Math.max(1, Number(url.searchParams.get("backlinksPage")) || 1),
+          outgoingPage: Math.max(1, Number(url.searchParams.get("outgoingPage")) || 1),
+        };
         const knowledge = passport
-          ? passport.pageKnowledge(resolved.page.slug, pages.listPages(), { defaultSlug: config.defaultPage || "home" })
-          : { pageSlug: resolved.page.slug, outgoing: [], backlinks: [], aliases: [], stats: {} };
+          ? passport.pageKnowledge(resolved.page.slug, pages.listPages(), linkOptions)
+          : {
+            pageSlug: resolved.page.slug,
+            outgoing: [],
+            backlinks: [],
+            outgoingPagination: { page: 1, limit: linkLimit, total: 0, totalPages: 1, hasPrevious: false, hasNext: false },
+            backlinksPagination: { page: 1, limit: linkLimit, total: 0, totalPages: 1, hasPrevious: false, hasNext: false },
+            aliases: [],
+            stats: {},
+          };
         sendJson(res, 200, knowledge);
         return;
       }
@@ -1859,6 +1875,25 @@ function createWikistServer(options) {
         return;
       }
 
+      const translationReviewMatch = pathname.match(/^\/api\/pages\/(.+)\/translation\/([^/]+)\/review$/);
+      if (translationReviewMatch && req.method === "POST") {
+        if (!passport || !session?.user) {
+          sendJson(res, 401, { error: "请先登录后审核译文。" });
+          return;
+        }
+        const slug = normalizeSlug(decodePathPart(translationReviewMatch[1]));
+        const language = decodePathPart(translationReviewMatch[2]);
+        const page = pages.getPage(slug);
+        if (!page) {
+          sendJson(res, 404, { error: "词条不存在。", slug });
+          return;
+        }
+        const translation = passport.reviewTranslation(session, slug, language, await readJsonBody(req));
+        recordAudit(passport, req, session, { action: "translation.review", targetType: "page", targetId: slug, targetLabel: page.title, summary: translation.status === "published" ? "审核通过译文" : "要求修改译文", metadata: { language: translation.language, status: translation.status, progress: translation.progress } });
+        sendJson(res, 200, { translation, translations: passport.translationSummary(slug, page.body, config.languages || []) });
+        return;
+      }
+
       if (pathname.startsWith("/api/pages/") && pathname.endsWith("/translation") && req.method === "GET") {
         const slug = slugFromNestedPath(pathname, "/api/pages/", "/translation");
         const page = pages.getPage(slug);
@@ -1867,7 +1902,8 @@ function createWikistServer(options) {
           return;
         }
         const language = url.searchParams.get("lang") || "en";
-        const translation = passport ? passport.getTranslation(slug, language) : null;
+        const workspace = url.searchParams.get("workspace") === "1";
+        const translation = passport ? passport.getReadableTranslation(slug, language, session, { workspace }) : null;
         const renderedTranslation = translation?.translatedMd ? renderMarkdown(translation.translatedMd || "") : null;
         sendJson(res, 200, {
           source: { slug: page.slug, title: page.title, summary: page.summary, body: page.body, html: page.html, toc: page.toc, language: "zh-CN", updatedAt: page.updatedAt },
@@ -2015,6 +2051,47 @@ function createWikistServer(options) {
           metadata: { noteId: result.withdrawn.id, revisionId: result.withdrawn.revisionId, decision: result.withdrawn.decision, stableChanged: result.stableChanged },
         });
         sendJson(res, 200, { ...result, page: pagePreviewPayload(current) });
+        return;
+      }
+
+      const pageMoveMatch = pathname.match(/^\/api\/pages\/(.+)\/move$/);
+      if (pageMoveMatch && req.method === "POST") {
+        if (!passport || !session?.user) {
+          sendJson(res, 401, { error: "请先登录后移动词条。" });
+          return;
+        }
+        passport.assertCanManagePermissions(session);
+        const sourceSlug = normalizeSlug(decodePathPart(pageMoveMatch[1]));
+        const body = await readJsonBody(req);
+        let targetSlug;
+        try { targetSlug = normalizeSlug(body.targetSlug || body.slug || ""); } catch (_error) {
+          sendJson(res, 400, { error: "目标 slug 格式无效。" });
+          return;
+        }
+        if (passport.resolvePageAlias(targetSlug)) {
+          sendJson(res, 409, { error: "目标 slug 已被别名占用，请先调整别名。", targetSlug });
+          return;
+        }
+        const footprint = passport.pageDataFootprint(targetSlug);
+        if (footprint.hasData) {
+          sendJson(res, 409, { error: "目标 slug 留有历史协作数据，无法安全合并移动。请先选择新的 slug 或清理该历史记录。", targetSlug, tables: footprint.tables });
+          return;
+        }
+        const moved = pages.movePage(sourceSlug, targetSlug, { leaveRedirect: body.leaveRedirect !== false });
+        if (!moved) {
+          sendJson(res, 404, { error: "词条不存在。", slug: sourceSlug });
+          return;
+        }
+        const storage = passport.movePageData(sourceSlug, targetSlug, moved.page.title);
+        const rewritten = pages.rewriteReferencesForMove(sourceSlug, targetSlug);
+        passport.syncPageLinks(moved.page);
+        if (moved.redirect) passport.syncPageLinks(moved.redirect);
+        for (const page of rewritten) passport.syncPageLinks(page);
+        const audit = passport.recordPageEdit(req, session, moved.page, { action: "move" });
+        recordAudit(passport, req, session, { action: "page.move", targetType: "page", targetId: targetSlug, targetLabel: moved.page.title, summary: `移动词条 ${sourceSlug} → ${targetSlug}`, metadata: { sourceSlug, targetSlug, redirect: Boolean(moved.redirect), rewritten: rewritten.length, storage } });
+        const knowledge = knowledgeWrite(passport, moved.page, session, { action: "update", senderName: session.user.displayName || session.user.username || "Wikist" });
+        setCookieHeader(res, audit.cookie);
+        sendJson(res, 200, { moved: { ...moved, rewritten: rewritten.map(pagePreviewPayload) }, knowledge, editEvent: audit.event });
         return;
       }
 
@@ -2273,6 +2350,26 @@ function createWikistServer(options) {
 
       if (pathname === "/api/recent" && req.method === "GET") {
         sendJson(res, 200, pages.getRecent(12));
+        return;
+      }
+
+      if (pathname === "/api/categories" && req.method === "GET") {
+        const pageList = pages.listPages();
+        const requested = url.searchParams.get("name") || "";
+        if (requested) {
+          sendJson(res, 200, categoryDetail(pageList, requested));
+        } else {
+          const snapshot = categorySnapshot(pageList);
+          sendJson(res, 200, { categories: snapshot.rootCategoryItems, topics: snapshot.rootTopicItems });
+        }
+        return;
+      }
+
+      if (pathname === "/api/topics" && req.method === "GET") {
+        const pageList = pages.listPages();
+        const requested = url.searchParams.get("name") || "";
+        if (requested) sendJson(res, 200, topicDetail(pageList, requested));
+        else sendJson(res, 200, { topics: categorySnapshot(pageList).rootTopicItems });
         return;
       }
 

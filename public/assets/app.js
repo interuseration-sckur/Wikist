@@ -1,6 +1,6 @@
 const THEME_KEY = "wikist-theme";
 const LANG_KEY = "wikist-language";
-const CORE_ASSET_VERSION = "wikist-core-20260711-72";
+const CORE_ASSET_VERSION = "wikist-core-20260711-73";
 const VDITOR_VERSION = "3.11.2";
 const VDITOR_CDN = `https://cdn.jsdelivr.net/npm/vditor@${VDITOR_VERSION}`;
 const SWEETALERT_VERSION = "11.26.25";
@@ -35,6 +35,7 @@ const state = {
   unreadMessages: 0,
   messagePopoverOpen: false,
   uiLanguage: "zh-CN",
+  pageLanguage: "zh-CN",
 };
 
 const el = {
@@ -1573,7 +1574,7 @@ function slugFromPageHref(href) {
   const raw = String(href || "");
   const match = raw.match(/^#\/page\/(.+)$/);
   if (!match) return "";
-  return normalizeClientSlug(match[1].split("#")[0]).trim().replace(/\s+/g, "-").replace(/^\/+|\/+$/g, "").toLowerCase();
+  return normalizeClientSlug(match[1].split(/[?#]/)[0]).trim().replace(/\s+/g, "-").replace(/^\/+|\/+$/g, "").toLowerCase();
 }
 
 function knownPageSlugs() {
@@ -1654,6 +1655,11 @@ function enhanceWikiLinks(root = el.main) {
       if (link.dataset.wikiPreviewBound === "1") return;
       const slug = slugFromPageHref(link.getAttribute("href"));
       if (!slug) return;
+      const language = normalizeLanguageCode(state.pageLanguage || "zh-CN", "zh-CN");
+      if (language !== "zh-CN" && !link.dataset.languageAware) {
+        link.dataset.languageAware = "true";
+        link.setAttribute("href", `#/page/${encodeSlug(slug)}?lang=${encodeURIComponent(language)}`);
+      }
       link.dataset.wikiPreviewBound = "1";
       link.dataset.pageSlug = slug;
       link.classList.add("wiki-page-link");
@@ -1765,27 +1771,48 @@ function knowledgeLinkRow(item, label) {
   return `<a class="knowledge-list-item" href="#/page/${encodeSlug(item.slug)}"><span>${escapeHtml(label)}</span><strong>${escapeHtml(title)}</strong><small>${escapeHtml(item.summary || item.slug)}</small></a>`;
 }
 
-async function loadPageKnowledge(slug) {
+function knowledgeLinkPagerHtml(pagination, kind, pages = {}) {
+  const info = pagination || { page: 1, total: 0, totalPages: 1, hasPrevious: false, hasNext: false };
+  if (!info.total) return "";
+  if (Number(info.totalPages) <= 1) return `<div class="knowledge-link-pager single"><span>共 ${Number(info.total)} 条</span></div>`;
+  const previous = Math.max(1, Number(info.page) - 1);
+  const next = Math.min(Number(info.totalPages), Number(info.page) + 1);
+  const button = (label, targetPage, disabled) => `<button class="mini-link knowledge-pagination-button" type="button" data-knowledge-link-page="1" data-knowledge-link-kind="${kind}" data-backlinks-page="${kind === "backlinks" ? targetPage : Number(pages.backlinksPage || 1)}" data-outgoing-page="${kind === "outgoing" ? targetPage : Number(pages.outgoingPage || 1)}" ${disabled ? "disabled" : ""}>${label}</button>`;
+  return `<nav class="knowledge-link-pager" aria-label="${kind === "backlinks" ? "反向链接" : "正文链接"}分页">${button("上一页", previous, !info.hasPrevious)}<span>第 ${Number(info.page)} / ${Number(info.totalPages)} 页 · 共 ${Number(info.total)} 条</span>${button("下一页", next, !info.hasNext)}</nav>`;
+}
+
+async function loadPageKnowledge(slug, pages = {}) {
   const target = document.querySelector("#pageKnowledgePanel");
   if (!target) return;
-  const payload = await api(`/api/pages/${encodeSlug(slug)}/links`).catch(() => null);
+  const backlinksPage = Math.max(1, Number(pages.backlinksPage) || 1);
+  const outgoingPage = Math.max(1, Number(pages.outgoingPage) || 1);
+  const payload = await api(`/api/pages/${encodeSlug(slug)}/links?backlinksPage=${backlinksPage}&outgoingPage=${outgoingPage}&limit=8`).catch(() => null);
   if (!payload) return;
   const aliases = (payload.aliases || []).map((item) => `<span class="chip">别名 ${escapeHtml(item.aliasSlug)}</span>`).join("");
   const backlinks = payload.backlinks || [];
   const outgoing = payload.outgoing || [];
+  const backlinksPagination = payload.backlinksPagination || { page: backlinksPage, total: backlinks.length, totalPages: 1, hasPrevious: false, hasNext: false };
+  const outgoingPagination = payload.outgoingPagination || { page: outgoingPage, total: outgoing.length, totalPages: 1, hasPrevious: false, hasNext: false };
   target.innerHTML = `
     <section class="knowledge-panel">
       <div class="section-title-row"><div><h2>知识链接</h2><p class="muted-line">由词条中的 Wiki 链接自动建立，保存后即时更新。</p></div><a class="mini-link" href="#/knowledge">浏览知识网络</a></div>
       ${aliases ? `<div class="chip-row knowledge-aliases">${aliases}</div>` : ""}
       <div class="knowledge-grid compact">
-        <div><h3>反向链接 <span>${backlinks.length}</span></h3>${backlinks.length ? backlinks.slice(0, 8).map((item) => knowledgeLinkRow(item, "来自")).join("") : '<p class="muted-line">暂无其他词条链接到这里。</p>'}</div>
-        <div><h3>正文链接 <span>${outgoing.length}</span></h3>${outgoing.length ? outgoing.slice(0, 8).map((item) => knowledgeLinkRow(item, "指向")).join("") : '<p class="muted-line">正文中尚未建立 Wiki 链接。</p>'}</div>
+        <div><h3>反向链接 <span>${Number(backlinksPagination.total || 0)}</span></h3>${backlinks.length ? backlinks.map((item) => knowledgeLinkRow(item, "来自")).join("") : '<p class="muted-line">暂无其他词条链接到这里。</p>'}${knowledgeLinkPagerHtml(backlinksPagination, "backlinks", { backlinksPage, outgoingPage })}</div>
+        <div><h3>正文链接 <span>${Number(outgoingPagination.total || 0)}</span></h3>${outgoing.length ? outgoing.map((item) => knowledgeLinkRow(item, "指向")).join("") : '<p class="muted-line">正文中尚未建立 Wiki 链接。</p>'}${knowledgeLinkPagerHtml(outgoingPagination, "outgoing", { backlinksPage, outgoingPage })}</div>
       </div>
     </section>`;
+  target.querySelectorAll("[data-knowledge-link-page]").forEach((button) => {
+    button.addEventListener("click", () => loadPageKnowledge(slug, {
+      backlinksPage: Number(button.dataset.backlinksPage) || 1,
+      outgoingPage: Number(button.dataset.outgoingPage) || 1,
+    }));
+  });
+  enhanceWikiLinks(target);
 }
 
 function articleHeader(page) {
-  const categories = page.categories?.length ? page.categories.map((item) => `<span class="chip">${escapeHtml(item)}</span>`).join("") : '<span class="chip">未分类</span>';
+  const categories = page.categories?.length ? page.categories.map((item) => `<a class="chip category-chip" href="#/category/${encodeURIComponent(item)}">${escapeHtml(item)}</a>`).join("") : '<span class="chip">未分类</span>';
   const hero = page.heroImage ? `<figure class="article-hero-image"><img src="${escapeHtml(page.heroImage)}" alt="" loading="lazy" /></figure>` : "";
   const languageChip = page.language && page.language !== "zh-CN"
     ? `<span class="chip">语言 ${escapeHtml(languageLabel(page.language))}${page.translationProgress !== undefined ? ` · ${Number(page.translationProgress || 0)}%` : ""}</span>`
@@ -1809,6 +1836,17 @@ function articleHeader(page) {
       <div class="chip-row">${categories}</div>
     </header>
   `;
+}
+
+function mathematicalMetadataHtml(page) {
+  const prerequisites = page.prerequisites || [];
+  const related = page.relatedPages || [];
+  const canonicalNames = page.canonicalNames || [];
+  const notation = page.notation || [];
+  const classifications = page.classifications || [];
+  if (!prerequisites.length && !related.length && !canonicalNames.length && !notation.length && !classifications.length && !page.topic) return "";
+  const linkList = (items) => items.map((slug) => `<a href="#/page/${encodeSlug(slug)}">${escapeHtml(slug)}</a>`).join("");
+  return `<section class="math-metadata-panel"><div class="math-metadata-head"><div><span class="system-kicker">Mathematical Context</span><h2>知识上下文</h2></div>${page.topic ? `<a class="topic-chip" href="#/topic/${encodeURIComponent(page.topic)}">${escapeHtml(page.topic)}</a>` : ""}</div><div class="math-metadata-grid">${canonicalNames.length ? `<section><small>规范名称</small><div class="chip-row">${canonicalNames.map((item) => `<span class="chip">${escapeHtml(item)}</span>`).join("")}</div></section>` : ""}${classifications.length ? `<section><small>分类标识</small><div class="chip-row">${classifications.map((item) => `<span class="chip">${escapeHtml(item)}</span>`).join("")}</div></section>` : ""}${prerequisites.length ? `<section><small>前置知识</small><div class="metadata-link-list">${linkList(prerequisites)}</div></section>` : ""}${related.length ? `<section><small>相关词条</small><div class="metadata-link-list">${linkList(related)}</div></section>` : ""}${notation.length ? `<section class="notation-section"><small>记号约定</small><div class="notation-list">${notation.map((item) => `<div><strong>${escapeHtml(item.symbol)}</strong><span>${escapeHtml(item.meaning || "未说明")}</span>${item.scope ? `<em>${escapeHtml(item.scope)}</em>` : ""}</div>`).join("")}</div></section>` : ""}</div></section>`;
 }
 
 function disambiguationPanelHtml(page) {
@@ -2191,10 +2229,11 @@ async function renderPage(value) {
         translationNotice = `<section class="translation-missing-note"><strong>${escapeHtml(languageLabel(preferredLang))} 译文尚未发布。</strong><span>当前显示源词条。你可以进入翻译工作台创建该语言版本。</span><a href="#/translate/${encodeSlug(page.slug)}?lang=${encodeURIComponent(preferredLang)}">创建译文</a></section>`;
       }
     }
+    state.pageLanguage = activeLang;
     setChromeTitle(displayPage.title);
     renderToc(displayPage.toc);
     const aliasNotice = page.redirectedFrom ? `<aside class="knowledge-alias-notice"><strong>已通过别名跳转</strong><span>${escapeHtml(page.redirectedFrom)} → ${escapeHtml(page.slug)}</span></aside>` : "";
-    el.main.innerHTML = `${pageToolNav(page.slug, "page")}${aliasNotice}${articleHeader(displayPage)}${disambiguationPanelHtml(page)}${pageReviewStatusHtml(page)}${citationQualityPanelHtml(page)}${translationNotice}<section class="page-translation-panel" id="pageTranslationPanel"></section><article class="article-body">${displayPage.html}</article><section id="pageKnowledgePanel"></section><section class="page-rating-panel" id="pageRatingPanel"></section><section class="edit-timeline-section"><div class="section-title-row"><h2>最近编辑</h2><a class="mini-link" href="#/history/${encodeSlug(page.slug)}">查看全部</a></div><div class="edit-timeline" id="pageEditTimeline"></div></section>`;
+    el.main.innerHTML = `${pageToolNav(page.slug, "page")}${aliasNotice}${articleHeader(displayPage)}${disambiguationPanelHtml(page)}${pageReviewStatusHtml(page)}${citationQualityPanelHtml(page)}${mathematicalMetadataHtml(page)}${translationNotice}<section class="page-translation-panel" id="pageTranslationPanel"></section><article class="article-body">${displayPage.html}</article><section id="pageKnowledgePanel"></section><section class="page-rating-panel" id="pageRatingPanel"></section><section class="edit-timeline-section"><div class="section-title-row"><h2>最近编辑</h2><a class="mini-link" href="#/history/${encodeSlug(page.slug)}">查看全部</a></div><div class="edit-timeline" id="pageEditTimeline"></div></section>`;
     await Promise.all([loadPageTranslations(page.slug, activeLang), loadPageFavorite(page.slug), loadPageWatch(page.slug), loadPageKnowledge(page.slug), loadPageRating(page.slug), loadPageEdits(page.slug, "pageEditTimeline", { limit: 6, page: 1 })]);
     typesetMath();
   } catch (_error) {
@@ -2523,7 +2562,7 @@ async function renderTranslation(value) {
   const parsed = splitValueQuery(value);
   const slug = parsed.pathValue || state.currentSlug || state.site.defaultPage || "home";
   const lang = parsed.params.get("lang") || "en";
-  const payload = await api(`/api/pages/${encodeSlug(slug)}/translation?lang=${encodeURIComponent(lang)}`);
+  const payload = await api(`/api/pages/${encodeSlug(slug)}/translation?lang=${encodeURIComponent(lang)}&workspace=1`);
   const source = payload.source || {};
   const translation = payload.translation || {};
   state.currentSlug = source.slug || slug;
@@ -2534,7 +2573,8 @@ async function renderTranslation(value) {
   const translatedMd = translation.translatedMd || "";
   const joinNotice = payload.translator ? "" : `<div class="translation-join-box"><p>加入翻译社区后可以保存译文和生成自动初稿。</p><button class="command-button" type="button" id="joinTranslationFromPage">加入翻译社区</button></div>`;
   const progress = Math.max(0, Math.min(100, Number(translation.progress || 0)));
-  const translationState = translation.status === "published" ? "已发布" : "草稿";
+  const translationState = ({ published: "已发布", review: "待审", changes_requested: "待修改", draft: "草稿" })[translation.status] || "草稿";
+  const reviewControls = canReviewContent() && translation.id ? `<div class="translation-review-actions"><button class="command-button" type="button" data-translation-review="approve">通过并发布</button><button class="command-button secondary" type="button" data-translation-review="changes_requested">要求修改</button></div>` : "";
   el.main.innerHTML = `
     ${pageToolNav(state.currentSlug, "translate")}
     <header class="article-head translation-head">
@@ -2585,6 +2625,8 @@ async function renderTranslation(value) {
               <button class="command-button" type="submit">保存译文</button>
             </div>
           </footer>
+          ${translation.reviewComment ? `<aside class="translation-review-note"><strong>${escapeHtml(translation.reviewerName || "审核意见")}</strong><span>${escapeHtml(translation.reviewComment)}</span></aside>` : ""}
+          ${reviewControls}
         </form>
       </div>
     </section>`;
@@ -2639,6 +2681,23 @@ async function renderTranslation(value) {
       status.textContent = error.message;
     }
   });
+  document.querySelectorAll("[data-translation-review]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const decision = button.dataset.translationReview;
+      const comment = await uiPrompt({ title: decision === "approve" ? "通过译文" : "要求修改", text: "可填写简短审核意见。", placeholder: "审核意见", confirmText: decision === "approve" ? "通过并发布" : "提交意见" });
+      if (comment === null) return;
+      const status = document.querySelector("#translationStatus");
+      status.textContent = "正在提交译文审核...";
+      try {
+        const reviewed = await api(`/api/pages/${encodeSlug(state.currentSlug)}/translation/${encodeURIComponent(activeLang)}/review`, { method: "POST", body: JSON.stringify({ decision, comment }) });
+        status.textContent = reviewed.translation.status === "published" ? "译文已审核通过并发布。" : "已要求译者修改。";
+        uiToast(status.textContent);
+        window.setTimeout(() => renderTranslation(`${state.currentSlug}?lang=${encodeURIComponent(activeLang)}`).catch(renderError), 250);
+      } catch (error) {
+        status.textContent = error.message;
+      }
+    });
+  });
   typesetMath();
   bindLanguageJumpForms(el.main);
 }
@@ -2670,6 +2729,12 @@ async function renderPermissions(slug) {
         ${disabled ? '<p class="muted-line">只有资深编辑和管理员可以删除词条。</p>' : deleteLocked ? '<p class="muted-line">当前删除权限不允许执行此操作。</p>' : `<label>确认 slug<input name="confirmSlug" placeholder="${escapeHtml(state.currentSlug)}" autocomplete="off" required /></label><button class="command-button danger" type="submit">归档并删除</button>`}
         <div class="status-line" id="deleteStatus"></div>
       </form>
+      <form class="auth-panel move-page-panel" id="movePageForm">
+        <h2>移动 / 重命名词条</h2>
+        <p class="muted-line">会迁移修订、稳定版本、评论、评分、收藏、关注、译文和链接索引；旧 slug 默认保留为重定向。</p>
+        ${disabled ? '<p class="muted-line">只有资深编辑和管理员可以移动词条。</p>' : `<label>新 slug<input name="targetSlug" placeholder="例如 abstract-algebra/group-theory" autocomplete="off" required /></label><label class="editor-toggle"><input type="checkbox" name="leaveRedirect" checked /><span>保留旧 slug 重定向</span></label><button class="command-button" type="submit">移动词条</button>`}
+        <div class="status-line" id="movePageStatus"></div>
+      </form>
     </section>
   `;
   if (!disabled) {
@@ -2697,6 +2762,28 @@ async function renderPermissions(slug) {
         await refreshChrome();
         status.textContent = "词条已归档删除。";
         setTimeout(() => { location.hash = `#/page/${encodeSlug(state.site.defaultPage)}`; }, 450);
+      } catch (error) {
+        status.textContent = error.message;
+      }
+    });
+  }
+  if (!disabled) {
+    document.querySelector("#movePageForm")?.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const status = document.querySelector("#movePageStatus");
+      const form = event.currentTarget;
+      const payload = Object.fromEntries(new FormData(form).entries());
+      payload.leaveRedirect = form.elements.leaveRedirect?.checked !== false;
+      const accepted = await uiConfirm({ title: "移动词条", text: `将 ${state.currentSlug} 移动至 ${payload.targetSlug}，并自动修复受影响的链接与协作数据。`, confirmText: "确认移动" });
+      if (!accepted) return;
+      status.textContent = "正在迁移词条与知识链接...";
+      try {
+        const result = await api(`/api/pages/${encodeSlug(state.currentSlug)}/move`, { method: "POST", body: JSON.stringify(payload) });
+        await refreshChrome();
+        const moved = result.moved || {};
+        status.textContent = `已移动至 ${moved.targetSlug}，修复 ${Number(moved.rewritten?.length || 0)} 个词条引用。`;
+        await uiAlert("词条已移动", status.textContent, "success");
+        location.hash = `#/page/${encodeSlug(moved.targetSlug)}`;
       } catch (error) {
         status.textContent = error.message;
       }
@@ -2857,6 +2944,17 @@ function editorKnowledgeFields(page = {}) {
       <div class="editor-knowledge-head"><strong>多义词与消歧</strong><small>一个标题对应多个概念时，读者会看到明确的指向列表。</small></div>
       <label class="editor-toggle"><input type="checkbox" name="disambiguation" ${page.isDisambiguation ? "checked" : ""} /><span>这是一个消歧页</span></label>
       <label>消歧指向<textarea name="disambiguationTargets" rows="4" placeholder="slug | 显示名称 | 简短说明">${escapeHtml(disambiguationTargetsText(page.disambiguationTargets))}</textarea></label>
+    </section>
+    <section class="editor-knowledge-fields wide">
+      <div class="editor-knowledge-head"><strong>数学知识元数据</strong><small>可选字段会写入 Markdown front matter，用于知识导航、前置依赖和专业分类。</small></div>
+      <div class="editor-metadata-grid">
+        <label>主题路径<input name="topic" value="${escapeHtml(page.topic || "")}" placeholder="例如：数学/代数/群论" /></label>
+        <label>规范名称<input name="canonicalNames" value="${escapeHtml((page.canonicalNames || []).join(", "))}" placeholder="中文名、英文名或常用别称" /></label>
+        <label>前置词条 slug<input name="prerequisites" value="${escapeHtml((page.prerequisites || []).join(", "))}" placeholder="例如：set, binary-operation" /></label>
+        <label>相关词条 slug<input name="relatedPages" value="${escapeHtml((page.relatedPages || []).join(", "))}" placeholder="例如：group-action, ring-theory" /></label>
+        <label>MSC / ACM 等分类<input name="classifications" value="${escapeHtml((page.classifications || []).join(", "))}" placeholder="例如：20A05, 20-XX" /></label>
+        <label class="wide">记号约定<textarea name="notation" rows="3" placeholder="G | 群 | 全文&#10;H | G 的子群 | 定理部分">${escapeHtml((page.notation || []).map((item) => [item.symbol, item.meaning, item.scope].filter(Boolean).join(" | ")).join("\n"))}</textarea></label>
+      </div>
     </section>`;
 }
 
@@ -3069,6 +3167,11 @@ async function renderEditor(slug) {
     const status = document.querySelector("#editorStatus");
     payload.body = readEditorBody(form);
     payload.categories = String(payload.categories || "").split(",").map((item) => item.trim()).filter(Boolean);
+    payload.prerequisites = String(payload.prerequisites || "").split(",").map((item) => item.trim()).filter(Boolean);
+    payload.relatedPages = String(payload.relatedPages || "").split(",").map((item) => item.trim()).filter(Boolean);
+    payload.canonicalNames = String(payload.canonicalNames || "").split(",").map((item) => item.trim()).filter(Boolean);
+    payload.classifications = String(payload.classifications || "").split(",").map((item) => item.trim()).filter(Boolean);
+    payload.notation = String(payload.notation || "").split("\n").map((item) => item.trim()).filter(Boolean);
     payload.disambiguation = Boolean(form.elements.disambiguation?.checked);
     payload.disambiguationTargets = String(payload.disambiguationTargets || "").split("\n").map((item) => item.trim()).filter(Boolean);
     payload.references = collectCitationReferences(form);
@@ -3637,10 +3740,52 @@ async function renderKnowledge(value = "") {
     <section class="knowledge-metrics">
       ${[["词条", stats.pages], ["链接", stats.links], ["反向链接", stats.backlinks], ["缺失词条", stats.missing], ["孤立词条", stats.orphans], ["别名", stats.aliases]].map(([label, value]) => `<div><span>${label}</span><strong>${Number(value || 0)}</strong></div>`).join("")}
     </section>
+    <section class="knowledge-directory-links"><a href="#/category">分类目录</a><a href="#/topic">主题树</a></section>
     <section class="knowledge-grid">
       <div class="knowledge-panel"><div class="section-title-row"><h2>缺失词条</h2><a class="mini-link" href="#/search/missing">搜索创建方向</a></div>${missing.items.length ? missing.items.map((item) => `<a class="knowledge-list-item is-missing" href="#/edit/${encodeSlug(item.slug)}"><span>被 ${item.sourceCount} 个词条引用</span><strong>${escapeHtml(item.label || item.slug)}</strong><small>${escapeHtml(item.slug)}</small></a>`).join("") : '<p class="muted-line">没有缺失词条。</p>'}${knowledgePaginationHtml(missing.pagination, "缺失词条", listPages, "missing")}</div>
       <div class="knowledge-panel"><div class="section-title-row"><h2>孤立词条</h2><span class="muted-line">尚无反向链接</span></div>${orphans.items.length ? orphans.items.map((item) => knowledgeLinkRow(item, "待关联")).join("") : '<p class="muted-line">没有孤立词条。</p>'}${knowledgePaginationHtml(orphans.pagination, "孤立词条", listPages, "orphans")}</div>
     </section>`;
+}
+
+function navigationPageCard(page, index = 0) {
+  return `<a class="result-item navigation-page-card" href="#/page/${encodeSlug(page.slug)}" style="--result-index:${index + 1}"><div class="search-result-rank">${index + 1}</div><div class="search-result-body"><h2>${escapeHtml(page.title || page.slug)}</h2><p>${escapeHtml(page.summary || "暂无摘要。")}</p><div class="chip-row"><span class="chip">质量 ${escapeHtml(page.quality || "C")}</span><span class="chip">${escapeHtml(page.difficulty || "未分级")}</span>${(page.categories || []).slice(0, 3).map((item) => `<span class="chip">${escapeHtml(item)}</span>`).join("")}</div></div></a>`;
+}
+
+function distributionChips(distribution = {}) {
+  return Object.entries(distribution).sort(([a], [b]) => a.localeCompare(b)).map(([quality, count]) => `<span class="chip">${escapeHtml(quality)} · ${Number(count)}</span>`).join("") || '<span class="chip">暂无统计</span>';
+}
+
+async function renderCategory(value = "") {
+  const name = splitValueQuery(value).pathValue || "";
+  const payload = await api(`/api/categories${name ? `?name=${encodeURIComponent(name)}` : ""}`);
+  setChromeTitle(name ? `分类：${name}` : "分类目录");
+  renderToc([]);
+  el.editLink.href = "#/new";
+  if (!name) {
+    const items = payload.categories || [];
+    el.main.innerHTML = `<header class="article-head taxonomy-head"><div class="article-title-row"><h1>分类目录</h1><span class="quality-badge">Knowledge Map</span></div><p class="article-summary">按学科和写作分类浏览词条；斜杠可组成轻量的层级分类，例如 数学/代数/群论。</p></header><section class="taxonomy-grid">${items.length ? items.map((item) => `<a class="taxonomy-card" href="#/category/${encodeURIComponent(item.name)}"><strong>${escapeHtml(item.name)}</strong><span>${Number(item.pageCount)} 个词条</span><div class="chip-row">${distributionChips(item.qualities)}</div></a>`).join("") : '<section class="empty-state"><h2>暂无分类</h2><p>编辑词条时填写分类即可建立目录。</p></section>'}</section>`;
+    return;
+  }
+  const ancestors = (payload.ancestors || []).map((item) => `<a href="#/category/${encodeURIComponent(item)}">${escapeHtml(item)}</a>`).join("<span>/</span>");
+  const children = payload.children || [];
+  const pages = payload.pages || [];
+  el.main.innerHTML = `<header class="article-head taxonomy-head"><div class="taxonomy-breadcrumbs"><a href="#/category">分类目录</a>${ancestors ? `<span>/</span>${ancestors}` : ""}</div><div class="article-title-row"><h1>${escapeHtml(payload.name || name)}</h1><span class="quality-badge">${pages.length} 个词条</span></div><p class="article-summary">该分类的词条、子分类与质量分布会随词条元数据自动更新。</p><div class="chip-row">${distributionChips(payload.qualityDistribution)}</div></header>${children.length ? `<section class="taxonomy-subsection"><div class="section-title-row"><h2>子分类</h2></div><div class="taxonomy-grid compact">${children.map((item) => `<a class="taxonomy-card" href="#/category/${encodeURIComponent(item.name)}"><strong>${escapeHtml(item.label || item.name)}</strong><span>${Number(item.pageCount)} 个词条</span></a>`).join("")}</div></section>` : ""}${payload.topics?.length ? `<section class="taxonomy-subsection"><div class="section-title-row"><h2>关联主题</h2></div><div class="chip-row">${payload.topics.map((topic) => `<a class="topic-chip" href="#/topic/${encodeURIComponent(topic)}">${escapeHtml(topic)}</a>`).join("")}</div></section>` : ""}<section class="search-results taxonomy-results">${pages.length ? pages.map(navigationPageCard).join("") : '<section class="empty-state"><h2>该分类尚无直接词条</h2><p>可以浏览子分类，或在编辑时将词条归入该分类。</p></section>'}</section>`;
+}
+
+async function renderTopic(value = "") {
+  const name = splitValueQuery(value).pathValue || "";
+  const payload = await api(`/api/topics${name ? `?name=${encodeURIComponent(name)}` : ""}`);
+  setChromeTitle(name ? `主题：${name}` : "主题树");
+  renderToc([]);
+  el.editLink.href = "#/new";
+  if (!name) {
+    const topics = payload.topics || [];
+    el.main.innerHTML = `<header class="article-head taxonomy-head"><div class="article-title-row"><h1>主题树</h1><span class="quality-badge">Topic Map</span></div><p class="article-summary">主题字段用于表达跨分类的数学脉络，例如 数学/分析/测度论。</p></header><section class="taxonomy-grid">${topics.length ? topics.map((item) => `<a class="taxonomy-card" href="#/topic/${encodeURIComponent(item.name)}"><strong>${escapeHtml(item.name)}</strong><span>${Number(item.pageCount)} 个词条</span><div class="chip-row">${distributionChips(item.qualities)}</div></a>`).join("") : '<section class="empty-state"><h2>暂无主题</h2><p>编辑词条时填写主题路径即可建立主题树。</p></section>'}</section>`;
+    return;
+  }
+  const children = payload.children || [];
+  const pages = payload.pages || [];
+  el.main.innerHTML = `<header class="article-head taxonomy-head"><div class="taxonomy-breadcrumbs"><a href="#/topic">主题树</a></div><div class="article-title-row"><h1>${escapeHtml(payload.name || name)}</h1><span class="quality-badge">${pages.length} 个词条</span></div><div class="chip-row">${distributionChips(payload.qualityDistribution)}</div></header>${children.length ? `<section class="taxonomy-subsection"><div class="section-title-row"><h2>子主题</h2></div><div class="taxonomy-grid compact">${children.map((item) => `<a class="taxonomy-card" href="#/topic/${encodeURIComponent(item.name)}"><strong>${escapeHtml(item.label || item.name)}</strong><span>${Number(item.pageCount)} 个词条</span></a>`).join("")}</div></section>` : ""}<section class="search-results taxonomy-results">${pages.length ? pages.map(navigationPageCard).join("") : '<section class="empty-state"><h2>该主题尚无直接词条</h2><p>在词条编辑器填写主题路径，即可将其加入这里。</p></section>'}</section>`;
 }
 
 function accountWatchesHtml(items = [], total = 0) {
@@ -5601,6 +5746,8 @@ async function route() {
     else if (name === "following") await renderFollowing(value);
     else if (name === "messages") await renderMessages();
     else if (name === "knowledge") await renderKnowledge(value);
+    else if (name === "category") await renderCategory(value);
+    else if (name === "topic") await renderTopic(value);
     else if (name === "news") await renderNews();
     else if (name === "import-export" || name === "imports") await renderImportExport();
     else if (name === "archive") await renderArchive(value);

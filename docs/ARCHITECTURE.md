@@ -41,7 +41,7 @@ The frontend is a native JavaScript single-page application. It renders the read
 
 | Data | Primary store | Reason |
 | :--- | :--- | :--- |
-| Article body and front matter | `content/pages/` Markdown | Human-readable, Git-friendly, easy to copy and review |
+| Article body and front matter | `content/pages/` Markdown | Human-readable, Git-friendly, easy to copy and review; also carries categories, topic, notation, prerequisite and related-page metadata |
 | Revision snapshots | `content/revisions/` | Keeps page history independent from database migration |
 | Deleted-page archives | `content/deleted/` | Recoverable deletion without exposing archived content as a live page |
 | Accounts and sessions | SQLite | Transactional identity state and HttpOnly sessions |
@@ -80,7 +80,9 @@ Comments are intentionally capped at two stored levels. A reply to a reply is fo
 
 ## Knowledge Graph And Social Signals
 
-Article source remains portable Markdown. Optional front matter fields `aliases`, `redirectTarget`, `disambiguation`, and `disambiguationTargets` travel with the file; SQLite indexes aliases and outbound Wiki links for fast resolution and reports. A redirect keeps a small physical article record, so its editorial history is still auditable while readers resolve to the canonical target.
+Article source remains portable Markdown. Optional front matter fields `aliases`, `redirectTarget`, `disambiguation`, `disambiguationTargets`, `prerequisites`, `relatedPages`, `canonicalNames`, `notation`, `classifications`, and `topic` travel with the file; SQLite indexes aliases and outbound Wiki links for fast resolution and reports. Categories and topic paths derive lightweight hierarchy pages in memory from the article list, so they do not require a graph database or a separate taxonomy store. A redirect keeps a small physical article record, so its editorial history is still auditable while readers resolve to the canonical target.
+
+The article link panel retrieves outgoing and incoming link rows independently in bounded pages. A privileged move first rejects occupied or stale target data, then moves Markdown, revision and reviewed-snapshot directories; the Passport transaction rekeys collaboration rows and link references. A final incremental rewrite updates Markdown links and metadata references. The old slug can remain as a redirect, but redirects are excluded from category/topic counts.
 
 `watch_subscriptions` handles article/category/language subscriptions. `user_follows` stores only the follower and followed IDs with timestamps; it never duplicates article data. This keeps author notifications bounded to one direct inbox message per qualifying save and recipient.
 
@@ -113,7 +115,7 @@ The default search engine remains a small in-memory, field-weighted index over p
 
 When Passport's SQLite database and FTS5 are available, `advancedSearch.fts5` enables an optional persistent full-text index in the same SQLite file. Saving, deleting, or restoring a page updates only that page's FTS record; no process-start scan or Elasticsearch service is required. An administrator can explicitly backfill historical pages from **Admin -> Search Index**. Until that controlled backfill is complete, or when a query needs a fuzzy/phrase fallback, Wikist continues to use the in-memory engine. The persistent index stores searchable token fields and unindexed display metadata, so its data never replaces portable Markdown content.
 
-Translation data stays in SQLite while the canonical source article stays in Markdown. Readers can select an existing translation directly; translators use a separate side-by-side workbench with progress, language membership, and draft assistance.
+Translation data stays in SQLite while the canonical source article stays in Markdown. Readers can select only a published translation directly; translators and senior editors use a separate side-by-side workbench with progress, language membership, and draft assistance. A save enters `draft` or `review`, an editor can publish or request changes, and a further translator save clears obsolete review approval. Article moves rekey translations and their embedded Wiki links in the same migration boundary.
 
 Wikipedia import/export preserves source attribution and attempts to map headings, links, images, tables, mathematical notation, and common wikitext structures into Wikist Markdown. It is intentionally a converter with visible fallbacks, not a promise of lossless MediaWiki template execution.
 
@@ -130,8 +132,7 @@ Wikipedia import/export preserves source attribution and attempts to map heading
 The following are planned as additive layers rather than implicit requirements:
 
 - optional DOI/arXiv metadata enrichment and citation-style selection;
-- category landing pages, rename repair, and richer link-graph reports;
-- translation memory and terminology glossaries;
+- translation memory, terminology glossaries, and source-change markers;
 - an event/hook API with permission declarations for plugins;
 - an alternate Passport store backed by PostgreSQL or MySQL.
 

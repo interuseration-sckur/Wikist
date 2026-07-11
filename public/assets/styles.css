@@ -7644,6 +7644,168 @@ body.admin-mode .plugin-json.compact {
 /* v0.6.0: Wikist-native subscription, review, and persistent search controls. */
 
 /* v0.7.0: Controlled plugin Hook API surfaces. */
+
+/* v0.8.0: Knowledge taxonomy, mathematical metadata, and translation review. */
+.category-chip,
+.topic-chip {
+  text-decoration: none;
+  transition: border-color .16s ease, color .16s ease, background .16s ease;
+}
+
+.category-chip:hover,
+.topic-chip:hover { border-color: var(--cyan); color: var(--cyan); }
+
+.topic-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 4px 9px;
+  border: 1px solid color-mix(in srgb, var(--cyan) 42%, var(--line));
+  border-radius: 999px;
+  color: var(--cyan);
+  background: color-mix(in srgb, var(--cyan) 8%, var(--panel));
+  font-size: .82rem;
+  text-decoration: none;
+}
+
+.math-metadata-panel {
+  margin: 18px 0;
+  padding: 18px;
+  border: 1px solid color-mix(in srgb, var(--cyan) 28%, var(--line));
+  border-radius: 8px;
+  background: linear-gradient(140deg, color-mix(in srgb, var(--panel-strong) 90%, transparent), var(--panel));
+}
+
+.math-metadata-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+.math-metadata-head h2 { margin: 4px 0 0; font-size: 1.15rem; }
+
+.math-metadata-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 15px;
+}
+
+.math-metadata-grid section { min-width: 0; }
+.math-metadata-grid small { display: block; margin-bottom: 7px; color: var(--muted); }
+.math-metadata-grid .notation-section { grid-column: 1 / -1; }
+
+.metadata-link-list { display: flex; flex-wrap: wrap; gap: 7px; }
+.metadata-link-list a {
+  color: var(--text);
+  text-decoration: none;
+  border-bottom: 1px solid color-mix(in srgb, var(--cyan) 48%, transparent);
+}
+.metadata-link-list a:hover { color: var(--cyan); }
+
+.notation-list { display: grid; gap: 7px; }
+.notation-list > div {
+  display: grid;
+  grid-template-columns: minmax(80px, .4fr) minmax(0, 1fr) minmax(90px, .32fr);
+  gap: 10px;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--panel) 86%, transparent);
+}
+.notation-list strong { color: var(--cyan); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+.notation-list span { color: var(--text); }
+.notation-list em { color: var(--muted); font-style: normal; text-align: right; }
+
+.editor-metadata-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.editor-metadata-grid .wide { grid-column: 1 / -1; }
+
+.knowledge-directory-links {
+  display: flex;
+  gap: 10px;
+  margin: 0 0 16px;
+}
+.knowledge-directory-links a {
+  flex: 1;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  color: var(--text);
+  background: var(--panel);
+  text-align: center;
+  text-decoration: none;
+}
+.knowledge-directory-links a:hover { border-color: var(--cyan); color: var(--cyan); }
+
+.taxonomy-head { margin-bottom: 16px; }
+.taxonomy-breadcrumbs { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 10px; color: var(--muted); font-size: .86rem; }
+.taxonomy-breadcrumbs a { color: var(--cyan); text-decoration: none; }
+.taxonomy-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
+.taxonomy-grid.compact { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }
+.taxonomy-card {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  min-height: 116px;
+  padding: 15px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--text);
+  text-decoration: none;
+}
+.taxonomy-card:hover { border-color: var(--cyan); transform: translateY(-1px); }
+.taxonomy-card strong { overflow-wrap: anywhere; }
+.taxonomy-card > span { color: var(--muted); }
+.taxonomy-subsection { margin: 22px 0; }
+.taxonomy-results { margin-top: 4px; }
+
+.move-page-panel { border-color: color-mix(in srgb, var(--cyan) 38%, var(--line)); }
+.knowledge-link-pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 11px;
+  color: var(--muted);
+  font-size: .8rem;
+}
+.knowledge-link-pager.single { justify-content: flex-start; }
+.knowledge-pagination-button {
+  min-width: 64px;
+  margin: 0;
+  padding: 5px 8px;
+  background: var(--panel);
+  cursor: pointer;
+}
+.knowledge-pagination-button:disabled { opacity: .46; cursor: default; }
+.translation-review-actions { display: flex; flex-wrap: wrap; gap: 9px; padding-top: 8px; }
+.translation-review-note {
+  display: grid;
+  gap: 5px;
+  margin-top: 14px;
+  padding: 11px;
+  border-left: 3px solid var(--amber);
+  background: color-mix(in srgb, var(--amber) 9%, var(--panel));
+}
+.translation-review-note span { color: var(--muted); }
+
+html[data-theme="light"] .math-metadata-panel { background: #f8fcfb; border-color: #afd9d3; }
+html[data-theme="light"] .notation-list > div,
+html[data-theme="light"] .taxonomy-card,
+html[data-theme="light"] .knowledge-directory-links a { background: #fff; border-color: #c8ddd9; }
+html[data-theme="light"] .topic-chip { background: #eaf8f5; border-color: #94cbc3; color: #087d73; }
+html[data-theme="light"] .translation-review-note { background: #fff9e9; }
+
+@media (max-width: 720px) {
+  .math-metadata-grid,
+  .editor-metadata-grid { grid-template-columns: 1fr; }
+  .math-metadata-grid .notation-section,
+  .editor-metadata-grid .wide { grid-column: auto; }
+  .notation-list > div { grid-template-columns: 1fr; gap: 4px; }
+  .notation-list em { text-align: left; }
+  .knowledge-directory-links { flex-direction: column; }
+  .knowledge-link-pager { flex-wrap: wrap; }
+}
 .plugin-hook-list {
   display: flex;
   flex-wrap: wrap;

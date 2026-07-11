@@ -628,6 +628,10 @@ function translationFromRow(row) {
     translatorUserId: row.translator_user_id,
     translatorUsername: row.translator_username || "",
     translatorName: row.translator_name || "",
+    reviewerUserId: row.reviewer_user_id || null,
+    reviewerName: row.reviewer_name || "",
+    reviewComment: row.review_comment || "",
+    reviewedAt: row.reviewed_at || "",
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -660,6 +664,18 @@ function listOptions(options, defaultLimit, maxLimit) {
   const limit = Math.max(1, Math.min(Number(rawLimit) || defaultLimit, maxLimit));
   const offset = Math.max(0, Number(rawOffset) || 0);
   return { limit, offset };
+}
+
+function paginateKnowledgeItems(items, pageValue, limitValue) {
+  const limit = Math.max(4, Math.min(Number(limitValue) || 8, 40));
+  const total = items.length;
+  const totalPages = Math.max(1, Math.ceil(total / limit));
+  const page = Math.min(totalPages, Math.max(1, Number(pageValue) || 1));
+  const offset = (page - 1) * limit;
+  return {
+    items: items.slice(offset, offset + limit),
+    pagination: { page, limit, total, totalPages, hasPrevious: page > 1, hasNext: page < totalPages },
+  };
 }
 
 function normalizeKnowledgeSlug(value, fieldName = "词条") {
@@ -1066,6 +1082,10 @@ class PassportStore {
         progress INTEGER NOT NULL DEFAULT 0,
         status TEXT NOT NULL DEFAULT 'draft',
         translator_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        reviewer_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        reviewer_name TEXT NOT NULL DEFAULT '',
+        review_comment TEXT NOT NULL DEFAULT '',
+        reviewed_at TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
         UNIQUE(page_slug, language)
@@ -1145,6 +1165,10 @@ class PassportStore {
     this.addColumn("user_messages", "display_seconds", "INTEGER NOT NULL DEFAULT 7");
     this.addColumn("site_messages", "display_seconds", "INTEGER NOT NULL DEFAULT 7");
     this.addColumn("page_aliases", "source_page_slug", "TEXT NOT NULL DEFAULT ''");
+    this.addColumn("page_translations", "reviewer_user_id", "INTEGER REFERENCES users(id) ON DELETE SET NULL");
+    this.addColumn("page_translations", "reviewer_name", "TEXT NOT NULL DEFAULT ''");
+    this.addColumn("page_translations", "review_comment", "TEXT NOT NULL DEFAULT ''");
+    this.addColumn("page_translations", "reviewed_at", "TEXT");
     this.db.exec("CREATE INDEX IF NOT EXISTS idx_page_aliases_source ON page_aliases(source_page_slug, updated_at)");
 
     this.db.prepare("UPDATE users SET role = 'senior_editor' WHERE role = 'senior'").run();
@@ -1813,6 +1837,75 @@ class PassportStore {
     return this.db.prepare("DELETE FROM page_aliases WHERE source_page_slug = ? OR target_slug = ?").run(normalized, normalized).changes;
   }
 
+  pageDataFootprint(slug) {
+    const normalized = normalizeKnowledgeSlug(slug, "page");
+    if (!normalized) return { slug: normalized, hasData: false, tables: [] };
+    const probes = [
+      ["page_permissions", "SELECT 1 FROM page_permissions WHERE page_slug = ? LIMIT 1"],
+      ["page_edit_events", "SELECT 1 FROM page_edit_events WHERE page_slug = ? LIMIT 1"],
+      ["page_stable_revisions", "SELECT 1 FROM page_stable_revisions WHERE page_slug = ? LIMIT 1"],
+      ["page_review_notes", "SELECT 1 FROM page_review_notes WHERE page_slug = ? LIMIT 1"],
+      ["page_comments", "SELECT 1 FROM page_comments WHERE page_slug = ? LIMIT 1"],
+      ["page_ratings", "SELECT 1 FROM page_ratings WHERE page_slug = ? LIMIT 1"],
+      ["page_favorites", "SELECT 1 FROM page_favorites WHERE page_slug = ? LIMIT 1"],
+      ["page_translations", "SELECT 1 FROM page_translations WHERE page_slug = ? LIMIT 1"],
+      ["watch_subscriptions", "SELECT 1 FROM watch_subscriptions WHERE target_type = 'page' AND target_key = ? LIMIT 1"],
+    ];
+    const tables = probes.filter(([, sql]) => this.db.prepare(sql).get(normalized)).map(([table]) => table);
+    return { slug: normalized, hasData: tables.length > 0, tables };
+  }
+
+  movePageData(sourceSlug, targetSlug, pageTitle = "") {
+    const source = normalizeKnowledgeSlug(sourceSlug, "page");
+    const target = normalizeKnowledgeSlug(targetSlug, "page");
+    if (!source || !target || source === target) return { sourceSlug: source, targetSlug: target, links: 0, translations: 0 };
+    const now = nowIso();
+    const escaped = source.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const linkPattern = new RegExp(`\\[\\[${escaped}(?=\\||\\]\\])`, "g");
+    const replaceLinks = (value) => String(value || "").replace(linkPattern, `[[${target}`);
+    const movedLinks = this.db.prepare("SELECT * FROM page_links WHERE source_slug = ? OR target_slug = ?").all(source, source);
+    const translatedRows = this.db.prepare("SELECT id, source_md, translated_md FROM page_translations").all();
+    const transaction = () => {
+      this.db.prepare("UPDATE page_permissions SET page_slug = ? WHERE page_slug = ?").run(target, source);
+      this.db.prepare("UPDATE page_edit_events SET page_slug = ?, page_title = CASE WHEN page_title = '' THEN ? ELSE page_title END WHERE page_slug = ?").run(target, pageTitle, source);
+      this.db.prepare("UPDATE page_stable_revisions SET page_slug = ? WHERE page_slug = ?").run(target, source);
+      this.db.prepare("UPDATE page_review_notes SET page_slug = ? WHERE page_slug = ?").run(target, source);
+      this.db.prepare("UPDATE page_comments SET page_slug = ? WHERE page_slug = ?").run(target, source);
+      this.db.prepare("UPDATE page_ratings SET page_slug = ? WHERE page_slug = ?").run(target, source);
+      this.db.prepare("UPDATE page_favorites SET page_slug = ?, page_title = ? WHERE page_slug = ?").run(target, pageTitle, source);
+      this.db.prepare("UPDATE page_translations SET page_slug = ? WHERE page_slug = ?").run(target, source);
+      this.db.prepare("UPDATE page_aliases SET target_slug = ?, updated_at = ? WHERE target_slug = ?").run(target, now, source);
+      this.db.prepare("UPDATE page_aliases SET source_page_slug = ?, updated_at = ? WHERE source_page_slug = ?").run(target, now, source);
+      this.db.prepare("INSERT OR IGNORE INTO watch_subscriptions (user_id, target_type, target_key, created_at, updated_at) SELECT user_id, target_type, ?, created_at, ? FROM watch_subscriptions WHERE target_type = 'page' AND target_key = ?").run(target, now, source);
+      this.db.prepare("DELETE FROM watch_subscriptions WHERE target_type = 'page' AND target_key = ?").run(source);
+
+      this.db.prepare("DELETE FROM page_links WHERE source_slug = ? OR target_slug = ?").run(source, source);
+      const insertLink = this.db.prepare(`
+        INSERT OR IGNORE INTO page_links (source_slug, target_slug, target_label, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?)
+      `);
+      for (const link of movedLinks) {
+        insertLink.run(link.source_slug === source ? target : link.source_slug, link.target_slug === source ? target : link.target_slug, link.target_label || "", link.created_at || now, now);
+      }
+      const updateTranslation = this.db.prepare("UPDATE page_translations SET source_md = ?, translated_md = ?, updated_at = ? WHERE id = ?");
+      for (const row of translatedRows) {
+        const sourceMd = replaceLinks(row.source_md);
+        const translatedMd = replaceLinks(row.translated_md);
+        if (sourceMd !== row.source_md || translatedMd !== row.translated_md) updateTranslation.run(sourceMd, translatedMd, now, row.id);
+      }
+      this.db.prepare("UPDATE user_messages SET source_url = ? WHERE source_url = ?").run(`#/page/${target}`, `#/page/${source}`);
+    };
+    this.db.exec("BEGIN");
+    try {
+      transaction();
+      this.db.exec("COMMIT");
+    } catch (error) {
+      try { this.db.exec("ROLLBACK"); } catch (_rollbackError) {}
+      throw error;
+    }
+    return { sourceSlug: source, targetSlug: target, links: movedLinks.length, translations: translatedRows.length };
+  }
+
   removePageAlias(session, aliasSlug) {
     if (!hasRole(session, "senior_editor")) throw accessError("只有资深编辑和管理员可以管理别名。");
     const normalized = normalizeKnowledgeSlug(aliasSlug, "别名");
@@ -1897,10 +1990,16 @@ class PassportStore {
         label: link.targetLabel || "",
       };
     };
+    const outgoing = (snapshot.outgoing.get(canonicalSlug) || []).map((link) => enrich(link, "outgoing"));
+    const backlinks = (snapshot.incoming.get(canonicalSlug) || []).map((link) => enrich(link, "backlink"));
+    const pagedOutgoing = paginateKnowledgeItems(outgoing, options.outgoingPage, options.linkLimit);
+    const pagedBacklinks = paginateKnowledgeItems(backlinks, options.backlinksPage, options.linkLimit);
     return {
       pageSlug: canonicalSlug,
-      outgoing: (snapshot.outgoing.get(canonicalSlug) || []).map((link) => enrich(link, "outgoing")),
-      backlinks: (snapshot.incoming.get(canonicalSlug) || []).map((link) => enrich(link, "backlink")),
+      outgoing: pagedOutgoing.items,
+      backlinks: pagedBacklinks.items,
+      outgoingPagination: pagedOutgoing.pagination,
+      backlinksPagination: pagedBacklinks.pagination,
       aliases: snapshot.aliases.filter((item) => item.targetSlug === canonicalSlug),
       stats: snapshot.stats,
     };
@@ -2097,6 +2196,18 @@ class PassportStore {
     `).get(String(pageSlug || ""), normalizeTranslationLang(language)));
   }
 
+  canReviewTranslation(session, translation) {
+    return Boolean(session?.user && (hasRole(session, "senior_editor") || Number(translation?.translatorUserId || 0) === Number(session.user.id)));
+  }
+
+  getReadableTranslation(pageSlug, language, session = null, options = {}) {
+    const translation = this.getTranslation(pageSlug, language);
+    if (!translation) return null;
+    if (translation.status === "published") return translation;
+    if (options.workspace === true && this.canReviewTranslation(session, translation)) return translation;
+    return null;
+  }
+
   translationSummary(pageSlug, sourceMd, extraLanguages = []) {
     const rows = this.db.prepare(`
       SELECT t.*, u.username AS translator_username, u.display_name AS translator_name
@@ -2115,7 +2226,7 @@ class PassportStore {
     return languages.map((language) => {
       if (language === "zh-CN") return { language, status: "source", progress: 100 };
       const row = byLang.get(language);
-      return row ? { language, status: row.status, progress: row.progress, updatedAt: row.updatedAt, translatorName: row.translatorName } : { language, status: "missing", progress: 0 };
+      return row ? { language, status: row.status, progress: row.progress, updatedAt: row.updatedAt, translatorName: row.translatorName, reviewerName: row.reviewerName, reviewedAt: row.reviewedAt } : { language, status: "missing", progress: 0 };
     });
   }
 
@@ -2127,13 +2238,13 @@ class PassportStore {
     const title = cleanText(input.title || sourcePage.title || "", 200);
     const summary = cleanText(input.summary || sourcePage.summary || "", 500);
     const progress = translationProgress(sourcePage.body || "", translatedMd);
-    const status = progress >= 95 ? "published" : "draft";
+    const status = progress >= 95 ? "review" : "draft";
     const now = nowIso();
     this.db.prepare(`
       INSERT INTO page_translations (
         page_slug, language, source_language, title, summary, source_md, translated_md,
-        progress, status, translator_user_id, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        progress, status, translator_user_id, reviewer_user_id, reviewer_name, review_comment, reviewed_at, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, '', '', NULL, ?, ?)
       ON CONFLICT(page_slug, language) DO UPDATE SET
         title = excluded.title,
         summary = excluded.summary,
@@ -2142,9 +2253,31 @@ class PassportStore {
         progress = excluded.progress,
         status = excluded.status,
         translator_user_id = excluded.translator_user_id,
+        reviewer_user_id = NULL,
+        reviewer_name = '',
+        review_comment = '',
+        reviewed_at = NULL,
         updated_at = excluded.updated_at
     `).run(sourcePage.slug || pageSlug, language, input.sourceLanguage || "zh-CN", title, summary, sourcePage.body || "", translatedMd, progress, status, session.user.id, now, now);
     return this.getTranslation(sourcePage.slug || pageSlug, language);
+  }
+
+  reviewTranslation(session, pageSlug, language, input = {}) {
+    this.assertCanReview(session);
+    const translation = this.getTranslation(pageSlug, language);
+    if (!translation) throw accessError("译文不存在。", 404);
+    const decision = input.decision === "approve" ? "approve" : input.decision === "changes_requested" ? "changes_requested" : "";
+    if (!decision) throw accessError("译文审核决定无效。", 400);
+    const reviewer = session.user.displayName || session.user.username || "Wikist Reviewer";
+    const comment = cleanText(input.comment, 2000);
+    const now = nowIso();
+    const status = decision === "approve" ? "published" : "changes_requested";
+    this.db.prepare(`
+      UPDATE page_translations
+      SET status = ?, reviewer_user_id = ?, reviewer_name = ?, review_comment = ?, reviewed_at = ?, updated_at = ?
+      WHERE id = ?
+    `).run(status, session.user.id, reviewer, comment, now, now, translation.id);
+    return this.getTranslation(pageSlug, language);
   }
 
   autoTranslationDraft(session, pageSlug, sourcePage, input = {}) {

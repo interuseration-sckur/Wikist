@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-07-11 - Knowledge Navigation, Safe Article Moves, And Translation Review
+
+- Added portable mathematical article metadata: prerequisites, related pages, canonical names, notation conventions, MSC/ACM-style classifications, and topic paths. It is editable with the article and preserved by Wikist export/import.
+- Added first-class category and topic routes. Slash-separated metadata derives parent/child navigation and aggregate quality distribution without a graph database or taxonomy migration; redirects are excluded from these counts.
+- Added a privileged article-move workflow. It moves Markdown, revisions, reviewed snapshots, permissions, edits, comments, ratings, favorites, translations, watches, aliases, and message URLs; it also repairs affected Wiki links and metadata references, with collision guards before any history is merged.
+- Reworked article-level knowledge links into separate bounded outgoing/backlink pagination. Each panel defaults to eight rows and fetches only its requested page, keeping large link neighborhoods responsive.
+- Added translation review states: `draft`, `review`, `changes_requested`, and `published`. Readers see published translations only; translators and senior editors retain their appropriate workspace visibility, and a fresh translation save clears a stale decision.
+- Added language-aware article links, so non-source reading routes preserve the selected language and provide a clear source fallback when no published target translation exists.
+- Added [knowledge-navigation documentation](docs/KNOWLEDGE_NAVIGATION.md), [translation-review documentation](docs/TRANSLATION_REVIEW.md), and `npm run check:v08` coverage for metadata, hierarchy pages, safe moves, rekeyed watches/favorites/translations, and paginated backlinks.
+- Bumped the framework package to `0.8.0` and the frontend asset version to `wikist-core-20260711-73`.
+
 ## 2026-07-11 - Controlled Plugin Hook API
 
 - Defined manifest-declared Hook contracts for Markdown preprocessing, block rendering, search enhancement, and admin panels, each with an explicit required permission.

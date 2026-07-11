@@ -37,27 +37,23 @@ The next refinement is configurable digest delivery and review/comment-specific 
 
 ### Delivered: Author Following And Portable Disambiguation
 
-Readers can now follow contributors from public profiles, see mutual-follow state, and browse paginated following/follower lists. Followed-author article and translation updates reuse the existing inbox. Articles can also carry portable aliases, redirects, and disambiguation targets in Markdown front matter; the next refinement is rename repair and a guided disambiguation editor for larger encyclopedias.
+Readers can now follow contributors from public profiles, see mutual-follow state, and browse paginated following/follower lists. Followed-author article and translation updates reuse the existing inbox. Articles can also carry portable aliases, redirects, and disambiguation targets in Markdown front matter; safe rename repair now migrates the article's collaboration data and rewrites affected references. The next refinement is a guided disambiguation editor for larger encyclopedias.
 
 ## P1: Knowledge Navigation
 
-### Delivered Foundation: Backlinks, Missing Pages, Redirects, And Aliases
+### Delivered: Backlinks, Missing Pages, Redirects, Aliases, And Safe Moves
 
 Wikist now maintains a persistent link index during page save, import, restore, and delete. It exposes backlinks, missing-page reports, orphan reports, and administrator-managed aliases that redirect old slugs to a live canonical page.
 
-The next refinement is rename repair suggestions, category landing pages, and a “what links here” filter with richer editorial context.
+Article pages paginate incoming and outgoing links independently, keeping large link neighborhoods light. Moving a page checks target collisions, preserves an optional redirect, migrates revisions/reviewed snapshots and SQLite collaboration state, and repairs Wiki links plus metadata references. The next refinement is a “what links here” filter with richer editorial context.
 
-### 5. Category And Topic Pages
+### Delivered: Category And Topic Pages
 
-Turn existing category metadata into first-class navigation:
+Slash-separated categories and optional topic paths now form hierarchy pages with child paths, direct article lists, and aggregate quality distribution. The hierarchy is derived from Markdown metadata at read time and intentionally has no separate taxonomy database. A future refinement may add an optional category-introduction article, recent-change slice, and category review filter.
 
-- Category landing pages with an introduction Markdown file, child categories, recent changes, and quality distribution.
-- A lightweight topic tree for mathematics branches, without requiring a graph database.
-- Category subscriptions and editorial review filters.
+### Delivered: Mathematical Knowledge Metadata
 
-### 6. Mathematical Knowledge Metadata
-
-Add optional structured front matter for prerequisites, notation, canonical names, related theorems, MSC/ACM classification, and source language. The first implementation should remain optional and exportable as JSON; it should not turn ordinary article writing into a form-heavy CMS.
+Optional portable front matter now covers prerequisites, notation, canonical names, related pages, MSC/ACM classification, and topic. It is editable from the article screen and preserved by Wikist export/import. The next refinement is source-language and theorem-specific relation conventions, not a mandatory ontology.
 
 ## P2: Translation Quality
 
@@ -74,7 +70,7 @@ Extend the current side-by-side workbench with:
 
 ### 8. Language-Aware Linking
 
-When a reader changes language, resolve the closest available translation or clearly label the source-language fallback. Link previews should show translation completeness and the target-language title when it exists.
+Language-aware links now preserve the reader's language choice and fall back explicitly to the source when a target translation is not published. Translation review is now separate from article review: `draft`, `review`, `changes_requested`, and `published` protect unfinished work from readers. The next refinement is translation completeness and target-language titles in link previews.
 
 ## P3: Search And Performance
 

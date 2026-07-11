@@ -1,5 +1,16 @@
 # Wikist 站点升级日志
 
+## 2026-07-11 - 知识导航、安全词条移动与译文审核
+
+- 词条 front matter 新增可选 `prerequisites`、`relatedPages`、`canonicalNames`、`notation`、`classifications` 与 `topic`，编辑器、阅读页、Wikist 导入导出和备份均会保留；现有词条不填写时不会出现空面板。
+- 新增 `#/category`、`#/category/<路径>`、`#/topic` 与 `#/topic/<路径>`。斜杠分类和主题会自动生成父子目录与质量统计，不建立独立分类数据库；重定向词条不会重复计数。
+- 词条页“知识链接”改为反向链接、正文链接各自分页，默认每页 8 条，翻页只请求当前列表，不离开词条页。
+- 资深编辑和管理员可在“权限与治理”移动词条。移动前检查目标 slug、别名、修订/稳定快照目录及 SQLite 历史数据；移动时迁移 Markdown、修订、稳定快照、权限、编辑、评论、评分、收藏、译文、关注、别名和消息链接，并重写正文及元数据引用。旧 slug 可选保留为重定向。
+- 译文新增 `draft`、`review`、`changes_requested`、`published` 状态。普通读者仅可读取已发布译文，译者与资深编辑在工作台可查看未发布内容；再次保存会清除旧审核结论，避免内容变更后仍沿用批准。
+- 新增语言感知词条链接：非源语言阅读时会沿用语言参数；目标译文未发布时明确显示源文回退。
+- 新增 `docs/KNOWLEDGE_NAVIGATION.md`、`docs/TRANSLATION_REVIEW.md` 与 `npm run check:v08`。更新程序会在升级后自动运行该检查。
+- 框架升级为 `0.8.0`，核心前端资源升级为 `wikist-core-20260711-73`。使用 CDN 时需同步 `/assets/app.js`、`/assets/styles.css`、安装器资源与可信客户端模块并清理旧缓存。
+
 ## 2026-07-11 - 可控插件 Hook API
 
 - 新增 `markdown.preprocess`、`markdown.block`、`search.enhance` 与 `admin.panel` 四类显式 Hook，并要求 manifest 同时声明所需权限。

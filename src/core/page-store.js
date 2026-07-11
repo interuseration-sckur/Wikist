@@ -36,6 +36,50 @@ function disambiguationTargetStorage(value) {
   return normalizeDisambiguationTargets(value).map((target) => `${target.slug}|${target.label}|${target.summary}`);
 }
 
+function normalizeSlugList(value, limit = 40) {
+  const seen = new Set();
+  const output = [];
+  for (const item of toStringList(value)) {
+    try {
+      const slug = normalizeSlug(item);
+      if (!slug || seen.has(slug)) continue;
+      seen.add(slug);
+      output.push(slug);
+    } catch (_error) {}
+  }
+  return output.slice(0, limit);
+}
+
+function normalizeTextList(value, limit = 40, maxLength = 160) {
+  return [...new Set(toStringList(value).map((item) => item.slice(0, maxLength)).filter(Boolean))].slice(0, limit);
+}
+
+function normalizeNotation(value) {
+  const values = Array.isArray(value) ? value : toStringList(value);
+  const seen = new Set();
+  return values.map((item) => {
+    const raw = item && typeof item === "object"
+      ? { symbol: String(item.symbol || ""), meaning: String(item.meaning || ""), scope: String(item.scope || "") }
+      : (() => {
+        const [symbol, meaning = "", scope = ""] = String(item || "").split("|");
+        return { symbol, meaning, scope };
+      })();
+    return {
+      symbol: String(raw.symbol || "").trim().slice(0, 80),
+      meaning: String(raw.meaning || "").trim().slice(0, 140),
+      scope: String(raw.scope || "").trim().slice(0, 80),
+    };
+  }).filter((item) => item.symbol && !seen.has(item.symbol) && (seen.add(item.symbol) || true)).slice(0, 48);
+}
+
+function notationStorage(value) {
+  return normalizeNotation(value).map((item) => [item.symbol, item.meaning, item.scope].join("|"));
+}
+
+function normalizeTopic(value) {
+  return String(value || "").trim().replace(/\s*\/\s*/g, "/").replace(/^\/+|\/+$/g, "").slice(0, 180);
+}
+
 function walkMarkdownFiles(rootDir, currentDir = rootDir, results = []) {
   if (!fs.existsSync(currentDir)) return results;
 
@@ -150,6 +194,12 @@ class PageStore {
       redirectTarget: parsed.data.redirectTarget || parsed.data.redirect_to || "",
       isDisambiguation: parsed.data.disambiguation === true || parsed.data.disambiguation === "true",
       disambiguationTargets: normalizeDisambiguationTargets(parsed.data.disambiguationTargets || parsed.data.disambiguation_targets),
+      prerequisites: normalizeSlugList(parsed.data.prerequisites),
+      relatedPages: normalizeSlugList(parsed.data.relatedPages || parsed.data.related_pages),
+      canonicalNames: normalizeTextList(parsed.data.canonicalNames || parsed.data.canonical_names),
+      notation: normalizeNotation(parsed.data.notation),
+      classifications: normalizeTextList(parsed.data.classifications || parsed.data.classification, 24, 100),
+      topic: normalizeTopic(parsed.data.topic),
       references,
       citationStats: rendered.citationStats || { total: references.length, cited: 0, unresolved: [], citationNeeded: 0, completeness: 0, verifiable: 0, issues: [] },
       createdAt: parsed.data.createdAt || stat.birthtime.toISOString(),
@@ -366,6 +416,12 @@ class PageStore {
         redirectTarget: page.redirectTarget,
         disambiguation: page.isDisambiguation,
         disambiguationTargets: page.disambiguationTargets,
+        prerequisites: page.prerequisites,
+        relatedPages: page.relatedPages,
+        canonicalNames: page.canonicalNames,
+        notation: page.notation,
+        classifications: page.classifications,
+        topic: page.topic,
         references: page.references,
         createdAt: page.createdAt,
         updatedAt: page.updatedAt,
@@ -429,6 +485,126 @@ class PageStore {
     return restored;
   }
 
+  moveDirectory(fromPath, targetPath) {
+    if (!fs.existsSync(fromPath)) return;
+    if (fs.existsSync(targetPath)) {
+      const error = new Error("目标词条已有同名修订或稳定快照目录，无法安全移动。");
+      error.statusCode = 409;
+      throw error;
+    }
+    ensureDir(path.dirname(targetPath));
+    fs.renameSync(fromPath, targetPath);
+  }
+
+  movePage(sourceSlug, targetSlug, options = {}) {
+    const source = normalizeSlug(sourceSlug);
+    const target = normalizeSlug(targetSlug);
+    if (source === target) {
+      const error = new Error("新旧 slug 相同，无需移动词条。");
+      error.statusCode = 400;
+      throw error;
+    }
+    const page = this.getPage(source);
+    if (!page) return null;
+    if (this.getPage(target) || fs.existsSync(this.pagePath(target))) {
+      const error = new Error("目标 slug 已存在，不能覆盖移动。");
+      error.statusCode = 409;
+      throw error;
+    }
+
+    const sourcePath = this.pagePath(source);
+    const targetPath = this.pagePath(target);
+    const revisionsFrom = this.revisionDir(source);
+    const revisionsTarget = this.revisionDir(target);
+    const reviewedFrom = path.join(this.reviewedDir, source);
+    const reviewedTarget = path.join(this.reviewedDir, target);
+    if (fs.existsSync(revisionsTarget) || fs.existsSync(reviewedTarget)) {
+      const error = new Error("目标 slug 已有历史数据，无法安全合并。");
+      error.statusCode = 409;
+      throw error;
+    }
+
+    ensureDir(path.dirname(targetPath));
+    fs.renameSync(sourcePath, targetPath);
+    try {
+      this.moveDirectory(revisionsFrom, revisionsTarget);
+      this.moveDirectory(reviewedFrom, reviewedTarget);
+    } catch (error) {
+      try { if (fs.existsSync(targetPath) && !fs.existsSync(sourcePath)) fs.renameSync(targetPath, sourcePath); } catch (_rollbackError) {}
+      throw error;
+    }
+    this.clearCache();
+    const moved = this.getPage(target);
+    let redirect = null;
+    if (options.leaveRedirect !== false) {
+      redirect = this.savePage(source, {
+        title: `${page.title}（重定向）`,
+        summary: `本词条已移动至 ${target}。`,
+        categories: page.categories,
+        difficulty: page.difficulty,
+        quality: page.quality,
+        status: "stable",
+        author: page.author,
+        redirectTarget: target,
+        body: `本词条已移动至 [[${target}|${page.title}]]。`,
+      });
+    }
+    this.emitChange("move", moved);
+    return { sourceSlug: source, targetSlug: target, page: moved, redirect };
+  }
+
+  rewriteReferencesForMove(sourceSlug, targetSlug) {
+    const source = normalizeSlug(sourceSlug);
+    const target = normalizeSlug(targetSlug);
+    const escaped = source.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const linkPattern = new RegExp(`\\[\\[${escaped}(?=\\||\\]\\])`, "g");
+    const changed = [];
+    for (const page of this.listPages()) {
+      let body = String(page.body || "");
+      body = body.replace(linkPattern, `[[${target}`);
+      const prerequisites = (page.prerequisites || []).map((slug) => slug === source ? target : slug);
+      const relatedPages = (page.relatedPages || []).map((slug) => slug === source ? target : slug);
+      const redirectTarget = page.redirectTarget === source ? target : page.redirectTarget;
+      const disambiguationTargets = (page.disambiguationTargets || []).map((item) => ({ ...item, slug: item.slug === source ? target : item.slug }));
+      const hasChange = body !== page.body
+        || prerequisites.some((slug, index) => slug !== page.prerequisites[index])
+        || relatedPages.some((slug, index) => slug !== page.relatedPages[index])
+        || redirectTarget !== page.redirectTarget
+        || disambiguationTargets.some((item, index) => item.slug !== page.disambiguationTargets[index]?.slug);
+      if (!hasChange) continue;
+      changed.push(this.savePage(page.slug, {
+        title: page.title,
+        summary: page.summary,
+        categories: page.categories,
+        difficulty: page.difficulty,
+        status: page.status,
+        quality: page.quality,
+        author: page.author,
+        heroImage: page.heroImage,
+        importSource: page.importSource,
+        importTitle: page.importTitle,
+        importLang: page.importLang,
+        importRevision: page.importRevision,
+        importUrl: page.importUrl,
+        importFetchedAt: page.importFetchedAt,
+        importLicense: page.importLicense,
+        aliases: page.aliases,
+        redirectTarget,
+        disambiguation: page.isDisambiguation,
+        disambiguationTargets,
+        prerequisites,
+        relatedPages,
+        canonicalNames: page.canonicalNames,
+        notation: page.notation,
+        classifications: page.classifications,
+        topic: page.topic,
+        references: page.references,
+        body,
+      }));
+    }
+    return changed;
+  }
+
   savePage(slug, input) {
     const normalized = normalizeSlug(slug || input.slug || input.title);
     const existing = this.getPage(normalized);
@@ -468,6 +644,12 @@ class PageStore {
         ? Boolean(existing?.isDisambiguation)
         : input.disambiguation === true || input.disambiguation === "true",
       disambiguationTargets: disambiguationTargetStorage(input.disambiguationTargets ?? input.disambiguation_targets ?? existing?.disambiguationTargets ?? []),
+      prerequisites: normalizeSlugList(input.prerequisites ?? existing?.prerequisites ?? []),
+      relatedPages: normalizeSlugList(input.relatedPages ?? input.related_pages ?? existing?.relatedPages ?? []),
+      canonicalNames: normalizeTextList(input.canonicalNames ?? input.canonical_names ?? existing?.canonicalNames ?? []),
+      notation: notationStorage(input.notation ?? existing?.notation ?? []),
+      classifications: normalizeTextList(input.classifications ?? input.classification ?? existing?.classifications ?? [], 24, 100),
+      topic: normalizeTopic(input.topic ?? existing?.topic ?? ""),
       references: normalizeReferences(input.references ?? existing?.references ?? []),
       createdAt: existing?.createdAt || now,
       updatedAt: now,
