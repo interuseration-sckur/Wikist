@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-07-11 - Light Admin Surface And Review Pagination Fix
+
+- Changed source review and version review to ten rows per page and rendered their pager directly below the filter controls as well as after results.
+- Rebuilt the two review filter bars as consistent first-class search controls instead of inheriting the legacy admin form treatment.
+- Added a final light-theme surface layer for admin forms, selects, textareas, source/review workbenches, plugin and import panels, tables, pagers, diff panels, and backup progress bars.
+- Bumped the framework package to `0.5.1` and the frontend asset version to `wikist-core-20260711-67`.
+
 ## 2026-07-11 - Lightweight Stable Revisions And Review Workbench
 
 - Added current-versus-reviewed-stable article states, immutable reviewed Markdown snapshots, review notes, a paginated pending-review queue, and bounded line-level diff comparison.

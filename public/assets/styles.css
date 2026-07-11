@@ -7435,3 +7435,168 @@ body.admin-mode .plugin-json.compact {
   .watchlist-controls form .command-button { width: 100%; }
   .knowledge-alias-notice { align-items: flex-start; flex-direction: column; }
 }
+
+/* Light admin surfaces: override legacy dark literals after every feature module. */
+:root[data-theme="light"] body.admin-mode .admin-main,
+:root[data-theme="light"] body.admin-mode .admin-layout,
+:root[data-theme="light"] body.admin-mode .admin-sidebar,
+:root[data-theme="light"] body.admin-mode .admin-main > .article-head,
+:root[data-theme="light"] .admin-settings-panel,
+:root[data-theme="light"] .plugin-create-panel,
+:root[data-theme="light"] .transfer-panel,
+:root[data-theme="light"] .backup-panel,
+:root[data-theme="light"] .backup-result-card,
+:root[data-theme="light"] .backup-file-picker,
+:root[data-theme="light"] .citation-editor-panel,
+:root[data-theme="light"] .citation-editor-row,
+:root[data-theme="light"] .citation-review-metrics > span,
+:root[data-theme="light"] .citation-review-filters,
+:root[data-theme="light"] .citation-review-item,
+:root[data-theme="light"] .review-queue-metrics > span,
+:root[data-theme="light"] .review-queue-filters,
+:root[data-theme="light"] .review-queue-item,
+:root[data-theme="light"] .review-version-card,
+:root[data-theme="light"] .review-panel,
+:root[data-theme="light"] .review-decision-form,
+:root[data-theme="light"] .page-review-status {
+  background: rgba(255, 255, 255, .94);
+  border-color: #bfd6d0;
+  box-shadow: 0 10px 30px rgba(23, 61, 51, .08);
+}
+
+:root[data-theme="light"] body.admin-mode .admin-sidebar {
+  background: #f8fcfb;
+}
+
+:root[data-theme="light"] body.admin-mode .admin-sidebar a {
+  background: #ffffff;
+  border-color: #d7e7e2;
+}
+
+:root[data-theme="light"] body.admin-mode .admin-sidebar a.active {
+  background: #e9f7f2;
+  border-color: #7abfae;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .92);
+}
+
+:root[data-theme="light"] body.admin-mode input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+:root[data-theme="light"] body.admin-mode select,
+:root[data-theme="light"] body.admin-mode textarea,
+:root[data-theme="light"] .transfer-hub input:not([type="checkbox"]):not([type="radio"]),
+:root[data-theme="light"] .transfer-hub select,
+:root[data-theme="light"] .transfer-hub textarea,
+:root[data-theme="light"] .backup-panel input:not([type="checkbox"]):not([type="radio"]),
+:root[data-theme="light"] .backup-panel select,
+:root[data-theme="light"] .backup-panel textarea {
+  color: #172723 !important;
+  background: #ffffff !important;
+  border-color: #adc9c1 !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .9);
+  color-scheme: light;
+}
+
+:root[data-theme="light"] body.admin-mode input::placeholder,
+:root[data-theme="light"] body.admin-mode textarea::placeholder,
+:root[data-theme="light"] .transfer-hub input::placeholder,
+:root[data-theme="light"] .transfer-hub textarea::placeholder,
+:root[data-theme="light"] .backup-panel input::placeholder,
+:root[data-theme="light"] .backup-panel textarea::placeholder {
+  color: #718780;
+  opacity: 1;
+}
+
+:root[data-theme="light"] body.admin-mode input:focus,
+:root[data-theme="light"] body.admin-mode select:focus,
+:root[data-theme="light"] body.admin-mode textarea:focus,
+:root[data-theme="light"] .transfer-hub input:focus,
+:root[data-theme="light"] .transfer-hub select:focus,
+:root[data-theme="light"] .transfer-hub textarea:focus {
+  border-color: #1688a8 !important;
+  box-shadow: 0 0 0 3px rgba(0, 126, 167, .14) !important;
+}
+
+:root[data-theme="light"] body.admin-mode select option,
+:root[data-theme="light"] .transfer-hub select option,
+:root[data-theme="light"] .backup-panel select option {
+  color: #172723;
+  background: #ffffff;
+}
+
+:root[data-theme="light"] .citation-review-filters,
+:root[data-theme="light"] .review-queue-filters {
+  grid-template-columns: minmax(0, 1fr) minmax(168px, .28fr) auto;
+  padding: 12px;
+}
+
+:root[data-theme="light"] .citation-review-filters input,
+:root[data-theme="light"] .citation-review-filters select,
+:root[data-theme="light"] .review-queue-filters input,
+:root[data-theme="light"] .review-queue-filters select {
+  min-height: 42px;
+  border-radius: 8px;
+}
+
+:root[data-theme="light"] .citation-review-filters .command-button,
+:root[data-theme="light"] .review-queue-filters .command-button {
+  min-height: 42px;
+  border-color: #77bcae;
+  background: #e9f7f2;
+}
+
+:root[data-theme="light"] .citation-review-item:hover,
+:root[data-theme="light"] .review-queue-item:hover {
+  border-color: #69aebc;
+  background: #f2fbf8;
+}
+
+:root[data-theme="light"] .citation-review-problems span {
+  border-left-color: #c9942c;
+}
+
+:root[data-theme="light"] .review-diff,
+:root[data-theme="light"] .review-diff-unchanged,
+:root[data-theme="light"] .review-note {
+  border-color: #c5ddd6;
+  background: #fbfefd;
+}
+
+:root[data-theme="light"] .review-diff-line.add { color: #156b47; background: #e8f8ef; }
+:root[data-theme="light"] .review-diff-line.remove { color: #a33d48; background: #fff0f1; }
+:root[data-theme="light"] .review-diff-line.equal { color: #637873; }
+
+:root[data-theme="light"] .backup-progress progress {
+  border-color: #9ebeb5;
+  background: #e7f0ed;
+}
+
+:root[data-theme="light"] .backup-progress progress::-webkit-progress-bar {
+  background: #e7f0ed;
+}
+
+:root[data-theme="light"] .backup-progress progress::-webkit-progress-value {
+  background: linear-gradient(90deg, #1688a8, #16865f);
+}
+
+:root[data-theme="light"] .backup-progress progress::-moz-progress-bar {
+  background: linear-gradient(90deg, #1688a8, #16865f);
+}
+
+:root[data-theme="light"] .admin-table-wrap,
+:root[data-theme="light"] .admin-table,
+:root[data-theme="light"] .admin-table tr,
+:root[data-theme="light"] .admin-toolbar,
+:root[data-theme="light"] .pager {
+  background: #ffffff;
+  border-color: #bfd6d0;
+}
+
+:root[data-theme="light"] .admin-table tbody tr:hover td {
+  background: #effaf7;
+}
+
+@media (max-width: 680px) {
+  :root[data-theme="light"] .citation-review-filters,
+  :root[data-theme="light"] .review-queue-filters {
+    grid-template-columns: 1fr;
+  }
+}

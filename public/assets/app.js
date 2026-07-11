@@ -1,6 +1,6 @@
 const THEME_KEY = "wikist-theme";
 const LANG_KEY = "wikist-language";
-const CORE_ASSET_VERSION = "wikist-core-20260711-66";
+const CORE_ASSET_VERSION = "wikist-core-20260711-67";
 const VDITOR_VERSION = "3.11.2";
 const VDITOR_CDN = `https://cdn.jsdelivr.net/npm/vditor@${VDITOR_VERSION}`;
 const SWEETALERT_VERSION = "11.26.25";
@@ -4299,7 +4299,7 @@ function citationAdminRow(page) {
 }
 
 async function renderAdminCitations(page = 1, query = "", mode = "needs-review") {
-  const limit = 12;
+  const limit = 10;
   const payload = await api(`/api/admin/citations?page=${page}&limit=${limit}&q=${encodeURIComponent(query)}&mode=${encodeURIComponent(mode)}`);
   const { items, pagination } = normalizedPaged(payload, page, limit);
   const stats = payload.stats || {};
@@ -4309,6 +4309,7 @@ async function renderAdminCitations(page = 1, query = "", mode = "needs-review")
     <section class="citation-review-workbench">
       <div class="citation-review-metrics"><span><small>词条</small><strong>${Number(stats.pages || 0)}</strong></span><span><small>来源记录</small><strong>${Number(stats.references || 0)}</strong></span><span><small>可核验</small><strong>${Number(stats.verifiable || 0)}</strong></span><span><small>待处理</small><strong>${Number(stats.needsReview || 0)}</strong></span><span><small>无来源</small><strong>${Number(stats.withoutSources || 0)}</strong></span></div>
       <form class="citation-review-filters" id="citationAdminSearch"><input name="q" type="search" value="${escapeHtml(query)}" placeholder="搜索词条、作者、题名、DOI 或 arXiv" /><select name="mode" aria-label="来源审阅范围"><option value="needs-review" ${mode === "needs-review" ? "selected" : ""}>待处理</option><option value="all" ${mode === "all" ? "selected" : ""}>全部词条</option><option value="missing" ${mode === "missing" ? "selected" : ""}>缺少来源</option><option value="unresolved" ${mode === "unresolved" ? "selected" : ""}>未解析引用</option></select><button class="command-button" type="submit">筛选</button></form>
+      ${paginationHtml(pagination, "来源审阅")}
       <div class="citation-review-list">${cards}</div>
     </section>
     ${paginationHtml(pagination, "来源审阅")}`;
@@ -4330,7 +4331,7 @@ function reviewQueueItem(page) {
 }
 
 async function renderAdminReviews(page = 1, query = "", mode = "pending") {
-  const limit = 15;
+  const limit = 10;
   const payload = await api(`/api/admin/reviews?page=${page}&limit=${limit}&q=${encodeURIComponent(query)}&mode=${encodeURIComponent(mode)}`);
   const { items, pagination } = normalizedPaged(payload, page, limit);
   const stats = payload.stats || {};
@@ -4340,6 +4341,7 @@ async function renderAdminReviews(page = 1, query = "", mode = "pending") {
     <section class="review-queue-workbench">
       <div class="review-queue-metrics"><span><small>全部词条</small><strong>${Number(stats.pages || 0)}</strong></span><span><small>待审</small><strong>${Number(stats.pending || 0)}</strong></span><span><small>当前稳定</small><strong>${Number(stats.stable || 0)}</strong></span><span><small>从未审阅</small><strong>${Number(stats.unreviewed || 0)}</strong></span></div>
       <form class="review-queue-filters" id="reviewQueueSearch"><input name="q" type="search" value="${escapeHtml(query)}" placeholder="搜索词条、审核者或审核意见" /><select name="mode" aria-label="版本审阅范围"><option value="pending" ${mode === "pending" ? "selected" : ""}>待审队列</option><option value="stable" ${mode === "stable" ? "selected" : ""}>当前稳定</option><option value="unreviewed" ${mode === "unreviewed" ? "selected" : ""}>从未审阅</option><option value="all" ${mode === "all" ? "selected" : ""}>全部词条</option></select><button class="command-button" type="submit">筛选</button></form>
+      ${paginationHtml(pagination, "版本审阅")}
       <div class="review-queue-list">${queue}</div>
     </section>
     ${paginationHtml(pagination, "版本审阅")}`;
