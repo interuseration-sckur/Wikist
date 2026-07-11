@@ -1,6 +1,6 @@
 const THEME_KEY = "wikist-theme";
 const LANG_KEY = "wikist-language";
-const CORE_ASSET_VERSION = "wikist-core-20260711-70";
+const CORE_ASSET_VERSION = "wikist-core-20260711-71";
 const VDITOR_VERSION = "3.11.2";
 const VDITOR_CDN = `https://cdn.jsdelivr.net/npm/vditor@${VDITOR_VERSION}`;
 const SWEETALERT_VERSION = "11.26.25";
@@ -4081,7 +4081,7 @@ function adminSectionTitleLegacy(section) {
 }
 
 function adminSectionTitle(section) {
-  return ({ overview: "概览", users: "用户管理", pages: "词条管理", knowledge: "知识网络", citations: "来源审阅", reviews: "版本审阅", comments: "评论管理", "comment-replies": "二级评论", messages: "消息管理", logs: "更新日志", archives: "归档页面", backups: "全站备份", settings: "站点设置", imports: "导入导出", plugins: "插件管理" })[section] || "概览";
+  return ({ overview: "概览", users: "用户管理", pages: "词条管理", knowledge: "知识网络", citations: "来源审阅", reviews: "版本审阅", "search-index": "搜索索引", comments: "评论管理", "comment-replies": "二级评论", messages: "消息管理", logs: "更新日志", archives: "归档页面", backups: "全站备份", settings: "站点设置", imports: "导入导出", plugins: "插件管理" })[section] || "概览";
 }
 
 function adminShellLegacy(active, body) {
@@ -4118,6 +4118,7 @@ function adminShell(active, body) {
     ["knowledge", "知识网络"],
     ["citations", "来源审阅"],
     ["reviews", "版本审阅"],
+    ["search-index", "搜索索引"],
     ["comments", "评论管理"],
     ["messages", "消息管理"],
     ["logs", "更新日志"],
@@ -4487,6 +4488,54 @@ function adminLogRow(log) {
       <td><strong>${escapeHtml(log.targetLabel || "")}</strong><small>${escapeHtml(log.summary || "")}</small></td>
       <td class="admin-comment-cell"><code>${escapeHtml(JSON.stringify(log.metadata || {}))}</code></td>
     </tr>`;
+}
+
+async function renderAdminSearchIndex() {
+  const payload = await api("/api/admin/search-index");
+  const index = payload.index || {};
+  const state = index.ready ? "已就绪" : index.coverage === "disabled" ? "已停用" : index.coverage === "unavailable" ? "不可用" : "待建立";
+  const tone = index.ready ? "ready" : index.coverage === "disabled" || index.coverage === "unavailable" ? "muted" : "pending";
+  el.main.innerHTML = adminShell("search-index", `
+    ${adminHeader("搜索索引", "SQLite FTS5 将索引持久保存在本站数据库中。日常词条保存只更新受影响记录；历史内容仅在你明确执行重建时回填。")}
+    <section class="search-index-metrics">
+      <article><small>引擎</small><strong>${escapeHtml(index.engine || "sqlite-fts5")}</strong></article>
+      <article><small>索引词条</small><strong>${Number(index.documents || 0)}</strong></article>
+      <article><small>覆盖状态</small><strong class="${tone}">${escapeHtml(state)}</strong></article>
+      <article><small>最近同步</small><strong>${index.updatedAt ? escapeHtml(fmtDate(index.updatedAt)) : "尚未同步"}</strong></article>
+    </section>
+    <section class="admin-settings-panel search-index-panel">
+      <div class="panel-heading-row"><div><h2>持久全文索引</h2><p class="muted-line">FTS5 未启用、不可用或尚未完成历史回填时，搜索会自动使用现有的轻量字段索引，不会出现空结果。</p></div><span class="search-index-state ${tone}">${escapeHtml(state)}</span></div>
+      <div class="search-index-details">
+        <span><small>配置</small><strong>${index.enabled ? "advancedSearch.fts5 已启用" : "advancedSearch.fts5 已停用"}</strong></span>
+        <span><small>兼容性</small><strong>${index.available ? "当前 SQLite 支持 FTS5" : escapeHtml(index.error || "当前运行时不支持 FTS5")}</strong></span>
+      </div>
+      <div class="editor-actions">
+        <button class="command-button" id="rebuildSearchIndex" type="button" ${index.enabled && index.available ? "" : "disabled"}>建立 / 重建索引</button>
+        <a class="command-button secondary" href="#/admin/plugins">调整高级搜索配置</a>
+      </div>
+      <p class="status-line" id="searchIndexStatus"></p>
+    </section>
+  `);
+  document.querySelector("#rebuildSearchIndex")?.addEventListener("click", async (event) => {
+    const accepted = await uiConfirm({
+      title: "建立 SQLite FTS5 索引",
+      text: "这会一次性读取现有词条并写入持久索引。日常保存仍只同步发生变化的词条。",
+      confirmText: "开始建立",
+    });
+    if (!accepted) return;
+    const button = event.currentTarget;
+    const status = document.querySelector("#searchIndexStatus");
+    button.disabled = true;
+    status.textContent = "正在建立持久搜索索引...";
+    try {
+      const result = await api("/api/admin/search-index/rebuild", { method: "POST", body: JSON.stringify({}) });
+      status.textContent = `索引已建立：${Number(result.index?.documents || 0)} 个词条。`;
+      await renderAdminSearchIndex();
+    } catch (error) {
+      button.disabled = false;
+      status.textContent = error.message;
+    }
+  });
 }
 
 async function renderAdminLogs(page = 1, query = "", action = "all", targetType = "all") {
@@ -5415,7 +5464,7 @@ async function renderAdmin(section = "overview") {
   }
   const parts = String(section || "overview").split("/");
   const requested = parts[0];
-  const active = ["overview", "users", "pages", "knowledge", "citations", "reviews", "comments", "comment-replies", "messages", "logs", "archives", "backups", "imports", "settings", "plugins"].includes(requested) ? requested : "overview";
+  const active = ["overview", "users", "pages", "knowledge", "citations", "reviews", "search-index", "comments", "comment-replies", "messages", "logs", "archives", "backups", "imports", "settings", "plugins"].includes(requested) ? requested : "overview";
   setChromeTitle(`后台 - ${adminSectionTitle(active === "comment-replies" ? "comment-replies" : active)}`);
   renderToc([]);
   el.editLink.href = "#/new";
@@ -5427,6 +5476,7 @@ async function renderAdmin(section = "overview") {
   else if (active === "knowledge") await renderAdminKnowledge();
   else if (active === "citations") await renderAdminCitations();
   else if (active === "reviews") await renderAdminReviews();
+  else if (active === "search-index") await renderAdminSearchIndex();
   else if (active === "comments") await renderAdminComments();
   else if (active === "comment-replies") await renderAdminCommentReplies(Number(parts[1]) || 0);
   else if (active === "messages") await renderAdminMessages();

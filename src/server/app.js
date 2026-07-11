@@ -8,6 +8,7 @@ const { readJsonBody, safeJoin, sendJson, sendText, serveStatic } = require("../
 const { fetchWikipediaPage, parseWikistImport } = require("../core/import-export");
 const { publicMailSettings, sendWikistMail, siteBaseUrl } = require("../core/mailer");
 const { renderMarkdown } = require("../core/markdown");
+const { PersistentFtsIndex } = require("../core/fts-index");
 const { pluginCatalog, pluginSettings, syncVendorPlugin } = require("../core/plugin-registry");
 const { PageStore } = require("../core/page-store");
 const { PassportStore, clearSessionCookie, sessionCookie } = require("../core/passport-store");
@@ -191,8 +192,8 @@ function siteIconUrl(config) {
 function serveIndexHtml(req, res, indexPath, config) {
   const icon = siteIconUrl(config);
   const html = fs.readFileSync(indexPath, "utf8")
-    .replace(/href="\/assets\/styles\.css\?v=wikist-core-20260711-70"/g, `href="${escapeHtml(assetUrl(config, "/assets/styles.css?v=wikist-core-20260711-70"))}"`)
-    .replace(/src="\/assets\/app\.js\?v=wikist-core-20260711-70"/g, `src="${escapeHtml(assetUrl(config, "/assets/app.js?v=wikist-core-20260711-70"))}"`)
+    .replace(/href="\/assets\/styles\.css\?v=wikist-core-20260711-71"/g, `href="${escapeHtml(assetUrl(config, "/assets/styles.css?v=wikist-core-20260711-71"))}"`)
+    .replace(/src="\/assets\/app\.js\?v=wikist-core-20260711-71"/g, `src="${escapeHtml(assetUrl(config, "/assets/app.js?v=wikist-core-20260711-71"))}"`)
     .replace(/href="\/assets\/wikist-emblem\.svg"/g, `href="${escapeHtml(icon)}"`)
     .replace(/src="\/assets\/wikist-emblem\.svg"/g, `src="${escapeHtml(icon)}"`)
     .replace(/<title>Wikist<\/title>/, `<title>${escapeHtml(config.name || "Wikist")}</title>`);
@@ -343,7 +344,7 @@ function sanitizePluginSettings(input, current = {}, rootDir = process.cwd()) {
     next[plugin.id] = { ...next[plugin.id] };
     for (const key of plugin.configKeys) {
       if (!Object.prototype.hasOwnProperty.call(incoming, key)) continue;
-      if (["enabled", "grid", "axis", "fuzzy", "prefix", "autoConvert"].includes(key)) next[plugin.id][key] = Boolean(incoming[key]);
+      if (["enabled", "grid", "axis", "fts5", "fuzzy", "prefix", "autoConvert"].includes(key)) next[plugin.id][key] = Boolean(incoming[key]);
       else if (key === "defaultHeight") next[plugin.id][key] = Math.max(220, Math.min(Number(incoming[key]) || 360, 760));
       else if (key === "samples") next[plugin.id][key] = Math.max(160, Math.min(Number(incoming[key]) || 720, 1800));
       else if (key === "custom" && incoming[key] && typeof incoming[key] === "object") next[plugin.id][key] = incoming[key];
@@ -591,9 +592,14 @@ function createWikistServer(options) {
     };
   };
   const pages = new PageStore(rootDir, config);
-  const search = new SearchIndex(pages, () => ({ plugins: pluginSettings(config, rootDir) }));
   const passport = configuredAtStartup && config.passport?.enabled ? new PassportStore(rootDir, config.passport) : null;
-  if (passport) passport.rebuildPageLinks(pages.listPages());
+  const persistentSearch = passport ? new PersistentFtsIndex(passport, () => ({ plugins: pluginSettings(config, rootDir) })) : null;
+  const search = new SearchIndex(pages, () => ({ plugins: pluginSettings(config, rootDir) }), persistentSearch);
+  pages.onChange(({ type, page }) => {
+    if (!page?.slug) return;
+    if (type === "delete") search.removePage(page.slug);
+    else search.syncPage(page);
+  });
 
   return http.createServer(async (req, res) => {
     try {
@@ -1156,6 +1162,20 @@ function createWikistServer(options) {
         return;
       }
 
+      if (pathname === "/api/admin/search-index" && req.method === "GET") {
+        requireDashboard(passport, session);
+        sendJson(res, 200, { index: search.persistentStatus() });
+        return;
+      }
+
+      if (pathname === "/api/admin/search-index/rebuild" && req.method === "POST") {
+        requireDashboard(passport, session);
+        const index = search.rebuildPersistentIndex();
+        recordAudit(passport, req, session, { action: "search.fts.rebuild", targetType: "search", targetId: "sqlite-fts5", targetLabel: "SQLite FTS5 搜索索引", summary: "重建 SQLite FTS5 搜索索引", metadata: index });
+        sendJson(res, 200, { index });
+        return;
+      }
+
       if (pathname === "/api/admin/backup/restore" && req.method === "POST") {
         requireDashboard(passport, session);
         const body = await readJsonBody(req, 128 * 1024 * 1024);
@@ -1165,6 +1185,8 @@ function createWikistServer(options) {
         });
         reloadRuntimeConfig(rootDir, config, pages);
         passport.rebuildPageLinks(pages.listPages());
+        const searchStatus = search.persistentStatus();
+        if (searchStatus.enabled && searchStatus.available) search.rebuildPersistentIndex();
         search.cacheKey = "";
         recordAudit(passport, req, session, { action: "backup.restore", targetType: "site", targetId: "backup", targetLabel: body.filename || "backup", summary: "执行备份回档", metadata: { includeUserData: body.includeUserData === true, restored: result.restored?.length || 0, skipped: result.skipped?.length || 0 } });
         sendJson(res, 200, result);

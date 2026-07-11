@@ -59,6 +59,7 @@ class PageStore {
     this.reviewedDir = path.join(rootDir, "content", "reviewed");
     this.deletedDir = path.join(rootDir, "content", "deleted");
     this.cache = new Map();
+    this.changeListeners = new Set();
     this.config = options;
     this.hiddenPages = new Set((options.hiddenPages || []).map((slug) => normalizeSlug(slug)));
     ensureDir(this.pagesDir);
@@ -69,6 +70,18 @@ class PageStore {
 
   clearCache() {
     this.cache.clear();
+  }
+
+  onChange(listener) {
+    if (typeof listener !== "function") return () => {};
+    this.changeListeners.add(listener);
+    return () => this.changeListeners.delete(listener);
+  }
+
+  emitChange(type, page) {
+    for (const listener of this.changeListeners) {
+      try { listener({ type, page }); } catch (_error) {}
+    }
   }
 
   pagePath(slug) {
@@ -274,7 +287,9 @@ class PageStore {
     fs.copyFileSync(this.pagePath(normalized), archivePath);
     fs.unlinkSync(this.pagePath(normalized));
     this.cache.delete(normalized);
-    return { ...page, deletedAt: now, archiveId };
+    const deleted = { ...page, deletedAt: now, archiveId };
+    this.emitChange("delete", deleted);
+    return deleted;
   }
 
   parseDeletedFile(filePath, slug, archiveId) {
@@ -409,7 +424,9 @@ class PageStore {
     } catch (_error) {}
 
     this.cache.delete(normalized);
-    return { ...this.getPage(normalized), archiveId: safeArchiveId, restoredAt: new Date().toISOString() };
+    const restored = { ...this.getPage(normalized), archiveId: safeArchiveId, restoredAt: new Date().toISOString() };
+    this.emitChange("restore", restored);
+    return restored;
   }
 
   savePage(slug, input) {
@@ -461,7 +478,9 @@ class PageStore {
     ensureDir(path.dirname(filePath));
     fs.writeFileSync(filePath, serializeFrontMatter(metadata, body), "utf8");
     this.cache.delete(normalized);
-    return this.getPage(normalized);
+    const page = this.getPage(normalized);
+    this.emitChange(existing ? "update" : "create", page);
+    return page;
   }
 }
 

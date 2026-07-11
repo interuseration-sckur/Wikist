@@ -7641,7 +7641,7 @@ body.admin-mode .plugin-json.compact {
   }
 }
 
-/* v0.5.3: Wikist-native subscription and review controls. */
+/* v0.6.0: Wikist-native subscription, review, and persistent search controls. */
 .watchlist-manage-action {
   display: flex;
   margin-top: auto;
@@ -7774,4 +7774,56 @@ body.admin-mode .plugin-json.compact {
 @media (max-width: 640px) {
   .review-decision-field > span { align-items: flex-start; flex-direction: column; gap: 3px; }
   .review-decision-actions { grid-template-columns: 1fr; }
+}
+
+/* Persistent search index workbench. */
+.search-index-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.search-index-metrics article,
+.search-index-details > span {
+  display: grid;
+  gap: 5px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 13px;
+  background: rgba(8, 15, 13, .42);
+}
+
+.search-index-metrics small,
+.search-index-details small { color: var(--muted); font-size: .74rem; }
+.search-index-metrics strong { color: var(--cyan); font-size: 1.04rem; }
+.search-index-metrics strong.ready { color: var(--green); }
+.search-index-metrics strong.pending { color: var(--amber); }
+.search-index-metrics strong.muted { color: var(--muted); }
+.search-index-panel { display: grid; gap: 14px; }
+.search-index-state {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 5px 9px;
+  color: var(--muted);
+  font-size: .76rem;
+}
+.search-index-state.ready { border-color: rgba(124, 255, 180, .48); color: var(--green); background: rgba(124, 255, 180, .08); }
+.search-index-state.pending { border-color: rgba(255, 209, 102, .5); color: var(--amber); background: rgba(255, 209, 102, .08); }
+.search-index-details { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.search-index-details strong { color: var(--text); font-size: .88rem; line-height: 1.5; }
+
+:root[data-theme="light"] .search-index-metrics article,
+:root[data-theme="light"] .search-index-details > span {
+  border-color: #bfd6d0;
+  background: #ffffff;
+  box-shadow: 0 8px 22px rgba(23, 61, 51, .06);
+}
+
+@media (max-width: 760px) {
+  .search-index-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .search-index-details { grid-template-columns: 1fr; }
 }

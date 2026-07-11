@@ -107,7 +107,9 @@ The dashboard source-review route reads page-level citation statistics and pagin
 
 `content/reviewed/<slug>/<revision-id>.md` stores a stable snapshot only after a senior editor or administrator approves the current Markdown. SQLite stores the small stable pointer plus reviewer notes in `page_stable_revisions` and `page_review_notes`; it does not duplicate article bodies. Current-versus-stable line diffing is bounded in memory and the pending queue is derived from a current revision ID mismatch.
 
-The default search engine is an in-memory, field-weighted index over page metadata and Markdown text. It supports Chinese token heuristics, prefix and fuzzy matching, quoted phrases, category/quality/difficulty filters, facets, and pagination.
+The default search engine remains a small in-memory, field-weighted index over page metadata and Markdown text. It supports Chinese token heuristics, prefix and fuzzy matching, quoted phrases, category/quality/difficulty filters, facets, and pagination.
+
+When Passport's SQLite database and FTS5 are available, `advancedSearch.fts5` enables an optional persistent full-text index in the same SQLite file. Saving, deleting, or restoring a page updates only that page's FTS record; no process-start scan or Elasticsearch service is required. An administrator can explicitly backfill historical pages from **Admin -> Search Index**. Until that controlled backfill is complete, or when a query needs a fuzzy/phrase fallback, Wikist continues to use the in-memory engine. The persistent index stores searchable token fields and unindexed display metadata, so its data never replaces portable Markdown content.
 
 Translation data stays in SQLite while the canonical source article stays in Markdown. Readers can select an existing translation directly; translators use a separate side-by-side workbench with progress, language membership, and draft assistance.
 
@@ -126,7 +128,6 @@ Wikipedia import/export preserves source attribution and attempts to map heading
 The following are planned as additive layers rather than implicit requirements:
 
 - optional DOI/arXiv metadata enrichment and citation-style selection;
-- a persistent optional SQLite FTS index;
 - category landing pages, rename repair, and richer link-graph reports;
 - translation memory and terminology glossaries;
 - an event/hook API with permission declarations for plugins;

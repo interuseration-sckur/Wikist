@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-07-11 - SQLite FTS5 Persistent Search
+
+- Added an optional SQLite FTS5 full-text index in the existing Passport database; no Elasticsearch, service process, or startup-wide Markdown scan is required.
+- Page create, save, restore, and delete now update or remove only the affected persistent search row through the PageStore change stream. Existing link and watch updates remain incremental in their established save path.
+- Kept the lightweight field-weighted search engine as a transparent fallback until an administrator explicitly backfills the historical FTS index, when FTS5 is unavailable, and for quoted-phrase or fuzzy search behavior.
+- Added **Admin -> Search Index**, with SQLite compatibility, coverage, document-count, update-time status, and a deliberate historical backfill action.
+- Added FTS5 lifecycle documentation and temporary-database checks for Chinese/English search, incremental update, and deletion.
+- Bumped the framework package to `0.6.0` and the frontend asset version to `wikist-core-20260711-71`.
+
 ## 2026-07-11 - Watch Delivery And Review Workflow
 
 - Article saves now return the actual targeted-notification count and current review state; page, category, language, and author followers continue to receive one direct inbox update per matching save.

@@ -78,16 +78,9 @@ When a reader changes language, resolve the closest available translation or cle
 
 ## P3: Search And Performance
 
-### 9. Persistent Search Index
+### 9. Persistent Search Index (Completed Baseline)
 
-Keep the current in-memory index for small sites, then add an optional SQLite FTS5 index:
-
-- Update only the changed page on save/delete/restore.
-- Index title, aliases, summary, categories, body, and translation titles.
-- Preserve the current query grammar and pagination API.
-- Fall back automatically to the in-memory index when FTS5 is unavailable.
-
-This is the right next step before Elasticsearch: it removes cold-start rebuild cost without adding a separate service.
+Wikist now provides an optional SQLite FTS5 index alongside the existing in-memory engine. It updates only the changed page on save/delete/restore, is explicitly backfilled from the dashboard instead of rebuilding during cold start, and automatically falls back to the lightweight engine when FTS5 is unavailable or a query needs fuzzy/phrase matching. The next search work should focus on observability and translation-aware indexing, not on introducing Elasticsearch.
 
 ### 10. Render And Media Cache
 

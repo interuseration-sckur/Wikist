@@ -113,9 +113,10 @@ function cleanSearchOptions(options = {}) {
 }
 
 class SearchIndex {
-  constructor(pageStore, settingsProvider = null) {
+  constructor(pageStore, settingsProvider = null, persistentIndex = null) {
     this.pageStore = pageStore;
     this.settingsProvider = settingsProvider;
+    this.persistentIndex = persistentIndex;
     this.cacheKey = "";
     this.documents = [];
   }
@@ -139,6 +140,40 @@ class SearchIndex {
       categoryTokens: tokenize((page.categories || []).join(" ")),
     }));
     return this.documents;
+  }
+
+  syncPage(page) {
+    this.persistentIndex?.syncPage(page);
+    this.cacheKey = "";
+  }
+
+  removePage(slug) {
+    this.persistentIndex?.removePage(slug);
+    this.cacheKey = "";
+  }
+
+  persistentStatus() {
+    return this.persistentIndex?.status() || {
+      engine: "sqlite-fts5",
+      enabled: false,
+      available: false,
+      ready: false,
+      coverage: "unavailable",
+      documents: 0,
+      updatedAt: "",
+      error: "Wikist Passport 未启用，正在使用轻量搜索回退。",
+    };
+  }
+
+  rebuildPersistentIndex() {
+    if (!this.persistentIndex) {
+      const error = new Error("Wikist Passport 未启用，无法创建 SQLite FTS5 索引。");
+      error.statusCode = 409;
+      throw error;
+    }
+    const status = this.persistentIndex.rebuild(this.pageStore.listPages());
+    this.cacheKey = "";
+    return status;
   }
 
   search(query, optionsOrLimit = {}) {
@@ -165,6 +200,8 @@ class SearchIndex {
       quality: options.quality || parsed.filters.quality || "",
       difficulty: options.difficulty || parsed.filters.difficulty || "",
     };
+    const persistent = this.persistentIndex?.search(raw, options);
+    if (persistent && (persistent.total > 0 || options.fuzzy === false)) return persistent;
     const q = parsed.text || raw;
     const queryTokens = tokenize(q);
     const normalizedQuery = normalizeText(q);
@@ -211,7 +248,7 @@ class SearchIndex {
       items,
       total,
       facets,
-      engine: plugin.engine || "wikist-mini",
+      engine: this.persistentIndex?.status()?.enabled ? "wikist-mini-fallback" : (plugin.engine || "wikist-mini"),
       pagination: {
         page: options.page,
         pageSize: options.limit,
@@ -259,4 +296,8 @@ module.exports = {
   SearchIndex,
   tokenize,
   parseQuery,
+  normalizeText,
+  matchText,
+  snippet,
+  cleanSearchOptions,
 };
