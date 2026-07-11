@@ -2,6 +2,7 @@ const fs = require("fs");
 const http = require("http");
 const path = require("path");
 const { createBackupPackage, inspectBackupPackage, restoreBackupPackage } = require("../core/backup");
+const { normalizeArxiv, normalizeCitationId, normalizeDoi, normalizeUrl } = require("../core/citations");
 const { hasSiteConfig, loadConfig, uninstallSiteConfig, writeInitialConfig } = require("../core/config");
 const { readJsonBody, safeJoin, sendJson, sendText, serveStatic } = require("../core/http");
 const { fetchWikipediaPage, parseWikistImport } = require("../core/import-export");
@@ -134,6 +135,38 @@ function sendDownload(res, backup) {
   res.end(backup.buffer);
 }
 
+function citationInputError(references) {
+  if (references === undefined) return "";
+  if (!Array.isArray(references)) return "引用记录必须是数组。";
+  if (references.length > 120) return "单个词条最多保存 120 条引用记录。";
+  const ids = new Set();
+  for (const [index, reference] of references.entries()) {
+    if (!reference || typeof reference !== "object") return `第 ${index + 1} 条引用记录格式无效。`;
+    const id = String(reference.id || reference.key || "").trim();
+    if (id && !normalizeCitationId(id)) return `第 ${index + 1} 条引用键格式无效。`;
+    const normalizedId = normalizeCitationId(id);
+    if (normalizedId && ids.has(normalizedId)) return `引用键 ${normalizedId} 重复。`;
+    if (normalizedId) ids.add(normalizedId);
+    const doi = String(reference.doi || "").trim();
+    const arxiv = String(reference.arxiv || reference.arXiv || "").trim();
+    const url = String(reference.url || reference.link || "").trim();
+    if (doi && !normalizeDoi(doi)) return `引用 ${id || index + 1} 的 DOI 格式无效。`;
+    if (arxiv && !normalizeArxiv(arxiv)) return `引用 ${id || index + 1} 的 arXiv 编号格式无效。`;
+    if (url && !normalizeUrl(url)) return `引用 ${id || index + 1} 的链接必须是 http 或 https 地址。`;
+    const year = String(reference.year || "").trim();
+    if (year && !/^\d{4}$/.test(year)) return `引用 ${id || index + 1} 的年份应为四位数字。`;
+  }
+  return "";
+}
+
+function assertCitationInput(references) {
+  const message = citationInputError(references);
+  if (!message) return;
+  const error = new Error(message);
+  error.statusCode = 400;
+  throw error;
+}
+
 function escapeHtml(value) {
   return String(value || "")
     .replace(/&/g, "&amp;")
@@ -157,8 +190,8 @@ function siteIconUrl(config) {
 function serveIndexHtml(req, res, indexPath, config) {
   const icon = siteIconUrl(config);
   const html = fs.readFileSync(indexPath, "utf8")
-    .replace(/href="\/assets\/styles\.css\?v=wikist-core-20260711-64"/g, `href="${escapeHtml(assetUrl(config, "/assets/styles.css?v=wikist-core-20260711-64"))}"`)
-    .replace(/src="\/assets\/app\.js\?v=wikist-core-20260711-64"/g, `src="${escapeHtml(assetUrl(config, "/assets/app.js?v=wikist-core-20260711-64"))}"`)
+    .replace(/href="\/assets\/styles\.css\?v=wikist-core-20260711-65"/g, `href="${escapeHtml(assetUrl(config, "/assets/styles.css?v=wikist-core-20260711-65"))}"`)
+    .replace(/src="\/assets\/app\.js\?v=wikist-core-20260711-65"/g, `src="${escapeHtml(assetUrl(config, "/assets/app.js?v=wikist-core-20260711-65"))}"`)
     .replace(/href="\/assets\/wikist-emblem\.svg"/g, `href="${escapeHtml(icon)}"`)
     .replace(/src="\/assets\/wikist-emblem\.svg"/g, `src="${escapeHtml(icon)}"`)
     .replace(/<title>Wikist<\/title>/, `<title>${escapeHtml(config.name || "Wikist")}</title>`);
@@ -185,6 +218,7 @@ function pagePreviewPayload(page) {
     redirectTarget: page.redirectTarget || "",
     isDisambiguation: Boolean(page.isDisambiguation),
     disambiguationTargets: page.disambiguationTargets || [],
+    citationStats: page.citationStats || { total: 0, cited: 0, verifiable: 0, completeness: 0, qualityScore: 0, unresolved: [], citationNeeded: 0, issues: [] },
     quality: page.quality || "C",
     status: page.status || "draft",
     updatedAt: page.updatedAt,
@@ -1000,6 +1034,7 @@ function createWikistServer(options) {
         requireImportAccount(passport, session);
         const body = await readJsonBody(req, 8 * 1024 * 1024);
         const pageInput = parseWikistImport({ ...body, author: sessionAuthor(session) });
+        assertCitationInput(pageInput.references);
         if (passport) passport.assertCanEdit(pageInput.slug, session);
         assertImportOverwriteAllowed(pages, pageInput.slug, body.overwrite === true);
         const existing = pages.getPage(pageInput.slug);
@@ -1015,6 +1050,7 @@ function createWikistServer(options) {
         requireImportAccount(passport, session);
         const body = await readJsonBody(req, 1024 * 1024);
         const pageInput = await fetchWikipediaPage({ ...body, author: sessionAuthor(session) });
+        assertCitationInput(pageInput.references);
         if (passport) passport.assertCanEdit(pageInput.slug, session);
         assertImportOverwriteAllowed(pages, pageInput.slug, body.overwrite === true);
         const existing = pages.getPage(pageInput.slug);
@@ -1049,6 +1085,7 @@ function createWikistServer(options) {
           difficulty: current.difficulty,
           author: sessionAuthor(session, "Wikist Sync"),
         });
+        assertCitationInput(synced.references);
         const page = pages.savePage(slug, { ...synced, title: current.title || synced.title, heroImage: current.heroImage || synced.heroImage || "" });
         const audit = passport.recordPageEdit(req, session, page, { action: "update" });
         knowledgeWrite(passport, page, session, { action: "update" });
@@ -1158,6 +1195,7 @@ function createWikistServer(options) {
         requireDashboard(passport, session);
         const body = await readJsonBody(req, 8 * 1024 * 1024);
         const pageInput = parseWikistImport(body);
+        assertCitationInput(pageInput.references);
         if (passport) passport.assertCanEdit(pageInput.slug, session);
         assertImportOverwriteAllowed(pages, pageInput.slug, body.overwrite === true);
         const existing = pages.getPage(pageInput.slug);
@@ -1173,6 +1211,7 @@ function createWikistServer(options) {
         requireDashboard(passport, session);
         const body = await readJsonBody(req, 1024 * 1024);
         const pageInput = await fetchWikipediaPage({ ...body, author: session.user.displayName || session.user.username || "Wikist Importer" });
+        assertCitationInput(pageInput.references);
         if (passport) passport.assertCanEdit(pageInput.slug, session);
         assertImportOverwriteAllowed(pages, pageInput.slug, body.overwrite === true);
         const existing = pages.getPage(pageInput.slug);
@@ -1207,6 +1246,7 @@ function createWikistServer(options) {
           difficulty: current.difficulty,
           author: session.user.displayName || session.user.username || "Wikist Sync",
         });
+        assertCitationInput(synced.references);
         const page = pages.savePage(slug, { ...synced, title: current.title || synced.title, heroImage: current.heroImage || synced.heroImage || "" });
         const audit = passport.recordPageEdit(req, session, page, { action: "update" });
         knowledgeWrite(passport, page, session, { action: "update" });
@@ -1243,11 +1283,50 @@ function createWikistServer(options) {
           difficulty: page.difficulty, status: page.status, quality: page.quality, author: page.author,
           updatedAt: page.updatedAt, bytes: page.bytes, permissions: passport.getPagePermissions(page.slug),
           rating: passport.getPageRatingStats(page.slug),
+          citationStats: page.citationStats,
         }));
         const filtered = query ? allPages.filter((page) => [page.slug, page.title, page.summary, page.author, ...(page.categories || [])].join(" ").toLowerCase().includes(query)) : allPages;
         const pageItems = filtered.slice(pagination.offset, pagination.offset + pagination.limit);
         const payload = paginationPayload(pageItems, filtered.length, pagination);
         sendJson(res, 200, { ...payload, pages: pageItems });
+        return;
+      }
+
+      if (pathname === "/api/admin/citations" && req.method === "GET") {
+        requireDashboard(passport, session);
+        const pagination = readPagination(url, 20, 100);
+        const mode = String(url.searchParams.get("mode") || "needs-review");
+        const query = String(url.searchParams.get("q") || "").trim().toLowerCase();
+        const all = pages.listPages().map((page) => ({
+          slug: page.slug,
+          title: page.title,
+          summary: page.summary,
+          categories: page.categories,
+          updatedAt: page.updatedAt,
+          quality: page.quality,
+          citationStats: page.citationStats || {},
+          references: page.references || [],
+        }));
+        const filtered = all.filter((page) => {
+          const stats = page.citationStats || {};
+          const review = Number(stats.total || 0) === 0 || Number(stats.citationNeeded || 0) > 0 || Number(stats.uncited || 0) > 0 || (stats.unresolved || []).length > 0 || Number(stats.completeness || 0) < 100;
+          if (mode === "missing" && Number(stats.total || 0) !== 0) return false;
+          if (mode === "unresolved" && !(stats.unresolved || []).length) return false;
+          if (mode === "needs-review" && !review) return false;
+          if (query && ![page.slug, page.title, page.summary, ...(page.references || []).flatMap((reference) => [reference.id, reference.title, ...(reference.authors || []), reference.doi, reference.arxiv])].join(" ").toLowerCase().includes(query)) return false;
+          return true;
+        });
+        const items = filtered.slice(pagination.offset, pagination.offset + pagination.limit);
+        const totals = all.reduce((result, page) => {
+          const stats = page.citationStats || {};
+          result.pages += 1;
+          result.references += Number(stats.total || 0);
+          result.verifiable += Number(stats.verifiable || 0);
+          if (Number(stats.total || 0) === 0) result.withoutSources += 1;
+          if (Number(stats.citationNeeded || 0) || Number(stats.uncited || 0) || (stats.unresolved || []).length || Number(stats.completeness || 0) < 100) result.needsReview += 1;
+          return result;
+        }, { pages: 0, references: 0, verifiable: 0, withoutSources: 0, needsReview: 0 });
+        sendJson(res, 200, { mode, stats: totals, ...paginationPayload(items, filtered.length, pagination) });
         return;
       }
 
@@ -1553,6 +1632,7 @@ function createWikistServer(options) {
           status: page.status,
           quality: page.quality,
           author: page.author,
+          citationStats: page.citationStats,
           updatedAt: page.updatedAt,
           bytes: page.bytes,
         })));
@@ -1889,6 +1969,11 @@ function createWikistServer(options) {
           return;
         }
         const body = await readJsonBody(req);
+        const referencesError = citationInputError(body.references);
+        if (referencesError) {
+          sendJson(res, 400, { error: referencesError });
+          return;
+        }
         const managesAliases = Object.prototype.hasOwnProperty.call(body, "aliases") || Object.prototype.hasOwnProperty.call(body, "redirectTarget");
         if (managesAliases) {
           if (!passport?.userFollowState || !session?.user || !["creator", "editor", "senior_editor", "admin"].includes(session.user.role)) {

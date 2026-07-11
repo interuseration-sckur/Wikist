@@ -13,6 +13,18 @@ Wikist content should be written for readers who care about precision. It should
 - Related pages are linked with `[[slug|label]]`.
 - Claims that are historical, uncommon, or advanced should cite sources.
 
+## Structured Citations
+
+Use a structured source record instead of placing bibliographic prose only in a footnote. Add the record in the article editor, then cite it in the body:
+
+```markdown
+The theorem is stated in a standard form [@atiyah-macdonald-1969, ch. 1].
+
+{{cite-needed|find a primary source for this historical statement}}
+```
+
+Prefer original papers, recognized monographs, official preprints, and institutional sources. DOI, arXiv, publication name, year, and the exact page or theorem location make mathematical claims substantially easier to audit. See [Structured citations](CITATIONS.md) for record fields and review rules.
+
 ## Math Article Template
 
 ```markdown

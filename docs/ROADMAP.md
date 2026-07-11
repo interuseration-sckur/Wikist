@@ -23,16 +23,11 @@ Introduce a small review layer instead of copying MediaWiki FlaggedRevs wholesal
 
 [MediaWiki FlaggedRevs](https://www.mediawiki.org/wiki/Extension:FlaggedRevs) separates the newest draft from the reader-facing stable version, but its own documentation describes the extension as complex. Wikist should adopt the workflow, not its heavy multi-table rating system.
 
-### 2. Citation And Source Records
+### Delivered: Structured Citation And Source Records
 
-Footnotes already exist; the next step is structured sources:
+Wikist now provides portable structured reference records with author, title, publication, year, volume, issue, pages, DOI, arXiv, URL, access date, and note fields. Body syntax such as `[@hardy1908, p. 42]` creates numbered, clickable references while explanatory footnotes remain independent.
 
-- Add a `cite` block or reference record with author, title, publication, year, DOI/arXiv/URL, access date, and optional page range.
-- Render numbered references consistently and preserve them in import/export.
-- Provide a “missing source” quality warning for claims marked historical, numerical, or externally attributed.
-- Add a lightweight citation checker for malformed DOI, arXiv, and URL values without making network validation part of every page request.
-
-This brings Wikipedia-style verifiability into Wikist without requiring template expansion or a large reference extension. The design should remain compatible with the reader expectations established by [MediaWiki Cite](https://www.mediawiki.org/wiki/Extension:Cite).
+Article saves validate citation keys and resolver formats without making network requests. The reader sees completeness, verifier count, unresolved keys, and explicit `{{cite-needed}}` signals. The dashboard has a paginated source-review queue for no-source, unresolved, and incomplete records. The next refinement is citation style selection, optional DOI/arXiv metadata enrichment, and source-aware review approval.
 
 ### Delivered: Watchlists And Editorial Notifications
 

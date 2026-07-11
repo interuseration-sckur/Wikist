@@ -1,5 +1,6 @@
 const { applyMagicWords, pluginSettings, renderPluginBlock, renderPluginFence } = require("./plugin-registry");
 const { slugToId } = require("./slug");
+const { normalizeReferences, referenceQuality, formatReferenceText } = require("./citations");
 
 function escapeHtml(value) {
   return String(value || "")
@@ -203,8 +204,19 @@ function parseMarkdownImage(source, inline = false) {
   return renderImageFigure(match[2], options);
 }
 
-function createRuntime(footnotes = new Map()) {
-  return { footnotes, footnoteNumbers: new Map(), footnoteOrder: [] };
+function createRuntime(footnotes = new Map(), references = []) {
+  const normalizedReferences = normalizeReferences(references);
+  return {
+    footnotes,
+    footnoteNumbers: new Map(),
+    footnoteOrder: [],
+    references: normalizedReferences,
+    referencesById: new Map(normalizedReferences.map((reference) => [reference.id, reference])),
+    citationNumbers: new Map(),
+    citationOrder: [],
+    unresolvedCitations: new Set(),
+    citationNeeded: [],
+  };
 }
 
 function footnoteRefHtml(id, runtime) {
@@ -218,6 +230,42 @@ function footnoteRefHtml(id, runtime) {
   return `<sup id="fnref-${safeId}" class="footnote-ref"><a href="#fn-${safeId}" data-wikist-scroll="fn-${safeId}">${number}</a></sup>`;
 }
 
+function citationNumber(id, runtime) {
+  if (!runtime.citationNumbers.has(id)) {
+    runtime.citationNumbers.set(id, runtime.citationOrder.length + 1);
+    runtime.citationOrder.push(id);
+  }
+  return runtime.citationNumbers.get(id);
+}
+
+function citationRefHtml(content, runtime) {
+  const raw = String(content || "").trim();
+  if (!raw.includes("@")) return null;
+  const entries = raw.split(/\s*;\s*/).map((part) => {
+    const match = part.match(/^(.*?)@([a-z0-9][a-z0-9._:-]*)(.*)$/i);
+    if (!match) return null;
+    return { prefix: match[1].trim(), id: match[2].toLowerCase(), locator: match[3].replace(/^\s*[,，]\s*/, "").trim() };
+  }).filter(Boolean);
+  if (!entries.length) return null;
+  const rendered = entries.map((entry) => {
+    const reference = runtime.referencesById.get(entry.id);
+    if (!reference) {
+      runtime.unresolvedCitations.add(entry.id);
+      return `<span class="citation-missing" title="未找到引用记录 @${escapeHtml(entry.id)}">@${escapeHtml(entry.id)}</span>`;
+    }
+    const number = citationNumber(entry.id, runtime);
+    const lead = entry.prefix ? `${escapeHtml(entry.prefix)} ` : "";
+    const locator = entry.locator ? `, ${escapeHtml(entry.locator)}` : "";
+    return `${lead}<a href="#ref-${slugToId(entry.id)}" class="citation-ref" data-wikist-scroll="ref-${slugToId(entry.id)}">${number}</a>${locator}`;
+  }).join("; ");
+  return `<sup class="citation-cluster">[${rendered}]</sup>`;
+}
+
+function citationNeededHtml(reason, runtime) {
+  runtime.citationNeeded.push(String(reason || "").trim());
+  return `<span class="citation-needed" title="${escapeHtml(reason || "该说法需要可靠来源")}">[需要来源]</span>`;
+}
+
 function renderInline(source, runtime = createRuntime()) {
   const tokens = [];
   const stash = (html) => {
@@ -228,6 +276,8 @@ function renderInline(source, runtime = createRuntime()) {
   let text = String(source || "");
 
   text = text.replace(/`([^`]+)`/g, (_match, code) => stash(`<code>${escapeHtml(code)}</code>`));
+  text = text.replace(/\{\{(?:cite-needed|citation needed)(?:\|([^}]+))?\}\}/gi, (_match, reason) => stash(citationNeededHtml(reason, runtime)));
+  text = text.replace(/\[([^\]\n]*@[a-z0-9][a-z0-9._:-]*[^\]\n]*)\]/gi, (match, content) => stash(citationRefHtml(content, runtime) || match));
   text = text.replace(/\[\[(?:File|Image|文件|图片):[^\]]+\]\]/gi, (match) => stash(parseMediaWikiImage(match, true) || escapeHtml(match)));
   text = text.replace(/!\[[^\]]*\]\([^\n]+?\)(?:\s*\{[^{}]+\})?/g, (match) => stash(parseMarkdownImage(match, true) || escapeHtml(match)));
   text = text.replace(/\[\^([^\]]+)\]/g, (match, id) => {
@@ -335,6 +385,52 @@ function renderFootnotes(runtime) {
   return `<section class="footnotes"><h2>注释</h2><ol>${items}</ol></section>`;
 }
 
+function referenceLinksHtml(reference) {
+  const links = [];
+  if (reference.doi) links.push(`<a href="https://doi.org/${encodeURIComponent(reference.doi).replace(/%2F/gi, "/")}" rel="noreferrer" target="_blank">DOI: ${escapeHtml(reference.doi)}</a>`);
+  if (reference.arxiv) links.push(`<a href="https://arxiv.org/abs/${encodeURIComponent(reference.arxiv).replace(/%2F/gi, "/")}" rel="noreferrer" target="_blank">arXiv: ${escapeHtml(reference.arxiv)}</a>`);
+  if (reference.url) links.push(`<a href="${sanitizeHref(reference.url)}" rel="noreferrer" target="_blank">链接</a>`);
+  return links.length ? `<span class="reference-links">${links.join(" · ")}</span>` : "";
+}
+
+function renderReferences(runtime) {
+  if (!runtime.references.length) return "";
+  const used = new Set(runtime.citationOrder);
+  const ordered = [
+    ...runtime.citationOrder.map((id) => runtime.referencesById.get(id)).filter(Boolean),
+    ...runtime.references.filter((reference) => !used.has(reference.id)),
+  ];
+  const items = ordered.map((reference) => {
+    const number = citationNumber(reference.id, runtime);
+    const quality = referenceQuality(reference);
+    const issues = quality.issues.length ? `<small class="reference-issues">${escapeHtml(quality.issues.join("；"))}</small>` : "";
+    const note = reference.note ? `<span class="reference-note">${escapeHtml(reference.note)}</span>` : "";
+    return `<li id="ref-${slugToId(reference.id)}"><span class="reference-number">[${number}]</span><div><span class="reference-main">${escapeHtml(formatReferenceText(reference) || reference.id)}</span>${referenceLinksHtml(reference)}${note}${issues}</div></li>`;
+  }).join("");
+  return `<section class="references"><div class="references-heading"><h2>参考文献</h2><span>${ordered.length} 条结构化来源</span></div><ol>${items}</ol></section>`;
+}
+
+function citationStats(runtime) {
+  const qualities = runtime.references.map((reference) => ({ id: reference.id, ...referenceQuality(reference) }));
+  const total = runtime.references.length;
+  const cited = runtime.citationOrder.length;
+  const verifiable = qualities.filter((item) => item.verifiable).length;
+  const complete = qualities.filter((item) => !item.issues.length).length;
+  const mean = total ? Math.round(qualities.reduce((sum, item) => sum + item.score, 0) / total) : 0;
+  return {
+    total,
+    cited,
+    uncited: Math.max(0, total - cited),
+    verifiable,
+    complete,
+    completeness: total ? Math.round((complete / total) * 100) : 0,
+    qualityScore: mean,
+    unresolved: [...runtime.unresolvedCitations],
+    citationNeeded: runtime.citationNeeded.length,
+    issues: qualities.filter((item) => item.issues.length).map((item) => ({ id: item.id, issues: item.issues, score: item.score })),
+  };
+}
+
 function renderList(block, ordered, runtime, options = {}) {
   let taskList = false;
   const items = block.map((item) => {
@@ -401,7 +497,7 @@ function renderContainer(lines, start, context, runtime) {
     index += 1;
   }
   if (index < lines.length) index += 1;
-  const renderedBody = renderMarkdown(body.join("\n"), { ...context, nested: true }).html;
+  const renderedBody = renderMarkdown(body.join("\n"), { ...context, nested: true, runtime }).html;
   if (!isSupported) {
     const safeKind = slugToId(kind);
     return {
@@ -421,7 +517,7 @@ function renderMarkdown(source, context = {}) {
   const footnotesEnabled = markdownFeatureEnabled(context, "upstreamFootnote");
   const extracted = footnotesEnabled ? extractFootnotes(preparedLines) : { lines: preparedLines, footnotes: new Map() };
   const lines = extracted.lines;
-  const runtime = createRuntime(extracted.footnotes);
+  const runtime = context.runtime || createRuntime(extracted.footnotes, context.references || context.page?.references || []);
   const html = [];
   const toc = [];
   const paragraph = [];
@@ -535,7 +631,7 @@ function renderMarkdown(source, context = {}) {
       flushParagraph(paragraph, html, runtime);
       const { block, next } = collectBlock(lines, index, (item) => /^>\s?/.test(item.trim()));
       const quote = block.map((item) => item.replace(/^>\s?/, "")).join("\n");
-      html.push(`<blockquote>${renderMarkdown(quote, { ...context, nested: true }).html}</blockquote>`);
+      html.push(`<blockquote>${renderMarkdown(quote, { ...context, nested: true, runtime }).html}</blockquote>`);
       index = next;
       continue;
     }
@@ -562,11 +658,13 @@ function renderMarkdown(source, context = {}) {
 
   flushParagraph(paragraph, html, runtime);
   if (!context.nested) {
+    const references = renderReferences(runtime);
+    if (references) html.push(references);
     const footnotes = renderFootnotes(runtime);
     if (footnotes) html.push(footnotes);
   }
 
-  return { html: html.join("\n"), toc };
+  return { html: html.join("\n"), toc, citationStats: citationStats(runtime) };
 }
 
 module.exports = {

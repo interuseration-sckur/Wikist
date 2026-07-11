@@ -86,7 +86,7 @@ Article source remains portable Markdown. Optional front matter fields `aliases`
 
 ## Rendering And Mathematical Content
 
-`src/core/markdown.js` renders a safe Markdown subset with front matter, headings, tables, footnotes, definition lists, task lists, theorem-style containers, TeX, wiki links, and MediaWiki-style image layout options.
+`src/core/markdown.js` renders a safe Markdown subset with front matter, headings, tables, footnotes, structured citations, definition lists, task lists, theorem-style containers, TeX, wiki links, and MediaWiki-style image layout options.
 
 `src/core/plugin-registry.js` applies enabled parser and render plugins before final Markdown output:
 
@@ -99,7 +99,11 @@ Article source remains portable Markdown. Optional front matter fields `aliases`
 
 Plugin manifests are metadata first. Only trusted core plugins and reviewed `clientModule` entries execute. Third-party repositories can be cloned to `plugins/vendor/` for inspection, but are not automatically executed.
 
-## Search, Translation, And Import
+## Source Records, Search, Translation, And Import
+
+`src/core/citations.js` normalizes portable front-matter reference records and validates citation keys, DOI, arXiv, URLs, author lists, year, and bibliographic fields. Markdown uses `[@key]` clusters for numbered back-linked citations and keeps `[^note]` as a separate explanatory-footnote system. Citation quality is calculated at page render time, so no additional database or external service is needed for ordinary reads.
+
+The dashboard source-review route reads page-level citation statistics and paginates articles with no sources, unresolved keys, explicit source-needed markers, or incomplete records.
 
 The default search engine is an in-memory, field-weighted index over page metadata and Markdown text. It supports Chinese token heuristics, prefix and fuzzy matching, quoted phrases, category/quality/difficulty filters, facets, and pagination.
 
@@ -120,7 +124,7 @@ Wikipedia import/export preserves source attribution and attempts to map heading
 The following are planned as additive layers rather than implicit requirements:
 
 - review states and stable article releases;
-- citation metadata and source validation;
+- optional DOI/arXiv metadata enrichment and citation-style selection;
 - a persistent optional SQLite FTS index;
 - category landing pages, rename repair, and richer link-graph reports;
 - translation memory and terminology glossaries;

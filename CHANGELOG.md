@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-07-11 - Structured Citations And Source Quality
+
+- Added portable structured article references with authors, title, type, publication, year, volume, issue, pages, DOI, arXiv, URL, access date, language, and verification notes.
+- Added `[@cite-key]`, locator, and multi-source citation syntax with numbered, back-linked reference rendering; explanatory footnotes remain independent.
+- Added explicit `{{cite-needed|reason}}` markers, unresolved-key detection, field completeness, verifier counts, and a source-quality score on article pages.
+- Added an editor reference manager with citation insertion, import/export preservation, attributed Wikipedia import source records, and a paginated Admin -> Source review queue.
+- Added DOI/arXiv/URL/year/key validation plus `npm run check:citations`; the updater now runs the citation check.
+- Bumped the framework package to `0.4.0` and the frontend asset version to `wikist-core-20260711-65`.
+
 ## 2026-07-11 - Article Redirects, Disambiguation, And Social Following
 
 - Fixed the public knowledge-network layout so missing-page and orphan-page panels use independent, paginated lists instead of stretching each other.

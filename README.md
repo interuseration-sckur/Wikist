@@ -142,15 +142,15 @@ http://127.0.0.1:8899/#/login
 http://127.0.0.1:8899/#/register
 ```
 
-本地调试新版 UI 时，建议临时关闭 `config/site.config.json` 里的 `assets.cdnBase`，让浏览器直接加载本地 `/assets/app.js` 和 `/assets/styles.css`。如果 `assets.cdnBase` 指向 CDN，但 CDN 没有同步当前版本资源，例如 `wikist-core-20260711-64`，浏览器会继续加载旧资源或得到 404，看起来就像本地没有任何变化。
+本地调试新版 UI 时，建议临时关闭 `config/site.config.json` 里的 `assets.cdnBase`，让浏览器直接加载本地 `/assets/app.js` 和 `/assets/styles.css`。如果 `assets.cdnBase` 指向 CDN，但 CDN 没有同步当前版本资源，例如 `wikist-core-20260711-65`，浏览器会继续加载旧资源或得到 404，看起来就像本地没有任何变化。
 
 本地确认命令：
 
 ```powershell
 curl http://127.0.0.1:8899/
-curl http://127.0.0.1:8899/assets/app.js?v=wikist-core-20260711-64
-curl http://127.0.0.1:8899/assets/styles.css?v=wikist-core-20260711-64
-curl http://127.0.0.1:8899/plugins/wikist-cosmic-experience/cosmic.mjs?v=wikist-core-20260711-64
+curl http://127.0.0.1:8899/assets/app.js?v=wikist-core-20260711-65
+curl http://127.0.0.1:8899/assets/styles.css?v=wikist-core-20260711-65
+curl http://127.0.0.1:8899/plugins/wikist-cosmic-experience/cosmic.mjs?v=wikist-core-20260711-65
 ```
 
 如果修改了 `config/site.config.json`、服务端代码或资源版本号，重启本地服务后再刷新浏览器。浏览器仍不变时，使用强制刷新或清理站点缓存。
@@ -173,12 +173,22 @@ disambiguation: true
 disambiguationTargets: [sphere-geometry|球面|几何对象, sphere-topology|球面|拓扑流形]
 ```
 
+### 结构化引用与来源质量
+
+- 编辑器可维护作者、题名、期刊/书名、年份、卷期、页码、DOI、arXiv、URL 与访问日期等结构化来源记录。
+- 正文使用 `[@hardy1908]`、`[@hardy1908, p. 42]` 或 `[@a; @b]` 插入带回跳的编号引用；原有脚注继续用于解释性注释。
+- `{{cite-needed|原因}}` 会显式标记待补来源；词条页展示可核验来源数、完整度、未解析引用与质量分。
+- 后台“来源审阅”提供无来源、未解析、字段不全和未在正文引用的词条分页队列。
+
+详细写法与字段约定见 [结构化引用与来源质量](docs/CITATIONS.md)。
+
 Wikist 把代码、内容和用户数据分开：
 
 - 词条 Markdown：`content/pages/`
 - 修订快照：`content/revisions/`
 - 删除归档：`content/deleted/`
 - 账号、评论、评分、收藏、关注订阅、消息、翻译、审计、词条链接索引与别名：SQLite
+- 结构化来源、引用键与正文引用关系：词条 Markdown front matter 与正文语法
 - 站点配置：`config/site.config.json`
 - 插件清单：`plugins/*/plugin.json`
 
@@ -209,7 +219,7 @@ node tools/sync-vendor-plugins.js
 
 内置 `cosmicExperience` 是可配置的可信客户端插件，默认启用。它只使用浏览器原生 Canvas 和 CSS，不新增 npm 前端依赖，并会遵守系统“减少动态效果”设置。插件会跟随站点浅色 / 暗黑主题切换：首页宇宙面板、Passport 黑洞吸积盘、跃迁开场、路由加载 HUD 和粒子标题都会使用对应主题的背景与粒子颜色。需要调低视觉强度或关闭时，可在后台进入“插件管理”，编辑 `cosmicExperience` 配置：
 
-浅色主题下，人机验证 SVG 会自动改用浅色底图与深色算式文字；正文代码块、翻译预览和后台 JSON / CSS / JS 代码区域也会切换到浅色可读配色。如果更新后仍看到黑色验证码或代码块白字，请先确认浏览器加载的是 `wikist-core-20260711-64` 或更新版本，并清理 CDN / 浏览器缓存。
+浅色主题下，人机验证 SVG 会自动改用浅色底图与深色算式文字；正文代码块、翻译预览和后台 JSON / CSS / JS 代码区域也会切换到浅色可读配色。如果更新后仍看到黑色验证码或代码块白字，请先确认浏览器加载的是 `wikist-core-20260711-65` 或更新版本，并清理 CDN / 浏览器缓存。
 
 ```json
 {
@@ -228,8 +238,8 @@ node tools/sync-vendor-plugins.js
 云端更新后如果看不到星际穿梭开场、登录页黑洞吸积盘、首页标题粒子聚合，或浅色主题下仍出现深色动画黑块，先确认浏览器拿到的是新版资源和插件模块：
 
 ```bash
-curl https://你的域名/assets/app.js?v=wikist-core-20260711-64
-curl https://你的域名/plugins/wikist-cosmic-experience/cosmic.mjs?v=wikist-core-20260711-64
+curl https://你的域名/assets/app.js?v=wikist-core-20260711-65
+curl https://你的域名/plugins/wikist-cosmic-experience/cosmic.mjs?v=wikist-core-20260711-65
 ```
 
 如果你使用 CDN，还需要把 `/plugins/wikist-cosmic-experience/cosmic.mjs` 同步到 CDN，并清理旧缓存。
@@ -506,7 +516,7 @@ cd "$APP_DIR"
 sudo node tools/update.js --strategy=git --remote=origin --branch=main --service=wikist --yes
 ```
 
-升级到 `2026-07-11` 或更新版本后，核心前端资源版本应变为 `wikist-core-20260711-64`。如果你使用了 CDN、对象存储或浏览器强缓存，更新后建议清理 CDN 缓存，或在浏览器开发者工具 Network 面板确认 `/assets/app.js?v=wikist-core-20260711-64` 和 `/assets/styles.css?v=wikist-core-20260711-64` 已返回新内容。
+升级到 `2026-07-11` 或更新版本后，核心前端资源版本应变为 `wikist-core-20260711-65`。如果你使用了 CDN、对象存储或浏览器强缓存，更新后建议清理 CDN 缓存，或在浏览器开发者工具 Network 面板确认 `/assets/app.js?v=wikist-core-20260711-65` 和 `/assets/styles.css?v=wikist-core-20260711-65` 已返回新内容。
 
 先预演不改文件：
 
@@ -671,14 +681,14 @@ sudo systemctl restart wikist
 排查方式：
 
 ```bash
-curl -I -H "Accept-Encoding: br,gzip" https://你的域名/assets/app.js?v=wikist-core-20260711-64
-curl -I https://你的CDN域名/wikist/assets/styles.css?v=wikist-core-20260711-64
+curl -I -H "Accept-Encoding: br,gzip" https://你的域名/assets/app.js?v=wikist-core-20260711-65
+curl -I https://你的CDN域名/wikist/assets/styles.css?v=wikist-core-20260711-65
 journalctl -u wikist -f
 ```
 
 重点看响应头里是否有 `cache-control`、`etag`、`content-encoding: br` 或 `content-encoding: gzip`。浏览器里可以打开开发者工具的 Network 面板，查看是否有 CDN 脚本长时间 pending、timeout 或 blocked。确认慢点来自 CDN 后，再替换 CDN 基址。
 
-如果 CSS / JS 已经很快，但“切换词条、后台切换选项”仍然卡顿，继续看 Network 里的 API 耗时：`/api/pages/...`、`/api/recent`、`/api/admin/...` 如果持续很慢，通常是云服务器 CPU/磁盘 IO、SQLite 文件权限、反向代理超时或跨区网络造成；如果 API 很快但前端仍卡，请确认浏览器拿到的是 `wikist-core-20260711-64` 之后的新版前端资源。
+如果 CSS / JS 已经很快，但“切换词条、后台切换选项”仍然卡顿，继续看 Network 里的 API 耗时：`/api/pages/...`、`/api/recent`、`/api/admin/...` 如果持续很慢，通常是云服务器 CPU/磁盘 IO、SQLite 文件权限、反向代理超时或跨区网络造成；如果 API 很快但前端仍卡，请确认浏览器拿到的是 `wikist-core-20260711-65` 之后的新版前端资源。
 
 更换站点图标：
 
@@ -750,6 +760,7 @@ sudo systemctl restart wikist
 - [Passport 与安全](docs/PASSPORT.md)
 - [评论、路由与权限](docs/COMMENTS_AND_PERMISSIONS.md)
 - [内容质量标准](docs/CONTENT_QUALITY.md)
+- [结构化引用与来源审阅](docs/CITATIONS.md)
 - [代码级升级日志](docs/UPGRADE_CHANGELOG.md)
 - [下一阶段路线图](docs/ROADMAP.md)
 
@@ -897,15 +908,15 @@ http://127.0.0.1:8899/#/login
 http://127.0.0.1:8899/#/register
 ```
 
-When testing a new UI locally, it is usually better to keep `assets.cdnBase` empty in `config/site.config.json` so the browser loads local `/assets/app.js` and `/assets/styles.css` directly. If `assets.cdnBase` points to a CDN that does not yet contain the current build, such as `wikist-core-20260711-64`, the browser may keep showing old assets or hit 404 responses, making it look like the local code did not change.
+When testing a new UI locally, it is usually better to keep `assets.cdnBase` empty in `config/site.config.json` so the browser loads local `/assets/app.js` and `/assets/styles.css` directly. If `assets.cdnBase` points to a CDN that does not yet contain the current build, such as `wikist-core-20260711-65`, the browser may keep showing old assets or hit 404 responses, making it look like the local code did not change.
 
 Useful local checks:
 
 ```powershell
 curl http://127.0.0.1:8899/
-curl http://127.0.0.1:8899/assets/app.js?v=wikist-core-20260711-64
-curl http://127.0.0.1:8899/assets/styles.css?v=wikist-core-20260711-64
-curl http://127.0.0.1:8899/plugins/wikist-cosmic-experience/cosmic.mjs?v=wikist-core-20260711-64
+curl http://127.0.0.1:8899/assets/app.js?v=wikist-core-20260711-65
+curl http://127.0.0.1:8899/assets/styles.css?v=wikist-core-20260711-65
+curl http://127.0.0.1:8899/plugins/wikist-cosmic-experience/cosmic.mjs?v=wikist-core-20260711-65
 ```
 
 After changing `config/site.config.json`, server-side code, or asset version numbers, restart the local service and then hard-refresh the browser if needed.
@@ -928,12 +939,22 @@ disambiguation: true
 disambiguationTargets: [sphere-geometry|Sphere|Geometry, sphere-topology|Sphere|Topology]
 ```
 
+### Structured Citations And Source Quality
+
+- The editor manages authors, title, publication, year, volume, issue, pages, DOI, arXiv, URL, and access dates as portable source records.
+- Write `[@hardy1908]`, `[@hardy1908, p. 42]`, or `[@a; @b]` for numbered, back-linked citations; explanatory footnotes remain independent.
+- `{{cite-needed|reason}}` makes missing support explicit. Article pages report verifier count, completeness, unresolved keys, and a source-quality score.
+- Admin -> Source review provides paginated queues for articles with no sources, unresolved keys, incomplete records, or records unused in the body.
+
+See [Structured citations and source quality](docs/CITATIONS.md) for field definitions and editorial workflow.
+
 Wikist separates code, content, and user data:
 
 - Article Markdown: `content/pages/`
 - Revision snapshots: `content/revisions/`
 - Deleted archives: `content/deleted/`
 - Accounts, comments, ratings, favorites, watch subscriptions, user follows, messages, translations, audit logs, page-link indexes, and aliases: SQLite
+- Structured references, citation keys, and in-body citations: article Markdown front matter and source syntax
 - Site configuration: `config/site.config.json`
 - Plugin manifests: `plugins/*/plugin.json`
 
@@ -964,7 +985,7 @@ node tools/sync-vendor-plugins.js
 
 The built-in `cosmicExperience` plugin is enabled by default. It uses only native Canvas and CSS, adds no frontend npm dependency, and respects the system reduced-motion preference. It follows the site light/dark theme: the home cosmic panel, Passport black-hole disk, warp intro, route-loading HUD, and particle title all switch backgrounds and particle colors with the current theme. To lower the visual intensity or disable parts of the experience, open Admin -> Plugins and edit the `cosmicExperience` JSON:
 
-In light mode, the human-verification SVG is recolored to a light panel with dark formula text, and article code blocks, translation previews, and admin JSON / CSS / JS code areas use readable light-theme text colors. If a cloud site still shows a black captcha or white code text after updating, verify that the browser is loading `wikist-core-20260711-64` or later and purge CDN / browser cache.
+In light mode, the human-verification SVG is recolored to a light panel with dark formula text, and article code blocks, translation previews, and admin JSON / CSS / JS code areas use readable light-theme text colors. If a cloud site still shows a black captcha or white code text after updating, verify that the browser is loading `wikist-core-20260711-65` or later and purge CDN / browser cache.
 
 ```json
 {
@@ -983,8 +1004,8 @@ In light mode, the human-verification SVG is recolored to a light panel with dar
 After a cloud update, verify the new plugin module if the warp intro, login black hole, title particles, or light-theme cosmic adaptation do not appear:
 
 ```bash
-curl https://your-domain/assets/app.js?v=wikist-core-20260711-64
-curl https://your-domain/plugins/wikist-cosmic-experience/cosmic.mjs?v=wikist-core-20260711-64
+curl https://your-domain/assets/app.js?v=wikist-core-20260711-65
+curl https://your-domain/plugins/wikist-cosmic-experience/cosmic.mjs?v=wikist-core-20260711-65
 ```
 
 If you use a CDN, also sync `/plugins/wikist-cosmic-experience/cosmic.mjs` to the CDN and purge old cache entries.
@@ -1250,7 +1271,7 @@ cd "$APP_DIR"
 sudo node tools/update.js --strategy=git --remote=origin --branch=main --service=wikist --yes
 ```
 
-After updating to the `2026-07-11` build or later, the core frontend asset version should be `wikist-core-20260711-64`. If you use a CDN, object storage, or aggressive browser caching, purge the CDN cache or verify in the browser Network panel that `/assets/app.js?v=wikist-core-20260711-64` and `/assets/styles.css?v=wikist-core-20260711-64` are serving the new files.
+After updating to the `2026-07-11` build or later, the core frontend asset version should be `wikist-core-20260711-65`. If you use a CDN, object storage, or aggressive browser caching, purge the CDN cache or verify in the browser Network panel that `/assets/app.js?v=wikist-core-20260711-65` and `/assets/styles.css?v=wikist-core-20260711-65` are serving the new files.
 
 Dry run:
 
@@ -1406,7 +1427,7 @@ Check `sudo systemctl status wikist`, test `curl http://127.0.0.1:8899/install.h
 Localhost hides latency. On a public server, repeated uncached transfers, missing compression, proxy header overrides, or slow external CDNs become visible. Current Wikist emits `ETag`, `Last-Modified`, versioned long-cache headers, and Brotli/gzip for static assets. Verify:
 
 ```bash
-curl -I -H "Accept-Encoding: br,gzip" https://your-domain/assets/app.js?v=wikist-core-20260711-64
+curl -I -H "Accept-Encoding: br,gzip" https://your-domain/assets/app.js?v=wikist-core-20260711-65
 ```
 
 Look for `cache-control`, `etag`, and `content-encoding`. If you set a CDN Base, mirror local assets under `/assets/...`, plugin assets under `/plugins/...`, and jsDelivr-compatible packages under `/npm/...`.
@@ -1452,6 +1473,7 @@ Upload a local archive to `...your-path...`, unzip it, install dependencies, and
 - [Passport and security](docs/PASSPORT.md)
 - [Comments, routes, and permissions](docs/COMMENTS_AND_PERMISSIONS.md)
 - [Content quality standard](docs/CONTENT_QUALITY.md)
+- [Structured citations and source review](docs/CITATIONS.md)
 - [Code-level upgrade changelog](docs/UPGRADE_CHANGELOG.md)
 - [Next-stage roadmap](docs/ROADMAP.md)
 

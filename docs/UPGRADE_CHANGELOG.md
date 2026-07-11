@@ -1,5 +1,12 @@
 # Wikist 站点升级日志
 
+## 2026-07-11 - 结构化引用与来源质量
+
+- 词条 Markdown front matter 新增可移植 `references` 数组；无需新增 SQLite 表，现有词条、账号和协作数据不会被迁移破坏。
+- 新增 `src/core/citations.js`，统一规范引用键、作者、年份、DOI、arXiv、URL 和来源完整度；正文可使用 `[@key]`、`[@key, p. 42]` 与 `{{cite-needed|原因}}`。
+- 前端词条编辑器、阅读质量面板和后台“来源审阅”随同启用；导入、导出、备份与恢复会保留来源记录。
+- 更新程序新增 `npm run check:citations`。框架升级为 `0.4.0`，核心前端资源升级为 `wikist-core-20260711-65`；使用 CDN 时需同步 `/assets/app.js`、`/assets/styles.css` 与安装器资源。
+
 ## 2026-07-11 - 词条重定向、消歧与用户关注
 
 - SQLite 自动新增 `user_follows`，并给现有 `page_aliases` 增加 `source_page_slug`。启动时迁移是幂等的，不会重建或清空现有账号、词条和订阅数据。

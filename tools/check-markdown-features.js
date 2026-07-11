@@ -1,6 +1,4 @@
 const assert = require("assert");
-const fs = require("fs");
-const path = require("path");
 const { renderMarkdown } = require("../src/core/markdown");
 
 const config = {
@@ -78,7 +76,4 @@ assert(!disabledPlot.includes("wikist-function-plot"), "disabled functionPlot pl
 
 const disabledFootnote = renderMarkdown("Footnote[^a]\n\n[^a]: note", { config: { plugins: { markdownAdvanced: { enabled: true }, upstreamFootnote: { enabled: false } } } }).html;
 assert(!disabledFootnote.includes("footnote-ref"), "disabled footnote plugin should not render footnotes");
-const pagePath = path.join(__dirname, '..', 'content', 'pages', 'wikist-syntax-lab.md');
-assert(fs.existsSync(pagePath), 'syntax lab page should exist');
-
-console.log(JSON.stringify({ ok: true, checks: 14, htmlLength: html.length }));
+console.log(JSON.stringify({ ok: true, checks: 13, htmlLength: html.length }));

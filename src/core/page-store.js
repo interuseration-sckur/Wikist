@@ -1,6 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 const { parseFrontMatter, serializeFrontMatter } = require("./frontmatter");
+const { normalizeReferences } = require("./citations");
 const { renderMarkdown } = require("./markdown");
 const { fileNameToSlug, normalizeSlug, slugToFileName } = require("./slug");
 
@@ -94,12 +95,14 @@ class PageStore {
 
     const raw = fs.readFileSync(filePath, "utf8");
     const parsed = parseFrontMatter(raw);
+    const references = normalizeReferences(parsed.data.references);
     const pageMeta = {
       slug: normalized,
       title: parsed.data.title || normalized,
       summary: parsed.data.summary || "",
+      references,
     };
-    const rendered = renderMarkdown(parsed.body, { config: this.config, page: pageMeta });
+    const rendered = renderMarkdown(parsed.body, { config: this.config, page: pageMeta, references });
     const page = {
       slug: pageMeta.slug,
       title: pageMeta.title,
@@ -125,6 +128,8 @@ class PageStore {
       redirectTarget: parsed.data.redirectTarget || parsed.data.redirect_to || "",
       isDisambiguation: parsed.data.disambiguation === true || parsed.data.disambiguation === "true",
       disambiguationTargets: normalizeDisambiguationTargets(parsed.data.disambiguationTargets || parsed.data.disambiguation_targets),
+      references,
+      citationStats: rendered.citationStats || { total: references.length, cited: 0, unresolved: [], citationNeeded: 0, completeness: 0, verifiable: 0, issues: [] },
       createdAt: parsed.data.createdAt || stat.birthtime.toISOString(),
       updatedAt: parsed.data.updatedAt || stat.mtime.toISOString(),
       body: parsed.body,
@@ -211,7 +216,8 @@ class PageStore {
     const raw = fs.readFileSync(filePath, "utf8");
     const parsed = parseFrontMatter(raw);
     const normalized = normalizeSlug(slug);
-    const rendered = renderMarkdown(parsed.body, { config: this.config, page: { slug: normalized, title: parsed.data.title || normalized, summary: parsed.data.summary || "" } });
+    const references = normalizeReferences(parsed.data.references);
+    const rendered = renderMarkdown(parsed.body, { config: this.config, references, page: { slug: normalized, title: parsed.data.title || normalized, summary: parsed.data.summary || "", references } });
     return {
       slug: normalized,
       archiveId,
@@ -230,6 +236,8 @@ class PageStore {
       importUrl: parsed.data.importUrl || "",
       importFetchedAt: parsed.data.importFetchedAt || "",
       importLicense: parsed.data.importLicense || "",
+      references,
+      citationStats: rendered.citationStats || { total: references.length, cited: 0, unresolved: [], citationNeeded: 0, completeness: 0, verifiable: 0, issues: [] },
       createdAt: parsed.data.createdAt || stat.birthtime.toISOString(),
       updatedAt: parsed.data.updatedAt || stat.mtime.toISOString(),
       archivedAt: stat.mtime.toISOString(),
@@ -277,6 +285,7 @@ class PageStore {
         redirectTarget: page.redirectTarget,
         disambiguation: page.isDisambiguation,
         disambiguationTargets: page.disambiguationTargets,
+        references: page.references,
         createdAt: page.createdAt,
         updatedAt: page.updatedAt,
         body: page.body,
@@ -376,6 +385,7 @@ class PageStore {
         ? Boolean(existing?.isDisambiguation)
         : input.disambiguation === true || input.disambiguation === "true",
       disambiguationTargets: disambiguationTargetStorage(input.disambiguationTargets ?? input.disambiguation_targets ?? existing?.disambiguationTargets ?? []),
+      references: normalizeReferences(input.references ?? existing?.references ?? []),
       createdAt: existing?.createdAt || now,
       updatedAt: now,
     };

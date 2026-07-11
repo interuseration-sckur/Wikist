@@ -1757,6 +1757,25 @@ function disambiguationPanelHtml(page) {
       <div class="disambiguation-targets">${targets.length ? targets.map((target) => `<a href="#/page/${encodeSlug(target.slug)}"><strong>${escapeHtml(target.label || target.slug)}</strong><span>${escapeHtml(target.summary || target.slug)}</span></a>`).join("") : '<p class="muted-line">尚未添加消歧指向。</p>'}</div>
     </section>`;
 }
+
+function citationQualityPanelHtml(page) {
+  const stats = page?.citationStats || {};
+  const total = Number(stats.total || 0);
+  const unresolved = stats.unresolved || [];
+  const issues = stats.issues || [];
+  const needsSource = Number(stats.citationNeeded || 0);
+  const attention = !total || unresolved.length || needsSource || Number(stats.uncited || 0) > 0 || Number(stats.completeness || 0) < 100;
+  const summary = !total
+    ? "该词条尚未添加结构化来源。"
+    : `已记录 ${total} 条来源，其中 ${Number(stats.verifiable || 0)} 条带 DOI、arXiv 或可核验链接。`;
+  const details = [
+    unresolved.length ? `未解析引用：${unresolved.map((item) => `@${item}`).join("、")}` : "",
+    needsSource ? `${needsSource} 处标记为需要来源` : "",
+    Number(stats.uncited || 0) ? `${stats.uncited} 条来源尚未在正文引用` : "",
+    issues.length ? `${issues.length} 条来源字段不完整` : "",
+  ].filter(Boolean);
+  return `<section class="citation-quality-panel ${attention ? "needs-attention" : ""}"><div><span class="system-kicker">Source Quality</span><h2>${attention ? "来源质量需要补充" : "来源记录完整"}</h2><p>${escapeHtml(summary)}</p>${details.length ? `<small>${escapeHtml(details.join("；"))}</small>` : ""}</div><div class="citation-quality-metrics"><span><strong>${total}</strong>来源</span><span><strong>${Number(stats.completeness || 0)}%</strong>完整</span><span><strong>${Number(stats.qualityScore || 0)}</strong>质量分</span></div><a class="mini-link" href="#/edit/${encodeSlug(page.slug)}">管理引用</a></section>`;
+}
 function ratingPanelHtml(rating = {}) {
   const count = Number(rating.count || 0);
   const average = Number(rating.average || 0);
@@ -1988,7 +2007,7 @@ async function renderPage(value) {
     setChromeTitle(displayPage.title);
     renderToc(displayPage.toc);
     const aliasNotice = page.redirectedFrom ? `<aside class="knowledge-alias-notice"><strong>已通过别名跳转</strong><span>${escapeHtml(page.redirectedFrom)} → ${escapeHtml(page.slug)}</span></aside>` : "";
-    el.main.innerHTML = `${pageToolNav(page.slug, "page")}${aliasNotice}${articleHeader(displayPage)}${disambiguationPanelHtml(page)}${translationNotice}<section class="page-translation-panel" id="pageTranslationPanel"></section><article class="article-body">${displayPage.html}</article><section id="pageKnowledgePanel"></section><section class="page-rating-panel" id="pageRatingPanel"></section><section class="edit-timeline-section"><div class="section-title-row"><h2>最近编辑</h2><a class="mini-link" href="#/history/${encodeSlug(page.slug)}">查看全部</a></div><div class="edit-timeline" id="pageEditTimeline"></div></section>`;
+    el.main.innerHTML = `${pageToolNav(page.slug, "page")}${aliasNotice}${articleHeader(displayPage)}${disambiguationPanelHtml(page)}${citationQualityPanelHtml(page)}${translationNotice}<section class="page-translation-panel" id="pageTranslationPanel"></section><article class="article-body">${displayPage.html}</article><section id="pageKnowledgePanel"></section><section class="page-rating-panel" id="pageRatingPanel"></section><section class="edit-timeline-section"><div class="section-title-row"><h2>最近编辑</h2><a class="mini-link" href="#/history/${encodeSlug(page.slug)}">查看全部</a></div><div class="edit-timeline" id="pageEditTimeline"></div></section>`;
     await Promise.all([loadPageTranslations(page.slug, activeLang), loadPageFavorite(page.slug), loadPageWatch(page.slug), loadPageKnowledge(page.slug), loadPageRating(page.slug), loadPageEdits(page.slug, "pageEditTimeline", { limit: 6, page: 1 })]);
     typesetMath();
   } catch (_error) {
@@ -2654,6 +2673,85 @@ function editorKnowledgeFields(page = {}) {
     </section>`;
 }
 
+const REFERENCE_TYPES = [["article", "期刊论文"], ["book", "专著"], ["chapter", "书籍章节"], ["preprint", "预印本"], ["conference", "会议论文"], ["thesis", "学位论文"], ["web", "网页"], ["dataset", "数据集"], ["other", "其他"]];
+
+function referenceTypeOptions(type = "article") {
+  return REFERENCE_TYPES.map(([value, label]) => `<option value="${value}" ${value === type ? "selected" : ""}>${label}</option>`).join("");
+}
+
+function citationReferenceRow(reference = {}, index = 0) {
+  const authors = Array.isArray(reference.authors) ? reference.authors.join("; ") : (reference.authors || "");
+  return `<article class="citation-editor-row" data-citation-row="${index}">
+    <div class="citation-editor-row-head"><strong>来源记录</strong><div><button class="icon-button" type="button" data-insert-citation title="插入正文引用" aria-label="插入正文引用"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 8h8M8 12h8M8 16h5M5 4h14a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1Z"/></svg></button><button class="icon-button danger-icon" type="button" data-remove-citation title="移除来源" aria-label="移除来源"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 14h10l1-14M9 7V4h6v3"/></svg></button></div></div>
+    <label>引用键<input data-citation-field="id" value="${escapeHtml(reference.id || "")}" placeholder="例如 hardy1908" /></label>
+    <label>类型<select data-citation-field="type">${referenceTypeOptions(reference.type || "article")}</select></label>
+    <label class="citation-span-2">作者<input data-citation-field="authors" value="${escapeHtml(authors)}" placeholder="多个作者用分号分隔" /></label>
+    <label class="citation-span-2">题名<input data-citation-field="title" value="${escapeHtml(reference.title || "")}" placeholder="书名、论文名或页面标题" /></label>
+    <label class="citation-span-2">期刊 / 书名 / 会议<input data-citation-field="containerTitle" value="${escapeHtml(reference.containerTitle || "")}" placeholder="例如 Annals of Mathematics" /></label>
+    <label>年份<input data-citation-field="year" inputmode="numeric" value="${escapeHtml(reference.year || "")}" placeholder="2026" /></label>
+    <label>出版社<input data-citation-field="publisher" value="${escapeHtml(reference.publisher || "")}" /></label>
+    <label>卷<input data-citation-field="volume" value="${escapeHtml(reference.volume || "")}" /></label>
+    <label>期<input data-citation-field="issue" value="${escapeHtml(reference.issue || "")}" /></label>
+    <label>页码<input data-citation-field="pages" value="${escapeHtml(reference.pages || "")}" placeholder="15-31" /></label>
+    <label class="citation-span-2">DOI<input data-citation-field="doi" value="${escapeHtml(reference.doi || "")}" placeholder="10.1000/example" /></label>
+    <label class="citation-span-2">arXiv<input data-citation-field="arxiv" value="${escapeHtml(reference.arxiv || "")}" placeholder="2401.01234" /></label>
+    <label class="citation-span-2">链接<input data-citation-field="url" type="url" value="${escapeHtml(reference.url || "")}" placeholder="https://..." /></label>
+    <label>访问日期<input data-citation-field="accessed" value="${escapeHtml(reference.accessed || "")}" placeholder="2026-07-11" /></label>
+    <label>语言<input data-citation-field="language" value="${escapeHtml(reference.language || "")}" placeholder="zh-CN / en" /></label>
+    <label class="citation-span-2">备注<input data-citation-field="note" value="${escapeHtml(reference.note || "")}" placeholder="译本、定理位置或其他核验信息" /></label>
+  </article>`;
+}
+
+function citationEditorFields(page = {}) {
+  const rows = (page.references || []).map((reference, index) => citationReferenceRow(reference, index)).join("");
+  return `<section class="citation-editor-panel wide" id="citationEditorPanel"><div class="citation-editor-intro"><div><span class="system-kicker">Structured Citations</span><h2>参考文献与来源质量</h2><p>正文使用 <code>[@引用键]</code>、<code>[@引用键, p. 42]</code> 或 <code>[@a; @b]</code>。使用 <code>{{cite-needed|原因}}</code> 标记待补来源。</p></div><button class="command-button secondary" type="button" data-add-citation>添加来源</button></div><div class="citation-editor-list" id="citationReferenceRows">${rows || '<div class="citation-editor-empty"><strong>尚未添加结构化来源</strong><span>添加 DOI、arXiv、出版物或权威网页来源后，可直接插入正文。</span></div>'}</div></section>`;
+}
+
+function collectCitationReferences(form) {
+  return [...form.querySelectorAll("[data-citation-row]")].map((row) => {
+    const data = {};
+    row.querySelectorAll("[data-citation-field]").forEach((field) => { data[field.dataset.citationField] = field.value.trim(); });
+    data.authors = String(data.authors || "").split(";").map((item) => item.trim()).filter(Boolean);
+    return data;
+  }).filter((reference) => reference.id || reference.title || reference.doi || reference.arxiv || reference.url);
+}
+
+function insertCitationIntoEditor(referenceId) {
+  if (!referenceId) { uiToast("请先填写引用键。", "warning"); return; }
+  const text = `[@${referenceId}]`;
+  if (activeEditor?.insertValue) activeEditor.insertValue(text);
+  else {
+    const fallback = document.querySelector("#editorBodyFallback");
+    if (!fallback) return;
+    const start = fallback.selectionStart || fallback.value.length;
+    const end = fallback.selectionEnd || start;
+    fallback.value = `${fallback.value.slice(0, start)}${text}${fallback.value.slice(end)}`;
+    fallback.focus();
+  }
+  uiToast(`已插入 ${text}`);
+}
+
+function bindCitationEditor(form) {
+  const panel = form.querySelector("#citationEditorPanel");
+  const list = form.querySelector("#citationReferenceRows");
+  if (!panel || !list) return;
+  const addRow = (reference = {}) => {
+    if (list.querySelector(".citation-editor-empty")) list.innerHTML = "";
+    list.insertAdjacentHTML("beforeend", citationReferenceRow(reference, list.querySelectorAll("[data-citation-row]").length));
+  };
+  panel.querySelector("[data-add-citation]")?.addEventListener("click", () => addRow());
+  list.addEventListener("click", (event) => {
+    const row = event.target.closest("[data-citation-row]");
+    if (!row) return;
+    if (event.target.closest("[data-remove-citation]")) {
+      row.remove();
+      if (!list.querySelector("[data-citation-row]")) list.innerHTML = '<div class="citation-editor-empty"><strong>尚未添加结构化来源</strong><span>添加 DOI、arXiv、出版物或权威网页来源后，可直接插入正文。</span></div>';
+      return;
+    }
+    if (event.target.closest("[data-insert-citation]")) insertCitationIntoEditor(row.querySelector("[data-citation-field='id']")?.value.trim());
+  });
+}
+
 function editorFields(page = {}) {
   return `
     <form class="editor-form" id="editorForm">
@@ -2666,6 +2764,7 @@ function editorFields(page = {}) {
       <label>质量<select name="quality">${["A", "B", "C", "Draft"].map((item) => `<option value="${item}" ${item === page.quality ? "selected" : ""}>${item}</option>`).join("")}</select></label>
       <label>状态<select name="status">${["stable", "review", "draft"].map((item) => `<option value="${item}" ${item === page.status ? "selected" : ""}>${item}</option>`).join("")}</select></label>
       ${editorKnowledgeFields(page)}
+      ${citationEditorFields(page)}
       <div class="wide">${guestFields("编辑")}</div>
       <div class="wide visual-editor-wrap">
         <div class="visual-editor-head"><span>可视化编辑器</span><small>Vditor WYSIWYG · Markdown 源文同步 · 公式可视化</small></div>
@@ -2707,6 +2806,7 @@ async function renderEditor(slug) {
   el.editLink.href = "#/new";
   el.main.innerHTML = `${pageToolNav(state.currentSlug || page.slug || "home", "edit")}<header class="article-head"><h1>${page.slug ? "编辑词条" : "新词条"}</h1><p class="article-summary">${escapeHtml(state.user ? `将以 ${state.user.displayName || state.user.username} 的身份记录编辑。` : "未登录时需要填写访客昵称和邮箱。")}</p></header>${editorFields(page)}`;
   await mountVisualEditor(page.body || "");
+  bindCitationEditor(document.querySelector("#editorForm"));
   document.querySelector("#editorForm").addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = event.currentTarget;
@@ -2716,6 +2816,7 @@ async function renderEditor(slug) {
     payload.categories = String(payload.categories || "").split(",").map((item) => item.trim()).filter(Boolean);
     payload.disambiguation = Boolean(form.elements.disambiguation?.checked);
     payload.disambiguationTargets = String(payload.disambiguationTargets || "").split("\n").map((item) => item.trim()).filter(Boolean);
+    payload.references = collectCitationReferences(form);
     if (form.elements.aliases) payload.aliases = String(payload.aliases || "").split(",").map((item) => item.trim()).filter(Boolean);
     if (!form.elements.redirectTarget) delete payload.redirectTarget;
     status.textContent = "保存中...";
@@ -3755,7 +3856,7 @@ async function renderAdminKnowledge() {
 }
 
 function adminSectionTitle(section) {
-  return ({ overview: "概览", users: "用户管理", pages: "词条管理", knowledge: "知识网络", comments: "评论管理", "comment-replies": "二级评论", messages: "消息管理", logs: "更新日志", archives: "归档页面", backups: "全站备份", settings: "站点设置", imports: "导入导出", plugins: "插件管理" })[section] || "概览";
+  return ({ overview: "概览", users: "用户管理", pages: "词条管理", knowledge: "知识网络", citations: "来源审阅", comments: "评论管理", "comment-replies": "二级评论", messages: "消息管理", logs: "更新日志", archives: "归档页面", backups: "全站备份", settings: "站点设置", imports: "导入导出", plugins: "插件管理" })[section] || "概览";
 }
 
 function adminShell(active, body) {
@@ -3764,6 +3865,7 @@ function adminShell(active, body) {
     ...(canManageUsers() ? [["users", "用户管理"]] : []),
     ["pages", "词条管理"],
     ["knowledge", "知识网络"],
+    ["citations", "来源审阅"],
     ["comments", "评论管理"],
     ["messages", "消息管理"],
     ["logs", "更新日志"],
@@ -3928,6 +4030,46 @@ async function renderAdminPages(page = 1, query = "") {
   });
   enhanceTables();
   adminPager(pagination, (nextPage) => renderAdminPages(nextPage, query).catch(renderError));
+}
+
+function citationAdminRow(page) {
+  const stats = page.citationStats || {};
+  const unresolved = stats.unresolved || [];
+  const issueCount = (stats.issues || []).length;
+  const state = !Number(stats.total || 0)
+    ? '<span class="citation-state missing">缺少来源</span>'
+    : unresolved.length || Number(stats.citationNeeded || 0) || Number(stats.uncited || 0) || issueCount
+      ? '<span class="citation-state warning">待补充</span>'
+      : '<span class="citation-state ready">记录完整</span>';
+  const problems = [
+    unresolved.length ? `未解析 ${unresolved.length}` : "",
+    Number(stats.citationNeeded || 0) ? `待来源 ${stats.citationNeeded}` : "",
+    Number(stats.uncited || 0) ? `未引用 ${stats.uncited}` : "",
+    issueCount ? `字段不全 ${issueCount}` : "",
+  ].filter(Boolean).join(" · ") || "—";
+  return `<tr><td><strong>${escapeHtml(page.title)}</strong><small>${escapeHtml(page.slug)}</small></td><td>${state}<small>${escapeHtml(problems)}</small></td><td>${Number(stats.total || 0)} / ${Number(stats.cited || 0)}</td><td>${Number(stats.verifiable || 0)}</td><td>${Number(stats.completeness || 0)}% / ${Number(stats.qualityScore || 0)}</td><td>${fmtDate(page.updatedAt)}</td><td class="admin-row-actions"><a class="mini-link" href="#/page/${encodeSlug(page.slug)}">查看</a><a class="mini-link" href="#/edit/${encodeSlug(page.slug)}">编辑引用</a></td></tr>`;
+}
+
+async function renderAdminCitations(page = 1, query = "", mode = "needs-review") {
+  const limit = 15;
+  const payload = await api(`/api/admin/citations?page=${page}&limit=${limit}&q=${encodeURIComponent(query)}&mode=${encodeURIComponent(mode)}`);
+  const { items, pagination } = normalizedPaged(payload, page, limit);
+  const stats = payload.stats || {};
+  const rows = items.length ? items.map(citationAdminRow).join("") : '<tr><td colspan="7">没有符合条件的词条。</td></tr>';
+  const body = `
+    ${adminHeader("来源审阅", "结构化引用独立于脚注保存。这里按来源缺失、未解析正文引用和字段完整度集中审阅，优先补齐会影响词条结论的权威来源。")}
+    <section class="admin-metrics citation-admin-metrics"><div class="admin-metric"><span>词条</span><strong>${Number(stats.pages || 0)}</strong></div><div class="admin-metric"><span>来源记录</span><strong>${Number(stats.references || 0)}</strong></div><div class="admin-metric"><span>可核验</span><strong>${Number(stats.verifiable || 0)}</strong></div><div class="admin-metric"><span>待审阅</span><strong>${Number(stats.needsReview || 0)}</strong></div><div class="admin-metric"><span>无来源</span><strong>${Number(stats.withoutSources || 0)}</strong></div></section>
+    <form class="admin-search-form citation-admin-controls" id="citationAdminSearch"><input name="q" value="${escapeHtml(query)}" placeholder="搜索词条、作者、题名、DOI 或 arXiv" /><select name="mode"><option value="needs-review" ${mode === "needs-review" ? "selected" : ""}>待审阅</option><option value="all" ${mode === "all" ? "selected" : ""}>全部词条</option><option value="missing" ${mode === "missing" ? "selected" : ""}>缺少来源</option><option value="unresolved" ${mode === "unresolved" ? "selected" : ""}>未解析引用</option></select><button class="command-button" type="submit">筛选</button></form>
+    <div class="admin-table-wrap"><table class="admin-table citation-admin-table"><thead><tr><th>词条</th><th>状态</th><th>来源 / 已引用</th><th>可核验</th><th>完整度 / 质量</th><th>更新</th><th>操作</th></tr></thead><tbody>${rows}</tbody></table></div>
+    ${paginationHtml(pagination, "来源审阅")}`;
+  el.main.innerHTML = adminShell("citations", body);
+  document.querySelector("#citationAdminSearch")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    renderAdminCitations(1, data.get("q") || "", data.get("mode") || "needs-review").catch(renderError);
+  });
+  enhanceTables();
+  adminPager(pagination, (nextPage) => renderAdminCitations(nextPage, query, mode).catch(renderError));
 }
 function adminCommentRow(comment, options = {}) {
   const showReplies = options.showReplies !== false;
@@ -4944,7 +5086,7 @@ async function renderAdmin(section = "overview") {
   }
   const parts = String(section || "overview").split("/");
   const requested = parts[0];
-  const active = ["overview", "users", "pages", "knowledge", "comments", "comment-replies", "messages", "logs", "archives", "backups", "imports", "settings", "plugins"].includes(requested) ? requested : "overview";
+  const active = ["overview", "users", "pages", "knowledge", "citations", "comments", "comment-replies", "messages", "logs", "archives", "backups", "imports", "settings", "plugins"].includes(requested) ? requested : "overview";
   setChromeTitle(`后台 - ${adminSectionTitle(active === "comment-replies" ? "comment-replies" : active)}`);
   renderToc([]);
   el.editLink.href = "#/new";
@@ -4954,6 +5096,7 @@ async function renderAdmin(section = "overview") {
   }
   else if (active === "pages") await renderAdminPages();
   else if (active === "knowledge") await renderAdminKnowledge();
+  else if (active === "citations") await renderAdminCitations();
   else if (active === "comments") await renderAdminComments();
   else if (active === "comment-replies") await renderAdminCommentReplies(Number(parts[1]) || 0);
   else if (active === "messages") await renderAdminMessages();

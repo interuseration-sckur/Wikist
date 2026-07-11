@@ -1,5 +1,11 @@
 function parseScalar(value, key) {
   const trimmed = String(value || "").trim();
+  if (key === "references" && trimmed) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) return parsed;
+    } catch (_error) {}
+  }
   if (trimmed === "true") return true;
   if (trimmed === "false") return false;
   if (/^\d+(\.\d+)?$/.test(trimmed)) return Number(trimmed);
@@ -71,7 +77,7 @@ function serializeFrontMatter(data, body) {
     const value = data[key];
     if (value === undefined || value === null || value === "") continue;
     if (Array.isArray(value)) {
-      lines.push(`${key}: [${value.join(", ")}]`);
+      lines.push(`${key}: ${key === "references" ? JSON.stringify(value) : `[${value.join(", ")}]`}`);
     } else {
       lines.push(`${key}: ${String(value).replace(/\n/g, " ")}`);
     }

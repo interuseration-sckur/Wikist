@@ -630,6 +630,8 @@ async function fetchWikipediaPage(input = {}) {
   const converted = convertWikitextToMarkdown(payload.source, { sourceUrl });
   const pageTitle = payload.title || title;
   const heroImage = input.heroImage || payload.thumbnail?.url || converted.images[0]?.url || "";
+  const citationId = `wikipedia-${String(payload.key || pageTitle).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 56) || "source"}`;
+  const importedBody = `${converted.body.trim()}\n\n---\n\nImported source: [@${citationId}]`;
   return {
     slug: normalizeSlug(input.slug || pageTitleToSlug(pageTitle)),
     title: pageTitle,
@@ -640,7 +642,7 @@ async function fetchWikipediaPage(input = {}) {
     quality: input.quality || "Draft",
     author: input.author || "Wikipedia contributors / Wikist Importer",
     heroImage,
-    body: converted.body,
+    body: importedBody,
     importSource: "wikipedia",
     importTitle: payload.key || pageTitle,
     importLang: lang,
@@ -648,6 +650,17 @@ async function fetchWikipediaPage(input = {}) {
     importUrl: sourceUrl,
     importFetchedAt: new Date().toISOString(),
     importLicense: payload.license?.title || "CC BY-SA",
+    references: [{
+      id: citationId,
+      type: "web",
+      authors: ["Wikipedia contributors"],
+      title: pageTitle,
+      containerTitle: "Wikipedia",
+      year: String(new Date().getUTCFullYear()),
+      url: sourceUrl,
+      accessed: new Date().toISOString().slice(0, 10),
+      note: `Imported revision ${payload.latest?.id || ""}`.trim(),
+    }],
   };
 }
 
@@ -664,6 +677,7 @@ function parseWikistImport(input = {}) {
       quality: input.quality || "Draft",
       author: input.author || "Wikist Importer",
       heroImage: input.heroImage || input.hero_image || "",
+      references: Array.isArray(input.references) ? input.references : [],
       body: String(input.content || input.body || "").slice(0, MAX_IMPORT_BODY),
     };
   }

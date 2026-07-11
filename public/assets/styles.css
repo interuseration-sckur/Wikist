@@ -7089,6 +7089,55 @@ body.admin-mode .plugin-json.compact {
 .disambiguation-targets a:hover { border-left-color: var(--cyan); color: var(--cyan); }
 .disambiguation-targets span { color: var(--muted); font-size: .84rem; }
 
+.citation-quality-panel { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 18px; margin: 18px 0; border: 1px solid rgba(124, 255, 180, .3); border-radius: var(--radius); padding: 15px 16px; background: rgba(124, 255, 180, .055); }
+.citation-quality-panel.needs-attention { border-color: rgba(255, 209, 102, .4); background: rgba(255, 209, 102, .055); }
+.citation-quality-panel h2 { margin: 4px 0; font-size: 1rem; }
+.citation-quality-panel p, .citation-quality-panel small { margin: 0; color: var(--muted); }
+.citation-quality-panel small { display: block; margin-top: 5px; color: var(--amber); }
+.citation-quality-metrics { display: flex; gap: 10px; }
+.citation-quality-metrics span { display: grid; gap: 2px; min-width: 54px; color: var(--muted); font-size: .72rem; text-align: center; }
+.citation-quality-metrics strong { color: var(--cyan); font-size: 1.08rem; }
+
+.citation-editor-panel { display: grid; gap: 14px; border: 1px solid rgba(56, 232, 255, .25); border-radius: var(--radius); padding: 16px; background: rgba(10, 18, 16, .42); }
+.citation-editor-intro { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+.citation-editor-intro h2 { margin: 4px 0; font-size: 1.05rem; }
+.citation-editor-intro p { max-width: 760px; margin: 0; color: var(--muted); font-size: .86rem; line-height: 1.65; }
+.citation-editor-intro code { color: var(--amber); }
+.citation-editor-list { display: grid; gap: 12px; }
+.citation-editor-empty { display: grid; gap: 4px; border: 1px dashed var(--line); border-radius: var(--radius); padding: 16px; color: var(--muted); }
+.citation-editor-empty strong { color: var(--text); }
+.citation-editor-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; border-top: 1px solid var(--line); padding-top: 14px; }
+.citation-editor-row label { min-width: 0; }
+.citation-editor-row-head { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.citation-editor-row-head > div { display: inline-flex; gap: 6px; }
+.citation-editor-row .citation-span-2 { grid-column: span 2; }
+.danger-icon { border-color: rgba(255, 117, 117, .45) !important; color: #ffabab !important; }
+
+.citation-cluster { margin: 0 .12em; font-size: .76em; white-space: nowrap; }
+.citation-ref { border-bottom: 0 !important; color: var(--amber) !important; font-weight: 800; }
+.citation-missing { color: #ff9e9e; font-weight: 800; }
+.citation-needed { margin: 0 .18em; border: 1px solid rgba(255, 209, 102, .44); border-radius: 5px; padding: .04em .35em; color: var(--amber); background: rgba(255, 209, 102, .08); font-size: .82em; white-space: nowrap; }
+
+.references { clear: both; margin-top: 38px; border-top: 1px solid var(--line); padding-top: 18px; }
+.references-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.references h2 { margin: 0; font-size: 1.12rem; }
+.references-heading > span { color: var(--muted); font-size: .82rem; }
+.references ol { display: grid; gap: 12px; margin: 15px 0 0; padding-left: 30px; }
+.references li { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px; padding-left: 3px; color: var(--muted); }
+.reference-number { color: var(--cyan); font-size: .85rem; }
+.references li > div { display: flex; flex-wrap: wrap; align-items: baseline; gap: 5px 8px; min-width: 0; }
+.reference-main { color: var(--text); }
+.reference-links { display: inline-flex; flex-wrap: wrap; gap: 5px; font-size: .88rem; }
+.reference-links a { border-bottom: 0 !important; color: var(--cyan) !important; }
+.reference-note, .reference-issues { display: block; width: 100%; color: var(--muted); font-size: .82rem; }
+.reference-issues { color: var(--amber); }
+.citation-admin-controls { grid-template-columns: minmax(0, 1fr) minmax(130px, .32fr) auto; }
+.citation-admin-table td small { display: block; margin-top: 4px; color: var(--muted); }
+.citation-state { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; padding: 3px 8px; font-size: .76rem; }
+.citation-state.ready { border-color: rgba(124, 255, 180, .42); color: var(--green); background: rgba(124, 255, 180, .08); }
+.citation-state.warning { border-color: rgba(255, 209, 102, .48); color: var(--amber); background: rgba(255, 209, 102, .08); }
+.citation-state.missing { border-color: rgba(255, 117, 117, .42); color: #ffabab; background: rgba(255, 117, 117, .08); }
+
 .user-follow-button.active { border-color: rgba(124, 255, 180, .52); color: var(--green); background: rgba(124, 255, 180, .1); }
 .profile-follow-stat { text-decoration: none; }
 .following-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
@@ -7105,13 +7154,21 @@ body.admin-mode .plugin-json.compact {
 :root[data-theme="light"] .pager a,
 :root[data-theme="light"] .editor-knowledge-fields,
 :root[data-theme="light"] .disambiguation-panel,
-:root[data-theme="light"] .disambiguation-targets a { background: rgba(255, 255, 255, .9); }
+:root[data-theme="light"] .disambiguation-targets a,
+:root[data-theme="light"] .citation-editor-panel { background: rgba(255, 255, 255, .9); }
 
 @media (max-width: 680px) {
   .knowledge-pager { justify-content: center; }
   .editor-knowledge-fields,
   .disambiguation-panel { grid-template-columns: 1fr; }
   .editor-knowledge-fields > label:last-child { grid-column: auto; }
+  .citation-quality-panel { grid-template-columns: 1fr; align-items: start; }
+  .citation-quality-metrics { justify-content: flex-start; }
+  .citation-editor-intro { flex-direction: column; }
+  .citation-editor-intro .command-button { width: 100%; }
+  .citation-editor-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .citation-editor-row .citation-span-2 { grid-column: 1 / -1; }
+  .citation-admin-controls { grid-template-columns: 1fr; }
   .follow-user-card { align-items: flex-start; flex-direction: column; }
   .follow-user-card > span { padding-left: 48px; }
 }
