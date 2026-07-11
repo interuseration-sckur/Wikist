@@ -121,6 +121,8 @@ The v0.9 quality layer adds `translation_memory` and `translation_glossary` to t
 
 The v0.10 writing commons adds organizations, memberships, tasks, discussion posts/replies, votes, and consensus records to Passport SQLite. These are collaboration metadata rather than an alternate article store. Consensus is scoped to one organization and one immutable page or translation snapshot; threshold approval reuses the existing stable-revision or published-translation path. See [Writing Commons And Community Review](WRITING_COMMONS.md).
 
+The v0.11 collaboration layer keeps the same data boundary while exposing active organization memberships as Passport academic identities and splitting organization work into a Markdown-authored home, paginated task board, paginated forum, and paginated member/application area. Topic search, state, subscriptions, favorites, pinning, reply pagination, and article-linked task context are queries over the existing organization tables rather than a second forum runtime or identity provider. The existing message table receives directed membership, task, and discussion events; it does not fan every action out to all members.
+
 Wikipedia import/export preserves source attribution and attempts to map headings, links, images, tables, mathematical notation, and common wikitext structures into Wikist Markdown. It is intentionally a converter with visible fallbacks, not a promise of lossless MediaWiki template execution.
 
 ## Operations And Safety

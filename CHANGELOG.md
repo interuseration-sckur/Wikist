@@ -1,5 +1,17 @@
 # Changelog
 
+## 2026-07-11 - Academic Identity And Organization Forum
+
+- Added Passport-synced academic organization identities to account and public user profiles, with a paginated identity directory that keeps pending memberships private.
+- Reworked organization discussion into a dedicated forum view with searchable, filterable, sortable, pinned, open/resolved/locked topics and separately paginated Markdown replies.
+- Added direct forum notifications for new topics and topic-author reply alerts, preserving the existing Wikist inbox and avoiding a separate social backend.
+- Reframed every organization as a paged academic workspace: a Markdown-authored public home, task board, forum, and members/approval page now use one horizontal sub-navigation with responsive light and dark surfaces.
+- Routed request membership, approval, role changes, task publication/claim/status changes, topic subscriptions, favorites, replies, and resolution events through the existing inbox without duplicating user or forum storage.
+- Made user-facing site branding runtime-configurable across the homepage, Passport shell, account surface, administration shell, email verification/reset templates, and static chrome. Fresh homepages now use the neutral title “首页” instead of a hard-coded product greeting.
+- Made writing organizations a first-class functional entry in the primary navigation, quick navigation, homepage collaboration console, organization overview, and article task context.
+- Expanded article organization context from review-only work to paginated writing, translation, and review tasks, while retaining the existing community-review consensus panel.
+- Bumped the framework package to `0.11.0` and the frontend asset version to `wikist-core-20260711-78`.
+
 ## 2026-07-11 - Writing Commons And Community Review
 
 - Added self-contained writing organizations with direct or request-based joining, durable member roles, coordinator-managed task boards, and a paginated Markdown discussion stream.

@@ -1,5 +1,15 @@
 # Writing Commons And Community Review
 
+## Academic Identity And Forum (v0.11)
+
+- Every active organization membership is part of a Passport academic identity. The account center and public profile show organization, role, active task count, and topic contribution count. Pending memberships remain private to the member.
+- `#/organizations` is the paginated personal identity directory. `#/organizations?user=<username>` exposes only a user's active public memberships.
+- `#/organization/<slug>?tab=forum` is the organization's durable forum workspace. It supports paginated topics, title/body/article search, topic categories, open/resolved/locked state, latest/active/unresolved sorting, coordinator pinning, and independently paginated replies.
+- `#/organization/<slug>` is a paged workspace rather than one long overview: **首页** renders the public Markdown charter and facts, **协作任务** has its own filters and pagination, **学术论坛** owns topic/reply pagination, and **成员** owns applications and role changes. The horizontal sub-navigation remains scrollable on narrow screens.
+- A topic may link to an article and an optional language. New topics notify active organization members through the existing inbox; replies, resolution, and locking notify only the author and topic followers. Members can follow or favorite a topic without creating a second social data store.
+- Joining a request-only organization notifies active coordinators. Approval, removal, and role changes notify the affected member. Task publication, claim, and status changes are also directed to the relevant organization members, creators, and assignees.
+- Article pages render a paginated organization-task context for writing, translation, and review tasks. Review consensus remains scoped to the exact page or translation snapshot.
+
 Wikist v0.10 turns article and translation review into a lightweight community workflow. It borrows the useful structural ideas behind WikiProjects and community discussion systems without adding a forum server, a queue service, or a second identity system.
 
 The design has four connected layers:
@@ -81,6 +91,8 @@ POST /api/community/organizations/:slug/tasks
 POST /api/community/tasks/:taskId/claim
 PUT  /api/community/tasks/:taskId
 POST /api/community/organizations/:slug/posts
+PUT  /api/community/posts/:postId/follow
+PUT  /api/community/posts/:postId/favorite
 POST /api/community/posts/:postId/replies
 PUT  /api/community/posts/:postId
 ```
@@ -103,4 +115,4 @@ POST /api/pages/:slug/translation/:language/community-review
 npm run check:v10
 ```
 
-The temporary-database check creates an organization, assigns reviewers, creates and claims tasks, persists a discussion reply, reaches a two-reviewer article consensus, reaches a two-reviewer translation consensus, and verifies that an unaffiliated reader cannot vote.
+The temporary-database check creates public and request-only organizations, verifies applicant/coordinator/member notices, assigns reviewers, creates and claims tasks, follows and favorites a discussion, persists a reply, reaches a two-reviewer article consensus, reaches a two-reviewer translation consensus, and verifies that an unaffiliated reader cannot vote.

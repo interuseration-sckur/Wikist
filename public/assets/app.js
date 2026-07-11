@@ -1,6 +1,6 @@
 const THEME_KEY = "wikist-theme";
 const LANG_KEY = "wikist-language";
-const CORE_ASSET_VERSION = "wikist-core-20260711-76";
+const CORE_ASSET_VERSION = "wikist-core-20260711-78";
 const VDITOR_VERSION = "3.11.2";
 const VDITOR_CDN = `https://cdn.jsdelivr.net/npm/vditor@${VDITOR_VERSION}`;
 const SWEETALERT_VERSION = "11.26.25";
@@ -38,6 +38,14 @@ const state = {
   pageLanguage: "zh-CN",
 };
 
+function currentSiteName() {
+  return String(state.site?.name || "Wikist").trim() || "Wikist";
+}
+
+function currentPassportName() {
+  return `${currentSiteName()} 通行证`;
+}
+
 const el = {
   siteName: document.querySelector("#siteName"),
   siteTagline: document.querySelector("#siteTagline"),
@@ -51,6 +59,7 @@ const el = {
   topQuickNav: document.querySelector("#topQuickNav"),
   passportLink: document.querySelector("#passportLink"),
   passportText: document.querySelector("#passportText"),
+  sidebarPassportLink: document.querySelector("#sidebarPassportLink"),
   themeToggle: document.querySelector("#themeToggle"),
   siteIconLink: document.querySelector("#siteIconLink"),
   siteBrandIcon: document.querySelector("#siteBrandIcon"),
@@ -395,8 +404,9 @@ function updateLanguageChrome() {
     el.languageSelect.value = lang;
     el.languageSelect.title = lang === "en" ? "Language" : "语言";
   }
-  if (el.searchInput) el.searchInput.placeholder = lang === "en" ? "Search concepts, theorems, symbols or English terms" : labels.searchPlaceholder;
-  if (el.topSearchInput) el.topSearchInput.placeholder = labels.searchPlaceholder;
+  const searchPlaceholder = String(labels.searchPlaceholder || "").replace(/Wikist/g, currentSiteName());
+  if (el.searchInput) el.searchInput.placeholder = lang === "en" ? "Search concepts, theorems, symbols or English terms" : searchPlaceholder;
+  if (el.topSearchInput) el.topSearchInput.placeholder = searchPlaceholder;
   document.querySelectorAll("[data-i18n-title='search']").forEach((node) => {
     node.title = labels.search;
     node.setAttribute("aria-label", labels.search);
@@ -408,6 +418,7 @@ function updateLanguageChrome() {
   }
   const passportText = el.passportText;
   if (passportText && !state.user) passportText.textContent = labels.login;
+  if (el.sidebarPassportLink && !state.user) el.sidebarPassportLink.textContent = currentPassportName();
   document.dispatchEvent(new CustomEvent("wikist:language-change", { detail: { language: lang, state } }));
 }
 
@@ -654,7 +665,7 @@ function readEditorBody(form) {
   return form.elements.body?.value || "";
 }
 function setChromeTitle(title) {
-  const siteName = state.site?.name || "Wikist";
+  const siteName = currentSiteName();
   document.title = title ? `${title} - ${siteName}` : siteName;
   el.breadcrumbs.textContent = title ? `${siteName} / ${title}` : siteName;
 }
@@ -666,12 +677,20 @@ function renderPassportLink() {
     el.passportText.textContent = state.user.displayName || state.user.username;
     el.passportLink.setAttribute("aria-label", "账户中心");
     el.passportLink.classList.add("signed-in");
+    if (el.sidebarPassportLink) {
+      el.sidebarPassportLink.href = "#/account";
+      el.sidebarPassportLink.textContent = "账户中心";
+    }
   } else {
     el.passportLink.href = "#/login";
     const labels = UI_LABELS[state.uiLanguage] || UI_LABELS["zh-CN"];
     el.passportText.textContent = labels.login;
-    el.passportLink.setAttribute("aria-label", `${labels.login} Wikist Passport`);
+    el.passportLink.setAttribute("aria-label", `${labels.login} ${currentPassportName()}`);
     el.passportLink.classList.remove("signed-in");
+    if (el.sidebarPassportLink) {
+      el.sidebarPassportLink.href = "#/login";
+      el.sidebarPassportLink.textContent = currentPassportName();
+    }
   }
 }
 
@@ -713,7 +732,7 @@ function closeMessagePopover() {
 
 function messagePreviewHtml(message) {
   const priority = messagePriorityMeta(message.priority);
-  return `<button class="message-preview-item ${message.status === "unread" ? "unread" : ""}" type="button" data-message-preview="${escapeHtml(message.id)}" data-message-source-url="${escapeHtml(message.sourceUrl || "")}" aria-label="\u67e5\u770b\u6d88\u606f\uff1a${escapeHtml(message.title)}"><span class="message-preview-top"><strong>${escapeHtml(message.title)}</strong>${message.priority !== "normal" ? `<span class="message-priority ${priority.tone}">${priority.label}</span>` : ""}</span><span>${escapeHtml(shortText(message.body || "", 92) || "\u65e0\u9644\u52a0\u5185\u5bb9")}</span><small>${escapeHtml(message.senderName || "Wikist")} &middot; ${fmtDate(message.createdAt)}</small></button>`;
+  return `<button class="message-preview-item ${message.status === "unread" ? "unread" : ""}" type="button" data-message-preview="${escapeHtml(message.id)}" data-message-source-url="${escapeHtml(message.sourceUrl || "")}" aria-label="\u67e5\u770b\u6d88\u606f\uff1a${escapeHtml(message.title)}"><span class="message-preview-top"><strong>${escapeHtml(message.title)}</strong>${message.priority !== "normal" ? `<span class="message-priority ${priority.tone}">${priority.label}</span>` : ""}</span><span>${escapeHtml(shortText(message.body || "", 92) || "\u65e0\u9644\u52a0\u5185\u5bb9")}</span><small>${escapeHtml(message.senderName || currentSiteName())} &middot; ${fmtDate(message.createdAt)}</small></button>`;
 }
 
 async function renderMessagePopover() {
@@ -1365,13 +1384,8 @@ function hydrateAuthMetrics(root = el.main) {
 
 function renderTopQuickNav() {
   if (!el.topQuickNav) return;
-  const links = (state.site?.navigation || []).slice(0, 7).map((item) => ({
-    label: item.label,
-    href: item.href || `#/page/${encodeSlug(item.slug)}`,
-  }));
-  links.push({ label: "知识网络", href: "#/knowledge" });
-  links.push({ label: "写作社区", href: "#/community" });
-  links.push({ label: "导入导出", href: "#/import-export" });
+  const links = functionalNavigationLinks();
+  if (state.user) links.push({ label: "我的协作", href: "#/organizations" });
   if (canAccessAdmin()) links.push({ label: "后台", href: "#/admin/overview" });
   const seen = new Set();
   el.topQuickNav.innerHTML = links.filter((item) => {
@@ -1381,10 +1395,22 @@ function renderTopQuickNav() {
     return true;
   }).map((item) => `<a href="${item.href}">${escapeHtml(item.label)}</a>`).join("");
 }
+
+function functionalNavigationLinks() {
+  return [
+    { label: "资讯", href: "#/news" },
+    { label: "知识网络", href: "#/knowledge" },
+    { label: "分类目录", href: "#/category" },
+    { label: "写作社区", href: "#/community" },
+    { label: "导入导出", href: "#/import-export" },
+  ];
+}
+
 function renderNav() {
-  const nav = state.site?.navigation?.length ? state.site.navigation : state.pages.slice(0, 8).map((page) => ({ label: page.title, slug: page.slug }));
+  const nav = functionalNavigationLinks();
+  if (state.user) nav.push({ label: "我的协作", href: "#/organizations" });
   el.primaryNav.innerHTML = nav.map((item) => `
-    <a class="nav-link ${item.slug === state.currentSlug ? "active" : ""}" href="#/page/${encodeSlug(item.slug)}">${escapeHtml(item.label)}</a>
+    <a class="nav-link ${location.hash === item.href ? "active" : ""}" href="${item.href}">${escapeHtml(item.label)}</a>
   `).join("");
 }
 
@@ -1702,7 +1728,7 @@ async function loadPageFavorite(slug) {
   updateFavoriteButton(button, payload.favorite);
   button.addEventListener("click", async () => {
     if (!state.user) {
-      const goLogin = await uiConfirm({ title: "登录后收藏词条", text: "收藏会同步到你的 Wikist 通行证。", confirmText: "去登录" });
+      const goLogin = await uiConfirm({ title: "登录后收藏词条", text: `收藏会同步到你的 ${currentPassportName()}。`, confirmText: "去登录" });
       if (goLogin) location.hash = "#/login";
       return;
     }
@@ -1941,16 +1967,18 @@ async function loadPageTranslations(slug, activeLang = "zh-CN") {
   bindLanguageJumpForms(target);
 }
 
-async function loadPageCommunity(slug) {
+async function loadPageCommunity(slug, taskPage = 1) {
   const target = document.querySelector("#pageCommunityPanel");
   if (!target) return;
-  const payload = await api(`/api/pages/${encodeSlug(slug)}/community`).catch(() => ({ tasks: [], organizations: [] }));
+  const payload = await api(`/api/pages/${encodeSlug(slug)}/community?page=${taskPage}&limit=6`).catch(() => ({ tasks: [], organizations: [], pagination: {} }));
   const tasks = payload.tasks || [];
+  const pagination = payload.pagination || { page: taskPage, total: 0, totalPages: 1, hasPrev: false, hasNext: false };
   if (!tasks.length) {
     target.innerHTML = '<section class="page-community-brief"><div><span class="system-kicker">Writing Commons</span><h2>组织协作</h2><p>尚未有组织认领这条词条。可以在写作社区建立撰写、翻译或审阅任务。</p></div><a class="mini-link" href="#/community">进入写作社区</a></section>';
     return;
   }
-  target.innerHTML = `<section class="page-community-brief"><header><div><span class="system-kicker">Writing Commons</span><h2>组织协作</h2></div><a class="mini-link" href="#/community">组织广场</a></header><div class="page-community-task-list">${tasks.slice(0, 4).map((task) => `<a href="#/organization/${encodeURIComponent(task.organizationSlug)}"><span>${escapeHtml(task.organizationName)}</span><strong>${escapeHtml(task.title)}</strong><small>${escapeHtml(ORGANIZATION_TASK_LABELS[task.taskType] || "协作")} · ${escapeHtml(task.status)}</small></a>`).join("")}</div>${tasks.some((task) => task.taskType === "review") ? `<a class="community-review-link" href="#/review/${encodeSlug(slug)}">进入社区审阅</a>` : ""}</section>`;
+  target.innerHTML = `<section class="page-community-brief"><header><div><span class="system-kicker">Writing Commons</span><h2>组织协作</h2><p>共 ${Number(pagination.total || tasks.length)} 项关联任务，按当前进度展示。</p></div><a class="mini-link" href="#/community">组织广场</a></header><div class="page-community-task-list">${tasks.map((task) => `<a href="#/organization/${encodeURIComponent(task.organizationSlug)}"><span>${escapeHtml(task.organizationName)}</span><strong>${escapeHtml(task.title)}</strong><small>${escapeHtml(ORGANIZATION_TASK_LABELS[task.taskType] || "协作")} · ${escapeHtml(task.status === "open" ? "待认领" : task.status === "claimed" ? "进行中" : task.status === "ready" ? "待审阅" : "已完成")}</small></a>`).join("")}</div>${paginationHtml(pagination, "关联协作任务")}${(payload.organizations || []).length ? `<a class="community-review-link" href="#/review/${encodeSlug(slug)}">进入社区审阅</a>` : ""}</section>`;
+  bindPagination(target, (nextPage) => loadPageCommunity(slug, nextPage));
 }
 
 async function loadPageEdits(slug, targetId = "pageEditTimeline", options = {}) {
@@ -1971,8 +1999,9 @@ function pageCard(page, label = "词条") {
 }
 
 function cosmicHeroTitleHtml(title) {
-  const raw = String(title || "欢迎来到 Wikist").trim();
-  const match = raw.match(/^(.*?)(Wikist)(.*)$/i);
+  const raw = String(title || "首页").trim();
+  const brand = currentSiteName();
+  const match = brand ? raw.match(new RegExp(`^(.*?)(${brand.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})(.*)$`, "i")) : null;
   if (!match) return `<h1>${escapeHtml(raw)}</h1>`;
   const label = match[1].trim() || "欢迎来到";
   const suffix = match[3].trim();
@@ -1994,8 +2023,8 @@ function renderHomePortal(page) {
     ...(state.site?.home || {}),
   };
   const homeText = {
-    heroKicker: "Wikist Knowledge Core",
-    heroTitle: "欢迎来到 Wikist",
+    heroKicker: `${currentSiteName()} Knowledge Core`,
+    heroTitle: "首页",
     heroSummary: "开放、严谨、可验证的中文数学知识共同体。定义、证明、引用、讨论、权限与归档共同构成可审计的知识网络。",
     heroSearch: "搜索数学概念",
     heroContribute: "开始贡献",
@@ -2006,7 +2035,7 @@ function renderHomePortal(page) {
     pathTitle: "入门路径",
     progressTitle: "全球数学进展",
     actionsTitle: "协作控制台",
-    actionsSummary: "Wikist 正在建立可审计的知识协作体系。",
+    actionsSummary: "正在建立可审计的知识协作体系。",
     progressItems: [
       { tag: "国际会议", title: "ICM 2026", body: "国际数学家大会将继续作为全球数学共同体的核心交流节点。", href: "https://www.mathunion.org/icm/icm-2026" },
       { tag: "形式化数学", title: "Lean / mathlib", body: "定理证明、形式化库与可验证证明正在进入更多数学工作流。", href: "https://github.com/leanprover-community/mathlib4" },
@@ -2014,6 +2043,10 @@ function renderHomePortal(page) {
     ],
     ...(state.site?.homeContent || {}),
   };
+  if (/^(欢迎来到|Welcome to)\s*Wikist$/i.test(String(homeText.heroTitle || "").trim())) homeText.heroTitle = "首页";
+  if (!String(homeText.heroTitle || "").trim()) homeText.heroTitle = "首页";
+  homeText.heroKicker = String(homeText.heroKicker || `${currentSiteName()} Knowledge Core`).replace(/Wikist/g, currentSiteName());
+  homeText.actionsSummary = String(homeText.actionsSummary || "正在建立可审计的知识协作体系。").replace(/Wikist/g, currentSiteName());
   const homeLabels = (normalizeLanguageCode(state.uiLanguage || state.site?.language, "zh-CN") === "en")
     ? { pages: "pages", fields: "active fields", signals: "recent signals" }
     : normalizeLanguageCode(state.uiLanguage || state.site?.language, "zh-CN") === "zh-TW"
@@ -2033,7 +2066,7 @@ function renderHomePortal(page) {
     homeConfig.showStable ? `<article class="wiki-box sci-box sci-box-stable"><h2>稳定内容</h2>${stable.length ? stable.map((item) => pageCard(item, item.quality || "稳定")).join("") : "<p>暂无稳定词条。</p>"}</article>` : "",
     homeConfig.showOriginal ? `<article class="wiki-box sci-box sci-box-wide sci-box-origin"><h2>首页正文</h2><article class="article-body home-original-body">${homeBodyHtml}</article></article>` : "",
     homeConfig.showCategories ? `<article class="wiki-box sci-box sci-box-wide sci-box-categories"><h2>分类索引</h2><div class="wiki-category-cloud">${categories.length ? categories.map((item) => `<span>${escapeHtml(item)}</span>`).join("") : "<span>等待分类</span>"}</div></article>` : "",
-    homeConfig.showActions ? `<article class="wiki-box sci-box sci-box-actions"><h2>${escapeHtml(homeText.actionsTitle)}</h2><p>${escapeHtml(page.summary || homeText.actionsSummary)}</p><div class="wiki-link-grid"><a href="#/new">新建词条</a><a href="#/search/群">搜索示例</a>${canAccessAdmin() ? '<a href="#/admin/overview">后台控制台</a>' : '<a href="#/login">登录通行证</a>'}</div></article>` : "",
+    homeConfig.showActions ? `<article class="wiki-box sci-box sci-box-actions"><h2>${escapeHtml(homeText.actionsTitle)}</h2><p>${escapeHtml(page.summary || homeText.actionsSummary)}</p><div class="wiki-link-grid"><a href="#/community">写作社区</a><a href="#/organizations">我的协作</a><a href="#/new">新建词条</a><a href="#/search/群">搜索词条</a>${canAccessAdmin() ? '<a href="#/admin/overview">后台控制台</a>' : '<a href="#/login">登录通行证</a>'}</div></article>` : "",
   ].filter(Boolean).join("");
   setChromeTitle("首页");
   renderToc([]);
@@ -2046,7 +2079,7 @@ function renderHomePortal(page) {
           <span class="system-kicker">${escapeHtml(homeText.heroKicker)}</span>
           ${cosmicHeroTitleHtml(homeText.heroTitle)}
           <p>${escapeHtml(homeText.heroSummary)}</p>
-          <div class="sci-hero-actions"><a href="#/search/群">${escapeHtml(homeText.heroSearch)}</a><a href="#/page/tutorial">${escapeHtml(homeText.heroContribute)}</a><a href="#/page/news">${escapeHtml(homeText.heroNews)}</a></div>
+          <div class="sci-hero-actions"><a href="#/search/群">${escapeHtml(homeText.heroSearch)}</a><a href="#/community">${escapeHtml(homeText.heroContribute)}</a><a href="#/news">${escapeHtml(homeText.heroNews)}</a></div>
         </div>
         <aside class="cosmic-orbital-stage" aria-label="Wikist 宇宙数据概览">
           <div class="cosmic-ring ring-1" aria-hidden="true"></div>
@@ -2137,6 +2170,19 @@ const ORGANIZATION_TASK_LABELS = { write: "撰写", translate: "翻译", review:
 
 function organizationRoleLabel(role) {
   return ORGANIZATION_ROLE_LABELS[role] || "成员";
+}
+
+function organizationIdentityCardHtml(member) {
+  const status = member.status === "pending" ? "申请待批准" : organizationRoleLabel(member.role);
+  const taskText = member.assignedTaskCount ? `我认领 ${member.assignedTaskCount} 项` : `${member.openTaskCount || 0} 项开放任务`;
+  return `<a class="organization-identity-card" href="#/organization/${encodeURIComponent(member.organizationSlug)}"><span class="system-kicker">${escapeHtml(member.organizationSlug)}</span><strong>${escapeHtml(member.organizationName)}</strong><small>${escapeHtml(status)} · ${escapeHtml(taskText)}</small>${member.organizationFocus?.length ? `<em>${member.organizationFocus.slice(0, 2).map((item) => escapeHtml(item)).join(" · ")}</em>` : ""}</a>`;
+}
+
+function organizationIdentityPanelHtml(members = [], total = 0, options = {}) {
+  const publicUsername = options.username ? `?user=${encodeURIComponent(options.username)}` : "";
+  const heading = options.public ? "组织身份" : "我的组织身份";
+  const summary = options.public ? "该贡献者公开参与的学术协作组织。" : "组织角色、认领任务和讨论贡献会自动同步到通行证身份。";
+  return `<section class="organization-identity-panel"><header><div><span class="system-kicker">Academic Identity</span><h2>${heading}</h2><p>${summary}</p></div><a class="mini-link" href="#/organizations${publicUsername}">查看全部 ${Number(total || 0)}</a></header><div class="organization-identity-list">${members.length ? members.map(organizationIdentityCardHtml).join("") : `<p class="muted-line">${options.public ? "尚未公开加入写作组织。" : "还没有组织身份。进入写作社区加入或创建一个组织。"}</p>`}</div>${!options.public && !members.length ? '<a class="command-button secondary" href="#/community">进入写作社区</a>' : ""}</section>`;
 }
 
 function organizationTaskHtml(task, options = {}) {
@@ -2283,7 +2329,7 @@ async function renderCommunity(value = "") {
   renderToc([]);
   el.editLink.href = "#/new";
   el.main.innerHTML = `
-    <header class="article-head community-head"><span class="system-kicker">Wikist Writing Commons</span><div class="article-title-row"><h1>写作社区</h1><span class="quality-badge">组织协作</span></div><p class="article-summary">围绕学科与词条组织写作、翻译和审阅任务。公开讨论可形成结论，组织审阅者的共识会同步到词条稳定版本与译文发布状态。</p></header>
+    <header class="article-head community-head"><span class="system-kicker">${escapeHtml(currentSiteName())} Writing Commons</span><div class="article-title-row"><h1>写作社区</h1><span class="quality-badge">组织协作</span></div><p class="article-summary">围绕学科与词条组织写作、翻译和审阅任务。公开讨论可形成结论，组织审阅者的共识会同步到词条稳定版本与译文发布状态。</p></header>
     <section class="community-toolbar"><form id="communitySearchForm"><input name="q" value="${escapeHtml(query)}" placeholder="搜索组织、研究方向或简介" /><button class="command-button" type="submit">搜索组织</button></form><div class="community-reference"><span>开源治理参考</span><a href="https://github.com/discourse/discourse" target="_blank" rel="noreferrer">Discourse</a><a href="https://github.com/flarum/flarum" target="_blank" rel="noreferrer">Flarum</a><a href="https://www.mediawiki.org/wiki/Extension:PageAssessments" target="_blank" rel="noreferrer">WikiProject</a></div></section>
     <section class="community-hub-grid"><div class="community-organization-list">${items.length ? items.map((organization) => `<a class="community-organization-card" href="#/organization/${encodeURIComponent(organization.slug)}"><span class="system-kicker">${escapeHtml(organization.slug)}</span><h2>${escapeHtml(organization.name)}</h2><p>${escapeHtml(organization.description || "暂未填写组织简介。")}</p><div>${(organization.focus || []).map((item) => `<em>${escapeHtml(item)}</em>`).join("") || "<em>开放协作</em>"}</div><footer><span>${organization.memberCount} 成员</span><span>${organization.taskCount} 项进行中任务</span><span>${organization.discussionCount} 条讨论</span></footer></a>`).join("") : '<p class="muted-line community-empty">还没有匹配的写作组织。</p>'}${paginationHtml(pagination, "写作组织")}</div>${state.user ? `<form class="community-create-panel" id="communityCreateForm"><header><span class="system-kicker">Start A Commons</span><h2>创建写作组织</h2><p>创建者自动成为所有者，可配置成员准入和社区审阅阈值。</p></header><label><span>组织标识</span><input name="slug" required maxlength="80" placeholder="例如：algebra-workshop" /></label><label><span>组织名称</span><input name="name" required maxlength="90" placeholder="例如：代数写作工坊" /></label><label><span>研究方向</span><input name="focus" maxlength="500" placeholder="例如：抽象代数，群论，英文翻译" /></label><label><span>组织简介</span><textarea name="description" rows="4" maxlength="900" placeholder="说明组织要共同维护的知识领域与协作方式"></textarea></label><div class="community-create-options"><label><span>加入方式</span><select name="visibility"><option value="public">直接加入</option><option value="request">申请后加入</option></select></label><label><span>审阅阈值</span><select name="reviewThreshold"><option value="2">2 位审阅者</option><option value="3">3 位审阅者</option><option value="4">4 位审阅者</option></select></label></div><button class="command-button" type="submit">创建组织</button><p class="status-line"></p></form>` : '<aside class="community-create-panel community-login-panel"><h2>加入协作</h2><p>登录后可创建或加入写作组织，认领词条、翻译和审阅任务。</p><a class="command-button" href="#/login">登录 Wikist Passport</a></aside>'}</section>`;
   document.querySelector("#communitySearchForm")?.addEventListener("submit", (event) => {
@@ -2307,6 +2353,123 @@ async function renderCommunity(value = "") {
   });
 }
 
+function organizationForumHref(slug, values = {}) {
+  const params = new URLSearchParams();
+  params.set("tab", "forum");
+  Object.entries(values).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && String(value) !== "" && !(key === "page" && Number(value) === 1) && !(key === "replies" && Number(value) === 1)) params.set(key, String(value));
+  });
+  return `#/organization/${encodeURIComponent(slug)}?${params.toString()}`;
+}
+
+function forumTopicTypeLabel(type) {
+  return ({ announcement: "公告", decision: "社区决议", discussion: "学术讨论" })[type] || "学术讨论";
+}
+
+function forumTopicStatusLabel(status) {
+  return ({ open: "开放讨论", resolved: "已形成结论", locked: "已锁定" })[status] || "开放讨论";
+}
+
+function forumTopicRowHtml(post) {
+  const href = organizationForumHref(post.organizationSlug, { topic: post.id });
+  const summary = shortText(post.bodyMd || "", 180) || "该主题暂未提供摘要。";
+  return `<article class="forum-topic-row ${post.pinned ? "pinned" : ""}"><div class="forum-topic-signals"><span class="forum-topic-type">${escapeHtml(forumTopicTypeLabel(post.postType))}</span>${post.pinned ? '<span class="forum-topic-pin">置顶</span>' : ""}</div><div class="forum-topic-copy"><a href="${href}"><h2>${escapeHtml(post.title)}</h2><p>${escapeHtml(summary)}</p></a><footer><a href="#/user/${encodeURIComponent(post.authorUsername)}">${avatarHtml({ displayName: post.authorName, username: post.authorUsername, avatarUrl: post.authorAvatarUrl }, "small")}<span>${escapeHtml(post.authorName || post.authorUsername)}</span></a>${post.pageSlug ? `<a class="forum-topic-page" href="#/page/${encodeSlug(post.pageSlug)}">${escapeHtml(post.pageSlug)}</a>` : ""}<span>${fmtDate(post.updatedAt)}</span></footer></div><aside class="forum-topic-metrics"><strong>${Number(post.replyCount || 0)}</strong><small>回复</small><span>${escapeHtml(forumTopicStatusLabel(post.status))}</span></aside></article>`;
+}
+
+function forumComposerHtml(canManage) {
+  return `<form class="forum-composer" id="organizationForumComposer"><header><span class="system-kicker">New Topic</span><h2>发起主题</h2><p>围绕一个可追溯的学术问题、任务或决议展开讨论。</p></header><div class="forum-composer-meta"><label><span>主题类别</span><select name="postType"><option value="discussion">学术讨论</option>${canManage ? '<option value="announcement">组织公告</option><option value="decision">社区决议</option>' : ""}</select></label><label><span>关联词条</span><input name="pageSlug" placeholder="可选 slug" /></label><label><span>语言</span><input name="language" placeholder="可选，如 en" /></label></div><label><span>标题</span><input name="title" maxlength="180" required placeholder="提出一个可讨论、可归档的问题" /></label><label><span>正文</span><textarea name="bodyMd" rows="7" required placeholder="支持 Markdown、公式、引用和 Wikist 扩展语法"></textarea></label><button class="command-button" type="submit">发布主题</button><p class="status-line"></p></form>`;
+}
+
+async function renderOrganizationForum(value) {
+  const parsed = splitValueQuery(value);
+  const slug = parsed.pathValue;
+  const topicId = Number(parsed.params.get("topic") || 0);
+  const detail = await api(`/api/community/organizations/${encodeURIComponent(slug)}`);
+  if (topicId > 0) {
+    await renderOrganizationForumTopic(value, detail, topicId);
+    return;
+  }
+  const page = Math.max(1, Number(parsed.params.get("page")) || 1);
+  const query = parsed.params.get("q") || "";
+  const postType = parsed.params.get("type") || "all";
+  const status = parsed.params.get("status") || "all";
+  const sort = parsed.params.get("sort") || "latest";
+  const postsPayload = await api(`/api/community/organizations/${encodeURIComponent(slug)}/posts?page=${page}&limit=12&q=${encodeURIComponent(query)}&type=${encodeURIComponent(postType)}&status=${encodeURIComponent(status)}&sort=${encodeURIComponent(sort)}`);
+  const organization = detail.organization;
+  const membership = detail.membership;
+  const activeMember = membership?.status === "active";
+  const canManage = activeMember && ["owner", "coordinator"].includes(membership.role);
+  const { items: posts, pagination } = normalizedPaged(postsPayload, page, 12);
+  setChromeTitle(`${organization.name} · 学术论坛`);
+  renderToc([]);
+  el.editLink.href = "#/new";
+  const overviewHref = `#/organization/${encodeURIComponent(organization.slug)}`;
+  const href = (nextPage = 1, overrides = {}) => organizationForumHref(organization.slug, { page: nextPage, q: query, type: postType, status, sort, ...overrides });
+  el.main.innerHTML = `<header class="organization-hero forum-hero"><div class="forum-breadcrumbs"><a href="${overviewHref}">${escapeHtml(organization.name)}</a><span>/</span><strong>学术论坛</strong></div><span class="system-kicker">Organization Forum</span><div class="article-title-row"><h1>${escapeHtml(organization.name)} 论坛</h1><span class="quality-badge">${Number(pagination.total || 0)} 个主题</span></div><p>将组织内的学术问题、词条任务与审阅结论沉淀为可搜索、可分页、可引用的主题。</p><footer><span>${organization.memberCount} 成员</span><span>${organization.taskCount} 项任务</span>${membership ? `<span>你的身份：${escapeHtml(organizationRoleLabel(membership.role))}</span>` : ""}</footer><div class="organization-hero-actions"><a class="command-button secondary" href="${overviewHref}">组织概览</a>${!membership && state.user ? '<button class="command-button" id="forumJoinButton" type="button">加入组织</button>' : ""}${!state.user ? '<a class="command-button" href="#/login">登录后参与</a>' : ""}</div></header>${organizationWorkspaceTabs(organization, "forum")}<section class="forum-workbench"><div class="forum-main-column"><form class="forum-filters" id="organizationForumFilters"><input name="q" type="search" value="${escapeHtml(query)}" placeholder="搜索主题标题、正文或关联词条" /><select name="type"><option value="all" ${postType === "all" ? "selected" : ""}>全部类别</option><option value="discussion" ${postType === "discussion" ? "selected" : ""}>学术讨论</option><option value="announcement" ${postType === "announcement" ? "selected" : ""}>组织公告</option><option value="decision" ${postType === "decision" ? "selected" : ""}>社区决议</option></select><select name="status"><option value="all" ${status === "all" ? "selected" : ""}>全部状态</option><option value="open" ${status === "open" ? "selected" : ""}>开放讨论</option><option value="resolved" ${status === "resolved" ? "selected" : ""}>已形成结论</option><option value="locked" ${status === "locked" ? "selected" : ""}>已锁定</option></select><select name="sort"><option value="latest" ${sort === "latest" ? "selected" : ""}>最近更新</option><option value="active" ${sort === "active" ? "selected" : ""}>回复最多</option><option value="unresolved" ${sort === "unresolved" ? "selected" : ""}>优先未结论</option></select><button class="command-button" type="submit">筛选</button></form>${paginationHtml(pagination, "论坛主题")}<section class="forum-topic-list">${posts.length ? posts.map(forumTopicRowHtml).join("") : '<section class="empty-state"><h2>没有匹配主题</h2><p>调整筛选条件，或由组织成员发起第一条学术讨论。</p></section>'}</section>${paginationHtml(pagination, "论坛主题")}</div><aside class="forum-side-column">${activeMember ? forumComposerHtml(canManage) : '<section class="forum-side-note"><h2>参与讨论</h2><p>加入组织后可发布主题、回复讨论、认领任务或以审阅者身份参与共识。</p><a class="command-button" href="#/community">发现组织</a></section>'}<section class="forum-side-note"><span class="system-kicker">Academic Workflow</span><h2>从讨论到词条</h2><p>将共识转为组织任务；任务进度会同步显示在关联词条、成员身份与审阅流中。</p><a class="mini-link" href="${organizationWorkspaceHref(organization.slug, "tasks")}">查看协作任务</a></section></aside></section>`;
+  document.querySelector("#forumJoinButton")?.addEventListener("click", async () => {
+    try { await api(`/api/community/organizations/${encodeURIComponent(organization.slug)}/join`, { method: "POST", body: "{}" }); uiToast("已提交组织加入申请"); await renderOrganizationForum(value); } catch (error) { await uiAlert("加入失败", error.message, "error"); }
+  });
+  document.querySelector("#organizationForumFilters")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    location.hash = href(1, { q: form.get("q") || "", type: form.get("type") || "all", status: form.get("status") || "all", sort: form.get("sort") || "latest" });
+  });
+  document.querySelector("#organizationForumComposer")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const statusLine = form.querySelector(".status-line");
+    statusLine.textContent = "正在发布主题...";
+    try { const result = await api(`/api/community/organizations/${encodeURIComponent(organization.slug)}/posts`, { method: "POST", body: JSON.stringify(Object.fromEntries(new FormData(form).entries())) }); location.hash = organizationForumHref(organization.slug, { topic: result.post.id }); } catch (error) { statusLine.textContent = error.message; }
+  });
+  bindPagination(el.main, (next) => { location.hash = href(next); });
+}
+
+async function renderOrganizationForumTopic(value, detail, topicId) {
+  const parsed = splitValueQuery(value);
+  const slug = detail.organization.slug;
+  const replyPage = Math.max(1, Number(parsed.params.get("replies")) || 1);
+  const [postPayload, repliesPayload] = await Promise.all([
+    api(`/api/community/posts/${topicId}`),
+    api(`/api/community/posts/${topicId}/replies?page=${replyPage}&limit=12`),
+  ]);
+  const post = postPayload.post;
+  if (post.organizationSlug !== slug) throw new Error("该讨论主题不属于当前组织。");
+  const membership = detail.membership;
+  const activeMember = membership?.status === "active";
+  const canManage = activeMember && ["owner", "coordinator"].includes(membership.role);
+  const { items: replies, pagination } = normalizedPaged(repliesPayload, replyPage, 12);
+  setChromeTitle(`${post.title} · ${detail.organization.name}`);
+  renderToc([]);
+  el.editLink.href = "#/new";
+  const forumHref = organizationForumHref(slug);
+  const replyHref = (next) => organizationForumHref(slug, { topic: post.id, replies: next });
+  const author = `<a href="#/user/${encodeURIComponent(post.authorUsername)}">${avatarHtml({ displayName: post.authorName, username: post.authorUsername, avatarUrl: post.authorAvatarUrl }, "small")}<span>${escapeHtml(post.authorName || post.authorUsername)}</span></a>`;
+  const manager = canManage ? `<div class="forum-topic-actions"><button class="mini-button" type="button" data-forum-post-status="${post.status === "open" ? "resolved" : "open"}">${post.status === "open" ? "标记已结论" : "重新开放"}</button><button class="mini-button secondary" type="button" data-forum-post-pin="${post.pinned ? "false" : "true"}">${post.pinned ? "取消置顶" : "置顶主题"}</button></div>` : "";
+  const replyForm = activeMember && post.status !== "locked" ? `<form class="forum-reply-form" id="forumReplyForm"><label><span>回复主题</span><textarea name="contentMd" rows="5" required placeholder="支持 Markdown、公式与来源链接"></textarea></label><button class="command-button" type="submit">发布回复</button><p class="status-line"></p></form>` : `<p class="muted-line">${post.status === "locked" ? "该主题已锁定。" : "加入组织后可以参与回复。"}</p>`;
+  el.main.innerHTML = `<header class="forum-topic-head"><div class="forum-breadcrumbs"><a href="${forumHref}">${escapeHtml(detail.organization.name)} 论坛</a><span>/</span><strong>${escapeHtml(forumTopicTypeLabel(post.postType))}</strong></div><div class="article-title-row"><h1>${escapeHtml(post.title)}</h1><span class="quality-badge">${escapeHtml(forumTopicStatusLabel(post.status))}</span></div><div class="forum-topic-author">${author}<span>发起于 ${fmtDate(post.createdAt)}</span>${post.pageSlug ? `<a href="#/page/${encodeSlug(post.pageSlug)}">关联词条：${escapeHtml(post.pageSlug)}</a>` : ""}</div>${manager}</header><section class="forum-topic-body article-body">${post.bodyHtml || `<p>${escapeHtml(post.bodyMd || "")}</p>`}</section><section class="forum-replies"><header><div><span class="system-kicker">Reply Thread</span><h2>回复</h2></div><span>${Number(pagination.total || 0)} 条</span></header>${paginationHtml(pagination, "主题回复")}<div class="forum-reply-list">${replies.length ? replies.map((reply) => `<article class="forum-reply"><a href="#/user/${encodeURIComponent(reply.authorUsername)}">${avatarHtml({ displayName: reply.authorName, username: reply.authorUsername, avatarUrl: reply.authorAvatarUrl }, "small")}</a><div><header><a href="#/user/${encodeURIComponent(reply.authorUsername)}"><strong>${escapeHtml(reply.authorName || reply.authorUsername)}</strong></a><small>${fmtDate(reply.createdAt)}</small></header><article class="article-body">${reply.contentHtml || `<p>${escapeHtml(reply.contentMd || "")}</p>`}</article></div></article>`).join("") : '<p class="muted-line">还没有回复。</p>'}</div>${paginationHtml(pagination, "主题回复")}${replyForm}</section>`;
+  document.querySelector(".forum-topic-head")?.insertAdjacentHTML("afterend", organizationWorkspaceTabs(detail.organization, "forum"));
+  if (activeMember) {
+    document.querySelector(".forum-topic-author")?.insertAdjacentHTML("afterend", `<div class="forum-topic-social"><button class="mini-button ${post.following ? "secondary" : ""}" type="button" data-forum-follow="${post.following ? "false" : "true"}">${post.following ? "取消关注" : "关注讨论"}</button><button class="mini-button ${post.favorited ? "secondary" : ""}" type="button" data-forum-favorite="${post.favorited ? "false" : "true"}">${post.favorited ? "已收藏" : "收藏讨论"}</button><span>${Number(post.favoriteCount || 0)} 人收藏</span></div>`);
+  }
+  document.querySelector("#forumReplyForm")?.addEventListener("submit", async (event) => {
+    event.preventDefault(); const form = event.currentTarget; const statusLine = form.querySelector(".status-line"); statusLine.textContent = "正在发布回复...";
+    try { await api(`/api/community/posts/${post.id}/replies`, { method: "POST", body: JSON.stringify(Object.fromEntries(new FormData(form).entries())) }); location.hash = replyHref(1); await renderOrganizationForumTopic(value, detail, topicId); } catch (error) { statusLine.textContent = error.message; }
+  });
+  document.querySelector("[data-forum-post-status]")?.addEventListener("click", async (event) => {
+    try { await api(`/api/community/posts/${post.id}`, { method: "PUT", body: JSON.stringify({ status: event.currentTarget.dataset.forumPostStatus }) }); await renderOrganizationForumTopic(value, detail, topicId); } catch (error) { await uiAlert("更新失败", error.message, "error"); }
+  });
+  document.querySelector("[data-forum-post-pin]")?.addEventListener("click", async (event) => {
+    try { await api(`/api/community/posts/${post.id}`, { method: "PUT", body: JSON.stringify({ pinned: event.currentTarget.dataset.forumPostPin === "true" }) }); await renderOrganizationForumTopic(value, detail, topicId); } catch (error) { await uiAlert("更新失败", error.message, "error"); }
+  });
+  document.querySelector("[data-forum-follow]")?.addEventListener("click", async (event) => {
+    try { await api(`/api/community/posts/${post.id}/follow`, { method: "PUT", body: JSON.stringify({ enabled: event.currentTarget.dataset.forumFollow === "true" }) }); uiToast(event.currentTarget.dataset.forumFollow === "true" ? "已关注讨论" : "已取消关注"); await renderOrganizationForumTopic(value, detail, topicId); } catch (error) { await uiAlert("操作失败", error.message, "error"); }
+  });
+  document.querySelector("[data-forum-favorite]")?.addEventListener("click", async (event) => {
+    try { await api(`/api/community/posts/${post.id}/favorite`, { method: "PUT", body: JSON.stringify({ favorited: event.currentTarget.dataset.forumFavorite === "true" }) }); uiToast(event.currentTarget.dataset.forumFavorite === "true" ? "已收藏讨论" : "已取消收藏"); await renderOrganizationForumTopic(value, detail, topicId); } catch (error) { await uiAlert("操作失败", error.message, "error"); }
+  });
+  bindPagination(el.main, (next) => { location.hash = replyHref(next); });
+}
+
 async function loadCommunityPostReplies(postId) {
   const target = document.querySelector(`#communityPostReplies-${postId}`);
   if (!target) return;
@@ -2315,8 +2478,12 @@ async function loadCommunityPostReplies(postId) {
   target.innerHTML = (payload.items || []).length ? `<div class="community-reply-stack">${payload.items.map((reply) => `<article class="community-reply"><a href="#/user/${encodeURIComponent(reply.authorUsername)}">${avatarHtml({ displayName: reply.authorName, username: reply.authorUsername, avatarUrl: reply.authorAvatarUrl }, "small")}</a><div><strong>${escapeHtml(reply.authorName)}</strong><article class="article-body">${reply.contentHtml || `<p>${escapeHtml(reply.contentMd || "")}</p>`}</article><small>${fmtDate(reply.createdAt)}</small></div></article>`).join("")}</div>` : '<p class="muted-line">暂无回复。</p>';
 }
 
-async function renderOrganization(value) {
+async function renderOrganizationLegacy(value) {
   const parsed = splitValueQuery(value);
+  if (parsed.params.get("tab") === "forum") {
+    await renderOrganizationForum(value);
+    return;
+  }
   const slug = parsed.pathValue;
   const taskPage = Math.max(1, Number(parsed.params.get("tasks")) || 1);
   const postPage = Math.max(1, Number(parsed.params.get("posts")) || 1);
@@ -2340,6 +2507,10 @@ async function renderOrganization(value) {
   el.main.innerHTML = `
     <header class="organization-hero"><span class="system-kicker">Writing Organization</span><div class="article-title-row"><h1>${escapeHtml(organization.name)}</h1><span class="quality-badge">${escapeHtml(organization.visibility === "request" ? "申请加入" : "开放加入")}</span></div><p>${escapeHtml(organization.description || "该组织正在构建可持续维护的知识领域。")}</p><div class="organization-focus">${(organization.focus || []).map((item) => `<span>${escapeHtml(item)}</span>`).join("")}</div><footer><span>${organization.memberCount} 成员</span><span>${organization.taskCount} 项任务</span><span>审阅阈值 ${organization.reviewThreshold}</span>${membership ? `<span>你的角色：${escapeHtml(organizationRoleLabel(membership.role))}${membership.status !== "active" ? "（待批准）" : ""}</span>` : ""}</footer><div class="organization-hero-actions">${!membership && state.user ? '<button class="command-button" id="organizationJoinButton" type="button">加入组织</button>' : ""}${!state.user ? '<a class="command-button" href="#/login">登录后加入</a>' : ""}</div></header>
     <section class="organization-workbench"><div class="organization-main-column"><section class="organization-section"><header class="organization-section-head"><div><span class="system-kicker">Task Board</span><h2>协作任务</h2></div><span>${taskPagination.total || 0} 项</span></header><div class="community-task-list">${tasks.length ? tasks.map((task) => organizationTaskHtml(task, { manage: canManage })).join("") : '<p class="muted-line">尚无协作任务。</p>'}</div>${paginationHtml(taskPagination, "协作任务")}${canManage ? `<form class="organization-task-form" id="organizationTaskForm"><h3>发布协作任务</h3><div class="organization-task-fields"><label><span>类型</span><select name="taskType"><option value="write">撰写词条</option><option value="translate">翻译词条</option><option value="review">社区审阅</option></select></label><label><span>词条 slug</span><input name="pageSlug" required placeholder="例如：abstract-algebra" /></label><label><span>语言</span><input name="language" placeholder="翻译/审阅时填写，如 en" /></label><label><span>优先级</span><select name="priority"><option value="normal">常规</option><option value="high">高</option><option value="urgent">紧急</option></select></label></div><label><span>任务标题</span><input name="title" required placeholder="说明需要完成的工作" /></label><label><span>任务说明</span><textarea name="summary" rows="3" placeholder="列出范围、来源、审阅要求或交付标准"></textarea></label><button class="command-button" type="submit">发布任务</button><p class="status-line"></p></form>` : ""}</section><section class="organization-section"><header class="organization-section-head"><div><span class="system-kicker">Discussion Stream</span><h2>组织讨论</h2></div><span>${postPagination.total || 0} 条</span></header><div class="community-post-list">${posts.length ? posts.map((post) => communityPostHtml(post, { canParticipate: activeMember, canManage })).join("") : '<p class="muted-line">尚无组织讨论。</p>'}</div>${paginationHtml(postPagination, "组织讨论")}${activeMember ? `<form class="organization-post-form" id="organizationPostForm"><h3>发起讨论</h3><div class="organization-post-head-fields"><label><span>类型</span><select name="postType"><option value="discussion">讨论</option>${canManage ? '<option value="announcement">公告</option><option value="decision">社区决议</option>' : ""}</select></label><label><span>关联词条</span><input name="pageSlug" placeholder="可选 slug" /></label><label><span>语言</span><input name="language" placeholder="可选，例如 en" /></label></div><label><span>标题</span><input name="title" required placeholder="提出一个可讨论、可归档的问题" /></label><label><span>内容</span><textarea name="bodyMd" rows="5" required placeholder="支持 Markdown 与数学公式"></textarea></label><button class="command-button" type="submit">发布讨论</button><p class="status-line"></p></form>` : ""}</section></div><aside class="organization-side-column"><section class="organization-section organization-members-section"><header class="organization-section-head"><div><span class="system-kicker">People</span><h2>组织成员</h2></div><span>${memberPagination.total || 0}</span></header><div class="organization-member-list">${members.map((member) => `<article><a href="#/user/${encodeURIComponent(member.username)}">${avatarHtml({ displayName: member.displayName, username: member.username, avatarUrl: member.avatarUrl }, "small")}<span><strong>${escapeHtml(member.displayName)}</strong><small>@${escapeHtml(member.username)}</small></span></a><em>${escapeHtml(organizationRoleLabel(member.role))}${member.status === "pending" ? "（待批准）" : ""}</em>${canManage && member.status === "pending" ? `<button class="mini-button" type="button" data-community-member-approve="${member.userId}">批准</button>` : ""}${canManage && member.status === "active" && member.userId !== state.user?.id ? `<select data-community-member-role="${member.userId}"><option value="member" ${member.role === "member" ? "selected" : ""}>成员</option><option value="writer" ${member.role === "writer" ? "selected" : ""}>写作者</option><option value="translator" ${member.role === "translator" ? "selected" : ""}>译者</option><option value="reviewer" ${member.role === "reviewer" ? "selected" : ""}>审阅者</option><option value="coordinator" ${member.role === "coordinator" ? "selected" : ""}>协调者</option></select>` : ""}</article>`).join("")}</div>${paginationHtml(memberPagination, "组织成员")}</section><section class="organization-section organization-guidance"><span class="system-kicker">Community Contract</span><h2>协作约定</h2><p>把讨论沉淀为任务，把任务沉淀为可审阅的版本；由多个明确身份的成员形成可追溯结论。</p><a href="#/page/contribution-guide">贡献规范</a></section></aside></section>`;
+  document.querySelector(".organization-hero-actions")?.insertAdjacentHTML("afterbegin", `<a class="command-button secondary" href="${organizationForumHref(organization.slug)}">进入学术论坛</a>`);
+  document.querySelectorAll(".organization-section-head").forEach((head) => {
+    if (head.querySelector("h2")?.textContent === "组织讨论") head.insertAdjacentHTML("beforeend", `<a class="mini-link" href="${organizationForumHref(organization.slug)}">主题论坛</a>`);
+  });
   document.querySelector("#organizationJoinButton")?.addEventListener("click", async () => {
     try {
       const result = await api(`/api/community/organizations/${encodeURIComponent(organization.slug)}/join`, { method: "POST", body: "{}" });
@@ -2379,6 +2550,124 @@ async function renderOrganization(value) {
   bindPagination(document.querySelector(".community-task-list")?.parentElement, (next) => changePage("tasks", next));
   bindPagination(document.querySelector(".community-post-list")?.parentElement, (next) => changePage("posts", next));
   bindPagination(document.querySelector(".organization-members-section"), (next) => changePage("members", next));
+}
+
+function organizationWorkspaceHref(slug, tab = "home", params = {}) {
+  const query = new URLSearchParams();
+  if (tab !== "home") query.set("tab", tab);
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && String(value) !== "" && !(key === "page" && Number(value) === 1)) query.set(key, String(value));
+  });
+  return `#/organization/${encodeURIComponent(slug)}${query.toString() ? `?${query.toString()}` : ""}`;
+}
+
+function organizationWorkspaceTabs(organization, active = "home") {
+  const tabs = [["home", "组织首页"], ["tasks", "协作任务"], ["forum", "学术论坛"], ["members", "成员"]];
+  return `<nav class="organization-workspace-tabs" aria-label="组织工作区">${tabs.map(([id, label]) => `<a class="${id === active ? "active" : ""}" href="${organizationWorkspaceHref(organization.slug, id)}">${label}</a>`).join("")}</nav>`;
+}
+
+function organizationWorkspaceHeader(organization, membership, active, summary) {
+  const membershipLabel = membership ? `你的身份：${organizationRoleLabel(membership.role)}${membership.status !== "active" ? "（待批准）" : ""}` : "公开浏览";
+  return `<header class="organization-hero workspace-hero"><span class="system-kicker">Academic Workspace</span><div class="article-title-row"><h1>${escapeHtml(organization.name)}</h1><span class="quality-badge">${escapeHtml(organization.visibility === "request" ? "申请加入" : "开放加入")}</span></div><p>${escapeHtml(summary || organization.description || "面向可持续维护的知识领域开展协作。")}</p><footer><span>${organization.memberCount} 成员</span><span>${organization.taskCount} 项任务</span><span>${organization.discussionCount} 个主题</span><span>${escapeHtml(membershipLabel)}</span></footer>${organizationWorkspaceTabs(organization, active)}</header>`;
+}
+
+function organizationMemberCardHtml(member, options = {}) {
+  const controls = options.canManage && member.status === "pending"
+    ? `<button class="mini-button" type="button" data-workspace-member-approve="${member.userId}">批准加入</button>`
+    : options.canManage && member.status === "active" && member.userId !== state.user?.id
+      ? `<select data-workspace-member-role="${member.userId}"><option value="member" ${member.role === "member" ? "selected" : ""}>成员</option><option value="writer" ${member.role === "writer" ? "selected" : ""}>写作者</option><option value="translator" ${member.role === "translator" ? "selected" : ""}>译者</option><option value="reviewer" ${member.role === "reviewer" ? "selected" : ""}>审阅者</option><option value="coordinator" ${member.role === "coordinator" ? "selected" : ""}>协调者</option></select>`
+      : "";
+  return `<article class="workspace-member-card"><a href="#/user/${encodeURIComponent(member.username)}">${avatarHtml({ displayName: member.displayName, username: member.username, avatarUrl: member.avatarUrl }, "small")}<span><strong>${escapeHtml(member.displayName)}</strong><small>@${escapeHtml(member.username)}</small></span></a><div><em>${escapeHtml(organizationRoleLabel(member.role))}</em><small>${member.status === "pending" ? "待审核" : `加入 ${fmtDate(member.joinedAt)}`}</small></div>${controls}</article>`;
+}
+
+function bindOrganizationTaskWorkspace(organization, rerender) {
+  document.querySelectorAll("[data-community-claim]").forEach((button) => button.addEventListener("click", async () => {
+    try { await api(`/api/community/tasks/${button.dataset.communityClaim}/claim`, { method: "POST", body: "{}" }); uiToast("已认领协作任务"); await rerender(); } catch (error) { await uiAlert("认领失败", error.message, "error"); }
+  }));
+  document.querySelectorAll("[data-community-task-status]").forEach((button) => button.addEventListener("click", async () => {
+    try { await api(`/api/community/tasks/${button.dataset.communityTaskId}`, { method: "PUT", body: JSON.stringify({ status: button.dataset.communityTaskStatus }) }); uiToast("任务状态已更新"); await rerender(); } catch (error) { await uiAlert("更新失败", error.message, "error"); }
+  }));
+  document.querySelector("#organizationWorkspaceTaskForm")?.addEventListener("submit", async (event) => {
+    event.preventDefault(); const form = event.currentTarget; const status = form.querySelector(".status-line"); status.textContent = "正在发布任务...";
+    try { await api(`/api/community/organizations/${encodeURIComponent(organization.slug)}/tasks`, { method: "POST", body: JSON.stringify(Object.fromEntries(new FormData(form).entries())) }); uiToast("协作任务已发布"); await rerender(); } catch (error) { status.textContent = error.message; }
+  });
+}
+
+async function renderOrganizationHome(value) {
+  const parsed = splitValueQuery(value);
+  const detail = await api(`/api/community/organizations/${encodeURIComponent(parsed.pathValue)}`);
+  const organization = detail.organization;
+  const membership = detail.membership;
+  const activeMember = membership?.status === "active";
+  const canManage = activeMember && ["owner", "coordinator"].includes(membership.role);
+  setChromeTitle(organization.name);
+  renderToc(organization.descriptionToc || []);
+  el.editLink.href = "#/new";
+  const about = organization.descriptionHtml || `<p>${escapeHtml(organization.description || "该组织尚未撰写介绍。")}</p>`;
+  const ownerSettings = membership?.role === "owner" ? `<div class="organization-profile-options"><label><span>加入方式</span><select name="visibility"><option value="public" ${organization.visibility === "public" ? "selected" : ""}>直接加入</option><option value="request" ${organization.visibility === "request" ? "selected" : ""}>申请加入</option></select></label><label><span>审阅阈值</span><select name="reviewThreshold">${[2, 3, 4, 5].map((item) => `<option value="${item}" ${Number(organization.reviewThreshold) === item ? "selected" : ""}>${item} 位审阅者</option>`).join("")}</select></label></div>` : "";
+  el.main.innerHTML = `${organizationWorkspaceHeader(organization, membership, "home", organization.description || "组织介绍、成员身份与协作边界在这里公开维护。")}<section class="organization-home-layout"><article class="organization-home-intro"><header><span class="system-kicker">Organization Charter</span><h2>组织介绍</h2></header><article class="article-body">${about}</article></article><aside class="organization-basic-facts"><span class="system-kicker">Organization Facts</span><h2>基本信息</h2><dl><div><dt>创建者</dt><dd>${organization.founderUsername ? `<a href="#/user/${encodeURIComponent(organization.founderUsername)}">${escapeHtml(organization.founderName || organization.founderUsername)}</a>` : "未记录"}</dd></div><div><dt>研究方向</dt><dd>${(organization.focus || []).length ? organization.focus.map((item) => `<span>${escapeHtml(item)}</span>`).join("") : "未设置"}</dd></div><div><dt>共识阈值</dt><dd>${organization.reviewThreshold} 位审阅者</dd></div><div><dt>创建时间</dt><dd>${fmtDate(organization.createdAt)}</dd></div></dl><div class="editor-actions">${!membership && state.user ? '<button class="command-button" type="button" id="organizationHomeJoin">加入组织</button>' : ""}${!state.user ? '<a class="command-button" href="#/login">登录后加入</a>' : ""}<a class="command-button secondary" href="${organizationWorkspaceHref(organization.slug, "forum")}">进入学术论坛</a></div></aside></section>${canManage ? `<form class="organization-profile-editor" id="organizationProfileEditor"><header><span class="system-kicker">Coordinator Tools</span><h2>编辑组织首页</h2><p>介绍使用 Markdown，保存后会成为组织的公开首页内容。</p></header><label><span>组织名称</span><input name="name" maxlength="90" value="${escapeHtml(organization.name)}" required /></label><label><span>简短说明</span><input name="description" maxlength="900" value="${escapeHtml(organization.description || "")}" placeholder="用于组织列表和搜索结果" /></label><label><span>研究方向</span><input name="focus" value="${escapeHtml((organization.focus || []).join(", "))}" placeholder="例如：抽象代数，群论，英文翻译" /></label><label><span>组织介绍 Markdown</span><textarea name="descriptionMd" rows="12" spellcheck="false">${escapeHtml(organization.descriptionMd || "")}</textarea></label>${ownerSettings}<button class="command-button" type="submit">保存组织首页</button><p class="status-line"></p></form>` : ""}`;
+  document.querySelector("#organizationHomeJoin")?.addEventListener("click", async () => {
+    try { const joined = await api(`/api/community/organizations/${encodeURIComponent(organization.slug)}/join`, { method: "POST", body: "{}" }); uiToast(joined.membership.status === "active" ? "已加入组织" : "申请已提交，等待审核"); await renderOrganizationHome(value); } catch (error) { await uiAlert("加入失败", error.message, "error"); }
+  });
+  document.querySelector("#organizationProfileEditor")?.addEventListener("submit", async (event) => {
+    event.preventDefault(); const form = event.currentTarget; const status = form.querySelector(".status-line"); status.textContent = "正在保存组织首页...";
+    try { await api(`/api/community/organizations/${encodeURIComponent(organization.slug)}`, { method: "PUT", body: JSON.stringify(Object.fromEntries(new FormData(form).entries())) }); uiToast("组织首页已保存"); await renderOrganizationHome(value); } catch (error) { status.textContent = error.message; }
+  });
+}
+
+async function renderOrganizationTasks(value) {
+  const parsed = splitValueQuery(value);
+  const slug = parsed.pathValue;
+  const page = Math.max(1, Number(parsed.params.get("page")) || 1);
+  const query = parsed.params.get("q") || "";
+  const status = parsed.params.get("status") || "all";
+  const [detail, payload] = await Promise.all([
+    api(`/api/community/organizations/${encodeURIComponent(slug)}`),
+    api(`/api/community/organizations/${encodeURIComponent(slug)}/tasks?page=${page}&limit=10&q=${encodeURIComponent(query)}&status=${encodeURIComponent(status)}`),
+  ]);
+  const organization = detail.organization; const membership = detail.membership;
+  const canManage = membership?.status === "active" && ["owner", "coordinator"].includes(membership.role);
+  const { items, pagination } = normalizedPaged(payload, page, 10);
+  const href = (next = 1, values = {}) => organizationWorkspaceHref(organization.slug, "tasks", { page: next, q: query, status, ...values });
+  setChromeTitle(`${organization.name} · 协作任务`); renderToc([]); el.editLink.href = "#/new";
+  el.main.innerHTML = `${organizationWorkspaceHeader(organization, membership, "tasks", "将撰写、翻译和审阅工作拆解为可认领、可追溯的任务。")}<section class="organization-tab-layout"><div><form class="organization-tab-filters" id="organizationTaskFilters"><input name="q" type="search" value="${escapeHtml(query)}" placeholder="搜索任务、词条或说明" /><select name="status"><option value="all" ${status === "all" ? "selected" : ""}>全部状态</option><option value="open" ${status === "open" ? "selected" : ""}>待认领</option><option value="claimed" ${status === "claimed" ? "selected" : ""}>进行中</option><option value="ready" ${status === "ready" ? "selected" : ""}>待审阅</option><option value="closed" ${status === "closed" ? "selected" : ""}>已完成</option></select><button class="command-button" type="submit">筛选</button></form>${paginationHtml(pagination, "协作任务")}<div class="community-task-list workspace-task-list">${items.length ? items.map((task) => organizationTaskHtml(task, { manage: canManage })).join("") : '<section class="empty-state"><h2>暂无匹配任务</h2><p>协调者可以创建与词条关联的撰写、翻译或审阅任务。</p></section>'}</div>${paginationHtml(pagination, "协作任务")}</div>${canManage ? `<aside>${organizationTaskComposerHtml()}</aside>` : '<aside class="organization-tab-note"><h2>任务协作</h2><p>加入组织后可以认领开放任务，并将完成状态提交给组织审阅者。</p></aside>'}</section>`;
+  document.querySelector("#organizationTaskFilters")?.addEventListener("submit", (event) => { event.preventDefault(); const form = new FormData(event.currentTarget); location.hash = href(1, { q: form.get("q") || "", status: form.get("status") || "all" }); });
+  bindOrganizationTaskWorkspace(organization, () => renderOrganizationTasks(value));
+  bindPagination(el.main, (next) => { location.hash = href(next); });
+}
+
+function organizationTaskComposerHtml() {
+  return `<form class="organization-task-form" id="organizationWorkspaceTaskForm"><h2>发布协作任务</h2><div class="organization-task-fields"><label><span>类型</span><select name="taskType"><option value="write">撰写词条</option><option value="translate">翻译词条</option><option value="review">社区审阅</option></select></label><label><span>词条 slug</span><input name="pageSlug" required placeholder="例如：abstract-algebra" /></label><label><span>语言</span><input name="language" placeholder="翻译时必填，如 en" /></label><label><span>优先级</span><select name="priority"><option value="normal">常规</option><option value="high">高</option><option value="urgent">紧急</option></select></label></div><label><span>任务标题</span><input name="title" required placeholder="说明需要完成的工作" /></label><label><span>任务说明</span><textarea name="summary" rows="5" placeholder="列出范围、来源、审阅要求或交付标准"></textarea></label><button class="command-button" type="submit">发布任务</button><p class="status-line"></p></form>`;
+}
+
+async function renderOrganizationMembers(value) {
+  const parsed = splitValueQuery(value); const slug = parsed.pathValue;
+  const page = Math.max(1, Number(parsed.params.get("page")) || 1);
+  const [detail, payload] = await Promise.all([
+    api(`/api/community/organizations/${encodeURIComponent(slug)}`),
+    api(`/api/community/organizations/${encodeURIComponent(slug)}/members?page=${page}&limit=16`),
+  ]);
+  const organization = detail.organization; const membership = detail.membership;
+  const canManage = membership?.status === "active" && ["owner", "coordinator"].includes(membership.role);
+  const { items, pagination } = normalizedPaged(payload, page, 16);
+  setChromeTitle(`${organization.name} · 成员`); renderToc([]); el.editLink.href = "#/new";
+  el.main.innerHTML = `${organizationWorkspaceHeader(organization, membership, "members", "组织身份、加入申请和职责分配均在这里透明维护。")}<section class="organization-members-workspace"><header><div><span class="system-kicker">People</span><h2>成员与申请</h2></div><span>${Number(pagination.total || 0)} 人</span></header>${paginationHtml(pagination, "组织成员")}<div class="workspace-member-list">${items.length ? items.map((member) => organizationMemberCardHtml(member, { canManage })).join("") : '<p class="muted-line">尚无成员。</p>'}</div>${paginationHtml(pagination, "组织成员")}</section>`;
+  document.querySelectorAll("[data-workspace-member-approve]").forEach((button) => button.addEventListener("click", async () => {
+    try { await api(`/api/community/organizations/${encodeURIComponent(organization.slug)}/members/${button.dataset.workspaceMemberApprove}`, { method: "PUT", body: JSON.stringify({ status: "active" }) }); uiToast("成员申请已批准，身份已同步通知"); await renderOrganizationMembers(value); } catch (error) { await uiAlert("审批失败", error.message, "error"); }
+  }));
+  document.querySelectorAll("[data-workspace-member-role]").forEach((select) => select.addEventListener("change", async () => {
+    try { await api(`/api/community/organizations/${encodeURIComponent(organization.slug)}/members/${select.dataset.workspaceMemberRole}`, { method: "PUT", body: JSON.stringify({ role: select.value }) }); uiToast("组织身份已更新并通知成员"); await renderOrganizationMembers(value); } catch (error) { await uiAlert("更新失败", error.message, "error"); }
+  }));
+  bindPagination(el.main, (next) => { location.hash = organizationWorkspaceHref(organization.slug, "members", { page: next }); });
+}
+
+async function renderOrganization(value) {
+  const parsed = splitValueQuery(value);
+  const tab = parsed.params.get("tab") || "home";
+  if (tab === "forum") return renderOrganizationForum(value);
+  if (tab === "tasks") return renderOrganizationTasks(value);
+  if (tab === "members") return renderOrganizationMembers(value);
+  return renderOrganizationHome(value);
 }
 
 async function renderPage(value) {
@@ -3676,6 +3965,9 @@ function authCosmicText(mode) {
 function secureAuthShell(mode) {
   const isRegister = mode === "register";
   const copy = authCosmicText(mode);
+  for (const key of ["formTitle", "formIntro", "intro"]) {
+    copy[key] = String(copy[key] || "").replace(/Wikist/g, currentSiteName());
+  }
   const authStats = {
     users: Number(state.site?.setup?.users || state.site?.users || 0),
     pages: Number(state.pages?.length || 0),
@@ -3693,10 +3985,10 @@ function secureAuthShell(mode) {
     <div class="auth-copy auth-cyber-copy">
       <canvas class="cosmic-canvas auth-cosmic-canvas" data-cosmic-scene="auth" aria-hidden="true"></canvas>
       <div class="cosmic-vignette" aria-hidden="true"></div>
-      <span class="system-kicker">Wikist Passport</span>
+      <span class="system-kicker">${escapeHtml(currentPassportName())}</span>
       <h1>${escapeHtml(copy.title)}</h1>
       <p>${escapeHtml(copy.intro)}</p>
-      <div class="auth-cosmic-console" aria-label="Wikist Passport 宇宙数据概览">
+      <div class="auth-cosmic-console" aria-label="${escapeHtml(currentPassportName())} 宇宙数据概览">
         <div class="auth-orbit-lock">
           <span>${escapeHtml(copy.phase)}</span>
           <strong data-auth-metric="${authStats.users}">${authStats.users}</strong>
@@ -3759,7 +4051,7 @@ function refreshCaptchaTheme() {
 function setupAdminShell() {
   return `<section class="auth-layout setup-admin-layout">
     <div class="auth-copy setup-admin-copy">
-      <span class="system-kicker">Wikist Initial Setup</span>
+      <span class="system-kicker">${escapeHtml(currentSiteName())} Initial Setup</span>
       <h1>创建首位管理员</h1>
       <p>站点配置已经加载完成。为了让后台、用户管理、备份恢复和权限设置真正可用，请先创建第一个管理员账号。</p>
       <div class="auth-signals"><span>首个账号自动成为 admin</span><span>SQLite 本地存储</span><span>HttpOnly 会话</span><span>创建后进入后台</span></div>
@@ -3815,7 +4107,7 @@ async function renderAuth(mode) {
     } catch (error) {
       if (error.message === "账号已被禁用。") {
         status.textContent = "";
-        await uiAlert("账号已被禁用", "该 Wikist 通行证已被管理员封禁，无法登录或参与新的编辑、评论活动。若认为这是误操作，请联系站点管理员。", "error");
+        await uiAlert("账号已被禁用", `该 ${currentPassportName()} 已被管理员封禁，无法登录或参与新的编辑、评论活动。若认为这是误操作，请联系站点管理员。`, "error");
       } else {
         status.textContent = error.message;
       }
@@ -3913,7 +4205,7 @@ async function renderVerifyEmail(token = "") {
   setChromeTitle("邮箱验证");
   renderToc([]);
   el.editLink.href = "#/new";
-  el.main.innerHTML = `<section class="empty-state"><h1>正在验证邮箱...</h1><p class="muted-line">Wikist 正在确认这条验证链接。</p></section>`;
+  el.main.innerHTML = `<section class="empty-state"><h1>正在验证邮箱...</h1><p class="muted-line">${escapeHtml(currentSiteName())} 正在确认这条验证链接。</p></section>`;
   try {
     const result = await api("/api/passport/email/verify", { method: "POST", body: JSON.stringify({ token }) });
     state.user = result.user || state.user;
@@ -4236,7 +4528,7 @@ async function renderAccount() {
   const accountWatches = watchPayload.items || [];
   el.main.innerHTML = `
     <header class="article-head">
-      <div class="article-title-row"><h1>Wikist 通行证</h1><span class="quality-badge">${escapeHtml(state.user.role)}</span></div>
+      <div class="article-title-row"><h1>${escapeHtml(currentPassportName())}</h1><span class="quality-badge">${escapeHtml(state.user.role)}</span></div>
       <p class="article-summary">管理身份、头像、密码和公开 Markdown 个人页。所有编辑都会自动同步到这个身份档案。</p>
     </header>
     <section class="account-grid account-grid-wide">
@@ -4264,6 +4556,7 @@ async function renderAccount() {
         </div>
       </div>
       ${accountSecurityHtml(state.user)}
+      ${organizationIdentityPanelHtml(state.user.organizations || [], Number(state.user.stats?.organizations || 0))}
       <form class="auth-panel compact translator-panel" id="translatorJoinForm">
         <h2>翻译社区</h2>
         <p class="muted-line">${state.user.translator ? `已加入，目标语言：${(state.user.translator.languages || []).map(languageLabel).join("、")}` : "加入后可以在词条翻译页生成初稿、保存译文，并参与翻译度统计。"}</p>
@@ -4441,6 +4734,27 @@ async function renderAccount() {
     }
   });
 }
+
+async function renderOrganizations(value = "") {
+  const parsed = splitValueQuery(value);
+  const username = String(parsed.params.get("user") || "").trim();
+  const page = Math.max(1, Number(parsed.params.get("page")) || 1);
+  const limit = 12;
+  if (!username && !state.user) { location.hash = "#/login"; return; }
+  const endpoint = username
+    ? `/api/users/${encodeURIComponent(username)}/organizations?page=${page}&limit=${limit}`
+    : `/api/passport/organizations?page=${page}&limit=${limit}&pending=true`;
+  const payload = await api(endpoint);
+  const { items, pagination } = normalizedPaged(payload, page, limit);
+  const owner = payload.user || state.user || {};
+  const title = username ? `${owner.displayName || owner.username} 的组织身份` : "我的组织身份";
+  setChromeTitle(title);
+  renderToc([]);
+  el.editLink.href = "#/new";
+  const link = (next) => `#/organizations${username ? `?user=${encodeURIComponent(username)}&page=${next}` : `?page=${next}`}`;
+  el.main.innerHTML = `<header class="article-head organization-directory-head"><span class="system-kicker">Academic Identity</span><div class="article-title-row"><h1>${escapeHtml(title)}</h1><span class="quality-badge">${Number(pagination.total || 0)} 个组织</span></div><p class="article-summary">组织角色、任务认领和论坛主题会随着通行证身份同步更新；申请中的身份仅对本人可见。</p></header><section class="organization-identity-directory">${items.length ? items.map(organizationIdentityCardHtml).join("") : '<section class="empty-state"><h2>暂未加入组织</h2><p>从写作社区发现学科协作组织，或创建一个新的开放知识小组。</p><a class="command-button" href="#/community">进入写作社区</a></section>'}</section>${paginationHtml(pagination, "组织身份")}`;
+  bindPagination(el.main, (next) => { location.hash = link(next); });
+}
 function messageItemHtml(message) {
   const statusText = message.status === "unread" ? "\u672a\u8bfb" : "\u5df2\u8bfb";
   const priority = messagePriorityMeta(message.priority);
@@ -4599,6 +4913,7 @@ async function renderUserPage(username) {
         ${socialLinksHtml(user.socialLinks, "public")}
       </header>
       ${isBanned ? `<section class="user-ban-notice" role="status"><div><strong>该用户已被封禁</strong><p>此账户目前无法登录，也不能进行新的编辑、评论或消息操作。为保证词条修订历史完整，既有公开资料与贡献记录仍会保留。</p></div><span>账户状态：已封禁</span></section>` : ""}
+      ${organizationIdentityPanelHtml(user.organizations || [], Number(user.stats?.organizations || 0), { public: true, username: user.username })}
       <section class="user-profile-layout">
         <article class="article-body user-profile-body">${user.pageHtml || ""}</article>
         <aside class="user-edit-feed"><h2>最近贡献</h2>${activity}</aside>
@@ -4708,7 +5023,7 @@ function adminShellLegacy(active, body) {
   return `
     <section class="admin-layout">
       <aside class="admin-sidebar" aria-label="后台导航">
-        <div class="admin-sidebar-head"><span class="system-kicker">Wikist Admin</span><strong>控制面板</strong></div>
+        <div class="admin-sidebar-head"><span class="system-kicker">${escapeHtml(currentSiteName())} Admin</span><strong>控制面板</strong></div>
         <nav>${sections.map(([id, label]) => `<a class="${id === active ? "active" : ""}" href="#/admin/${id}">${label}</a>`).join("")}</nav>
       </aside>
       <section class="admin-main">${body}</section>
@@ -4733,7 +5048,7 @@ function adminShell(active, body) {
     ["settings", "站点设置"],
     ["plugins", "插件管理"],
   ];
-  return `<section class="admin-layout"><aside class="admin-sidebar" aria-label="后台导航"><div class="admin-sidebar-head"><span class="system-kicker">Wikist Admin</span><strong>控制面板</strong></div><nav>${sections.map(([id, label]) => `<a class="${id === active ? "active" : ""}" href="#/admin/${id}">${label}</a>`).join("")}</nav></aside><section class="admin-main">${body}</section></section>`;
+  return `<section class="admin-layout"><aside class="admin-sidebar" aria-label="后台导航"><div class="admin-sidebar-head"><span class="system-kicker">${escapeHtml(currentSiteName())} Admin</span><strong>控制面板</strong></div><nav>${sections.map(([id, label]) => `<a class="${id === active ? "active" : ""}" href="#/admin/${id}">${label}</a>`).join("")}</nav></aside><section class="admin-main">${body}</section></section>`;
 }
 
 function adminHeader(title, summary) {
@@ -5933,6 +6248,8 @@ async function renderAdminSettings() {
       el.siteName.textContent = state.site.name;
       el.siteTagline.textContent = state.site.tagline;
       applySiteIcon();
+      updateLanguageChrome();
+      renderPassportLink();
       status.textContent = "站点设置已保存。";
     } catch (error) {
       status.textContent = error.message;
@@ -6154,6 +6471,7 @@ async function route() {
     else if (name === "favorites") await renderFavorites(value);
     else if (name === "watchlist") await renderWatchlist(value);
     else if (name === "following") await renderFollowing(value);
+    else if (name === "organizations") await renderOrganizations(value);
     else if (name === "messages") await renderMessages();
     else if (name === "community") await renderCommunity(value);
     else if (name === "organization") await renderOrganization(value);

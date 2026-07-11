@@ -698,6 +698,7 @@ function organizationFromRow(row) {
     slug: row.slug,
     name: row.name || row.slug,
     description: row.description || "",
+    descriptionMd: row.description_md || row.description || "",
     focus: cleanJson(row.focus_json, []),
     visibility: row.visibility || "public",
     reviewThreshold: Math.max(1, Number(row.review_threshold || 2)),
@@ -763,6 +764,8 @@ function organizationPostFromRow(row) {
   return {
     id: row.id,
     organizationId: row.organization_id,
+    organizationSlug: row.organization_slug || "",
+    organizationName: row.organization_name || "",
     postType: row.post_type || "discussion",
     title: row.title || "",
     bodyMd: row.body_md || "",
@@ -775,6 +778,9 @@ function organizationPostFromRow(row) {
     authorUsername: row.author_username || "",
     authorAvatarUrl: row.author_avatar_url || "",
     replyCount: Number(row.reply_count || 0),
+    favoriteCount: Number(row.favorite_count || 0),
+    following: Boolean(row.viewer_following),
+    favorited: Boolean(row.viewer_favorited),
     createdAt: row.created_at || "",
     updatedAt: row.updated_at || "",
   };
@@ -1327,6 +1333,7 @@ class PassportStore {
         slug TEXT NOT NULL UNIQUE COLLATE NOCASE,
         name TEXT NOT NULL,
         description TEXT NOT NULL DEFAULT '',
+        description_md TEXT NOT NULL DEFAULT '',
         focus_json TEXT NOT NULL DEFAULT '[]',
         visibility TEXT NOT NULL DEFAULT 'public',
         review_threshold INTEGER NOT NULL DEFAULT 2,
@@ -1402,6 +1409,24 @@ class PassportStore {
       );
 
       CREATE INDEX IF NOT EXISTS idx_organization_post_replies_post ON organization_post_replies(post_id, parent_id, created_at);
+
+      CREATE TABLE IF NOT EXISTS organization_post_subscriptions (
+        post_id INTEGER NOT NULL REFERENCES organization_posts(id) ON DELETE CASCADE,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (post_id, user_id)
+      );
+
+      CREATE TABLE IF NOT EXISTS organization_post_favorites (
+        post_id INTEGER NOT NULL REFERENCES organization_posts(id) ON DELETE CASCADE,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (post_id, user_id)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_organization_post_subscriptions_user ON organization_post_subscriptions(user_id, updated_at);
+      CREATE INDEX IF NOT EXISTS idx_organization_post_favorites_user ON organization_post_favorites(user_id, created_at);
 
       CREATE TABLE IF NOT EXISTS community_review_votes (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1507,6 +1532,8 @@ class PassportStore {
     this.addColumn("page_translations", "reviewer_name", "TEXT NOT NULL DEFAULT ''");
     this.addColumn("page_translations", "review_comment", "TEXT NOT NULL DEFAULT ''");
     this.addColumn("page_translations", "reviewed_at", "TEXT");
+    this.addColumn("writing_organizations", "description_md", "TEXT NOT NULL DEFAULT ''");
+    this.db.prepare("UPDATE writing_organizations SET description_md = description WHERE description_md = ''").run();
     this.db.exec("CREATE INDEX IF NOT EXISTS idx_page_aliases_source ON page_aliases(source_page_slug, updated_at)");
 
     this.db.prepare("UPDATE users SET role = 'senior_editor' WHERE role = 'senior'").run();
@@ -1823,6 +1850,7 @@ class PassportStore {
       recentEdits: this.listUserEdits(user.username, 10),
       favorites: this.listUserFavorites(user.id, { limit: 10, offset: 0 }),
       translator: this.getTranslatorProfile(user.id),
+      organizations: this.listUserOrganizations(user.id, { includePending: true, limit: 6, offset: 0 }),
     };
   }
 
@@ -1830,7 +1858,53 @@ class PassportStore {
     const row = this.findUser(username);
     if (!row) return null;
     const user = publicUserFromRow(row);
-    return { ...user, stats: this.userStats(user.id), recentEdits: this.listUserEdits(user.username, 10) };
+    return {
+      ...user,
+      stats: { ...this.userStats(user.id), organizations: this.countUserOrganizations(user.id) },
+      recentEdits: this.listUserEdits(user.username, 10),
+      organizations: this.listUserOrganizations(user.id, { limit: 6, offset: 0 }),
+    };
+  }
+
+  listUserOrganizations(userId, options = {}) {
+    const { limit, offset } = listOptions(options, 12, 80);
+    const includePending = options.includePending === true;
+    const where = includePending ? "m.status != 'removed'" : "m.status = 'active'";
+    return this.db.prepare(`
+      SELECT m.*, o.slug AS organization_slug, o.name AS organization_name, o.description AS organization_description,
+        o.focus_json AS organization_focus_json, o.visibility AS organization_visibility,
+        (SELECT count(*) FROM organization_tasks t WHERE t.organization_id = o.id AND t.status != 'closed') AS open_task_count,
+        (SELECT count(*) FROM organization_tasks t WHERE t.organization_id = o.id AND t.assignee_user_id = m.user_id AND t.status != 'closed') AS assigned_task_count,
+        (SELECT count(*) FROM organization_posts p WHERE p.organization_id = o.id AND p.author_user_id = m.user_id AND p.status != 'hidden') AS topic_count
+      FROM organization_members m
+      JOIN writing_organizations o ON o.id = m.organization_id AND o.status = 'active'
+      WHERE m.user_id = ? AND ${where}
+      ORDER BY CASE m.status WHEN 'active' THEN 1 ELSE 0 END DESC,
+        CASE m.role WHEN 'owner' THEN 5 WHEN 'coordinator' THEN 4 WHEN 'reviewer' THEN 3 WHEN 'translator' THEN 2 WHEN 'writer' THEN 1 ELSE 0 END DESC,
+        m.updated_at DESC, m.organization_id DESC
+      LIMIT ? OFFSET ?
+    `).all(Number(userId), limit, offset).map((row) => ({
+      ...organizationMemberFromRow(row),
+      organizationSlug: row.organization_slug || "",
+      organizationName: row.organization_name || "",
+      organizationDescription: row.organization_description || "",
+      organizationFocus: cleanJson(row.organization_focus_json, []),
+      organizationVisibility: row.organization_visibility || "public",
+      openTaskCount: Number(row.open_task_count || 0),
+      assignedTaskCount: Number(row.assigned_task_count || 0),
+      topicCount: Number(row.topic_count || 0),
+    }));
+  }
+
+  countUserOrganizations(userId, options = {}) {
+    const includePending = options.includePending === true;
+    const statusWhere = includePending ? "m.status != 'removed'" : "m.status = 'active'";
+    return Number(this.db.prepare(`
+      SELECT count(*) AS n
+      FROM organization_members m
+      JOIN writing_organizations o ON o.id = m.organization_id AND o.status = 'active'
+      WHERE m.user_id = ? AND ${statusWhere}
+    `).get(Number(userId)).n || 0);
   }
 
 
@@ -1923,7 +1997,8 @@ class PassportStore {
     const watches = this.countUserWatches(userId);
     const followers = this.countUserFollows(userId, "followers");
     const following = this.countUserFollows(userId, "following");
-    return { edits, comments, favorites, watches, followers, following };
+    const organizations = this.countUserOrganizations(userId, { includePending: true });
+    return { edits, comments, favorites, watches, followers, following, organizations };
   }
 
   countUserFavorites(userId) {
@@ -3131,15 +3206,16 @@ class PassportStore {
     const name = cleanText(input.name || slug, 90);
     if (!name) throw accessError('组织名称不能为空。', 400);
     const description = cleanText(input.description, 900);
+    const descriptionMd = cleanText(input.descriptionMd || input.description, 16000);
     const focus = Array.from(new Set((Array.isArray(input.focus) ? input.focus : String(input.focus || '').split(/[，,\n]/))
       .map((item) => cleanText(item, 80)).filter(Boolean))).slice(0, 12);
     const visibility = input.visibility === 'request' ? 'request' : 'public';
     const reviewThreshold = Math.max(1, Math.min(Number(input.reviewThreshold) || 2, 8));
     const now = nowIso();
     const result = this.db.prepare(`
-      INSERT INTO writing_organizations (slug, name, description, focus_json, visibility, review_threshold, status, created_by, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)
-    `).run(slug, name, description, jsonText(focus), visibility, reviewThreshold, session.user.id, now, now);
+      INSERT INTO writing_organizations (slug, name, description, description_md, focus_json, visibility, review_threshold, status, created_by, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)
+    `).run(slug, name, description, descriptionMd, jsonText(focus), visibility, reviewThreshold, session.user.id, now, now);
     const organization = this.organizationById(result.lastInsertRowid);
     this.db.prepare(`
       INSERT INTO organization_members (organization_id, user_id, role, status, intro, joined_at, updated_at)
@@ -3153,6 +3229,7 @@ class PassportStore {
     const access = this.assertOrganizationRole(session, organization, 'coordinator');
     const name = cleanText(input.name || organization.name, 90);
     const description = cleanText(Object.prototype.hasOwnProperty.call(input, 'description') ? input.description : organization.description, 900);
+    const descriptionMd = cleanText(Object.prototype.hasOwnProperty.call(input, 'descriptionMd') ? input.descriptionMd : organization.descriptionMd, 16000);
     const focus = Object.prototype.hasOwnProperty.call(input, 'focus')
       ? Array.from(new Set((Array.isArray(input.focus) ? input.focus : String(input.focus || '').split(/[，,\n]/)).map((item) => cleanText(item, 80)).filter(Boolean))).slice(0, 12)
       : organization.focus;
@@ -3161,8 +3238,8 @@ class PassportStore {
       ? Math.max(1, Math.min(Number(input.reviewThreshold) || organization.reviewThreshold, 8))
       : organization.reviewThreshold;
     this.db.prepare(`
-      UPDATE writing_organizations SET name = ?, description = ?, focus_json = ?, visibility = ?, review_threshold = ?, updated_at = ? WHERE id = ?
-    `).run(name, description, jsonText(focus), visibility, reviewThreshold, nowIso(), organization.id);
+      UPDATE writing_organizations SET name = ?, description = ?, description_md = ?, focus_json = ?, visibility = ?, review_threshold = ?, updated_at = ? WHERE id = ?
+    `).run(name, description, descriptionMd, jsonText(focus), visibility, reviewThreshold, nowIso(), organization.id);
     return this.organizationById(organization.id);
   }
 
@@ -3178,7 +3255,29 @@ class PassportStore {
       VALUES (?, ?, 'member', ?, ?, ?, ?)
       ON CONFLICT(organization_id, user_id) DO UPDATE SET intro = excluded.intro, updated_at = excluded.updated_at
     `).run(organization.id, session.user.id, status, intro, now, now);
-    return { organization, membership: this.organizationMembership(organization.id, session.user.id) };
+    const membership = this.organizationMembership(organization.id, session.user.id);
+    if (status === 'pending') {
+      this.notifyOrganizationCoordinators(organization, {
+        senderUserId: session.user.id,
+        senderName: session.user.displayName || session.user.username,
+        title: `${organization.name} 有新的加入申请`,
+        body: `${session.user.displayName || session.user.username} 申请加入组织。`,
+        sourceUrl: `#/organization/${encodeURIComponent(organization.slug)}?tab=members`,
+        sourceLabel: '审核成员申请',
+      });
+    } else {
+      this.insertMessage({
+        recipientUserId: session.user.id,
+        senderName: organization.name,
+        title: `已加入 ${organization.name}`,
+        body: '你的组织身份已激活，可以参与任务和论坛讨论。',
+        kind: 'organization',
+        sourceType: 'organization',
+        sourceUrl: `#/organization/${encodeURIComponent(organization.slug)}`,
+        sourceLabel: '查看组织首页',
+      });
+    }
+    return { organization, membership };
   }
 
   updateOrganizationMember(session, slug, userId, input = {}) {
@@ -3195,7 +3294,26 @@ class PassportStore {
     }
     this.db.prepare('UPDATE organization_members SET role = ?, status = ?, updated_at = ? WHERE organization_id = ? AND user_id = ?')
       .run(nextRole, nextStatus, nowIso(), organization.id, Number(userId));
-    return this.organizationMembership(organization.id, userId);
+    const updated = this.organizationMembership(organization.id, userId);
+    if (Number(userId) !== Number(session.user.id) && (nextStatus !== member.status || nextRole !== member.role)) {
+      const body = nextStatus === 'active' && member.status === 'pending'
+        ? `你的加入申请已通过，当前身份为 ${normalizeOrganizationRole(nextRole)}。`
+        : nextStatus === 'removed'
+          ? '你的组织成员资格已被移除。'
+          : `你的组织身份已更新为 ${normalizeOrganizationRole(nextRole)}。`;
+      this.insertMessage({
+        recipientUserId: Number(userId),
+        senderUserId: session.user.id,
+        senderName: session.user.displayName || session.user.username,
+        title: nextStatus === 'active' && member.status === 'pending' ? `${organization.name} 已通过你的申请` : `${organization.name} 更新了你的组织身份`,
+        body,
+        kind: 'organization',
+        sourceType: 'organization-member',
+        sourceUrl: `#/organization/${encodeURIComponent(organization.slug)}`,
+        sourceLabel: '查看组织身份',
+      });
+    }
+    return updated;
   }
 
   listOrganizationMembers(organizationId, options = {}) {
@@ -3258,6 +3376,43 @@ class PassportStore {
     return { organization, ...this.organizationTaskQuery(session, organization.id, options) };
   }
 
+  listPageOrganizationTasks(session, pageSlug, options = {}) {
+    const { limit, offset } = listOptions(options, 6, 30);
+    const status = ORGANIZATION_TASK_STATUSES.includes(options.status) ? options.status : 'all';
+    const viewerId = Number(session?.user?.id || 0);
+    const where = ["t.page_slug = ?", "o.status = 'active'"];
+    const args = [normalizeKnowledgeSlug(pageSlug, '词条')];
+    if (status !== 'all') { where.push('t.status = ?'); args.push(status); }
+    const clause = `WHERE ${where.join(' AND ')}`;
+    const total = Number(this.db.prepare(`
+      SELECT count(*) AS n
+      FROM organization_tasks t JOIN writing_organizations o ON o.id = t.organization_id
+      ${clause}
+    `).get(...args).n || 0);
+    const rows = this.db.prepare(`
+      SELECT t.*, o.slug AS organization_slug, o.name AS organization_name,
+        creator.display_name AS creator_name, assignee.display_name AS assignee_name, assignee.username AS assignee_username,
+        viewer.role AS organization_role, viewer.status AS viewer_status
+      FROM organization_tasks t
+      JOIN writing_organizations o ON o.id = t.organization_id
+      LEFT JOIN users creator ON creator.id = t.created_by
+      LEFT JOIN users assignee ON assignee.id = t.assignee_user_id
+      LEFT JOIN organization_members viewer ON viewer.organization_id = t.organization_id AND viewer.user_id = ?
+      ${clause}
+      ORDER BY CASE t.status WHEN 'open' THEN 0 WHEN 'claimed' THEN 1 WHEN 'ready' THEN 2 ELSE 3 END,
+        CASE t.priority WHEN 'urgent' THEN 3 WHEN 'high' THEN 2 ELSE 1 END DESC, t.updated_at DESC, t.id DESC
+      LIMIT ? OFFSET ?
+    `).all(viewerId, ...args, limit, offset);
+    return {
+      items: rows.map((row) => organizationTaskFromRow({
+        ...row,
+        can_claim: row.viewer_status === 'active' && ['open', 'claimed'].includes(row.status) && (!row.assignee_user_id || Number(row.assignee_user_id) === viewerId),
+        can_review: row.viewer_status === 'active' && organizationRoleRank(row.organization_role) >= organizationRoleRank('reviewer') && row.task_type === 'review' && row.status !== 'closed',
+      })),
+      total,
+    };
+  }
+
   createOrganizationTask(session, slug, input = {}) {
     const organization = this.organizationBySlug(slug);
     this.assertOrganizationRole(session, organization, 'coordinator');
@@ -3273,7 +3428,17 @@ class PassportStore {
       INSERT INTO organization_tasks (organization_id, task_type, page_slug, language, title, summary, priority, status, created_by, assignee_user_id, created_at, updated_at, claimed_at, closed_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, 'open', ?, NULL, ?, ?, '', '')
     `).run(organization.id, taskType, pageSlug, language, title, summary, priority, session.user.id, now, now);
-    return this.getOrganizationTask(session, result.lastInsertRowid);
+    const task = this.getOrganizationTask(session, result.lastInsertRowid);
+    this.notifyOrganizationMembers(organization, {
+      senderUserId: session.user.id,
+      senderName: session.user.displayName || session.user.username,
+      title: `${organization.name} 发布了协作任务`,
+      body: task.title,
+      sourceUrl: `#/organization/${encodeURIComponent(organization.slug)}?tab=tasks`,
+      sourceLabel: '查看协作任务',
+      excludeUserId: session.user.id,
+    });
+    return task;
   }
 
   getOrganizationTask(session, taskId) {
@@ -3306,7 +3471,21 @@ class PassportStore {
     const now = nowIso();
     this.db.prepare("UPDATE organization_tasks SET assignee_user_id = ?, status = 'claimed', claimed_at = ?, updated_at = ? WHERE id = ?")
       .run(session.user.id, now, now, Number(taskId));
-    return this.getOrganizationTask(session, taskId);
+    const claimed = this.getOrganizationTask(session, taskId);
+    if (Number(task.createdBy || 0) && Number(task.createdBy) !== Number(session.user.id)) {
+      this.insertMessage({
+        recipientUserId: task.createdBy,
+        senderUserId: session.user.id,
+        senderName: session.user.displayName || session.user.username,
+        title: `${claimed.organizationName} 的任务已被认领`,
+        body: claimed.title,
+        kind: 'organization',
+        sourceType: 'organization-task',
+        sourceUrl: `#/organization/${encodeURIComponent(claimed.organizationSlug)}?tab=tasks`,
+        sourceLabel: '查看协作任务',
+      });
+    }
+    return claimed;
   }
 
   updateOrganizationTask(session, taskId, input = {}) {
@@ -3320,29 +3499,65 @@ class PassportStore {
     const now = nowIso();
     this.db.prepare("UPDATE organization_tasks SET status = ?, updated_at = ?, closed_at = CASE WHEN ? = 'closed' THEN ? ELSE closed_at END WHERE id = ?")
       .run(status, now, status, now, Number(taskId));
-    return this.getOrganizationTask(session, taskId);
+    const updated = this.getOrganizationTask(session, taskId);
+    const recipients = new Set([Number(task.createdBy || 0), Number(task.assigneeUserId || 0)]);
+    recipients.delete(Number(session.user.id));
+    for (const userId of recipients) {
+      if (!userId) continue;
+      this.insertMessage({
+        recipientUserId: userId,
+        senderUserId: session.user.id,
+        senderName: session.user.displayName || session.user.username,
+        title: `${updated.organizationName} 更新了协作任务`,
+        body: `${updated.title}：${updated.status}`,
+        kind: 'organization',
+        sourceType: 'organization-task',
+        sourceUrl: `#/organization/${encodeURIComponent(updated.organizationSlug)}?tab=tasks`,
+        sourceLabel: '查看协作任务',
+      });
+    }
+    return updated;
   }
 
   organizationPostQuery(session, organizationId, options = {}) {
     const { limit, offset } = listOptions(options, 10, 50);
     const status = ['open', 'resolved', 'locked'].includes(options.status) ? options.status : 'all';
+    const postType = ['discussion', 'announcement', 'decision'].includes(options.postType) ? options.postType : 'all';
+    const query = cleanText(options.query || options.q || '', 120);
+    const sort = ['latest', 'active', 'unresolved'].includes(options.sort) ? options.sort : 'latest';
     const viewerId = Number(session?.user?.id || 0);
     const where = ["p.organization_id = ?", "p.status != 'hidden'"];
     const args = [Number(organizationId)];
     if (status !== 'all') { where.push('p.status = ?'); args.push(status); }
+    if (postType !== 'all') { where.push('p.post_type = ?'); args.push(postType); }
+    if (query) {
+      const like = `%${query}%`;
+      where.push('(p.title LIKE ? OR p.body_md LIKE ? OR p.page_slug LIKE ?)');
+      args.push(like, like, like);
+    }
     const clause = `WHERE ${where.join(' AND ')}`;
+    const order = sort === 'unresolved'
+      ? "p.pinned DESC, CASE p.status WHEN 'open' THEN 0 WHEN 'locked' THEN 1 ELSE 2 END, p.updated_at DESC, p.id DESC"
+      : sort === 'active'
+        ? "p.pinned DESC, reply_count DESC, p.updated_at DESC, p.id DESC"
+        : "p.pinned DESC, p.updated_at DESC, p.id DESC";
     const total = Number(this.db.prepare(`SELECT count(*) AS n FROM organization_posts p ${clause}`).get(...args).n || 0);
     const items = this.db.prepare(`
-      SELECT p.*, author.display_name AS author_name, author.username AS author_username, author.avatar_url AS author_avatar_url,
+      SELECT p.*, o.slug AS organization_slug, o.name AS organization_name,
+        author.display_name AS author_name, author.username AS author_username, author.avatar_url AS author_avatar_url,
         viewer.role AS organization_role, viewer.status AS viewer_status,
-        (SELECT count(*) FROM organization_post_replies r WHERE r.post_id = p.id AND r.status = 'published') AS reply_count
+        (SELECT count(*) FROM organization_post_replies r WHERE r.post_id = p.id AND r.status = 'published') AS reply_count,
+        (SELECT count(*) FROM organization_post_favorites f WHERE f.post_id = p.id) AS favorite_count,
+        EXISTS(SELECT 1 FROM organization_post_subscriptions s WHERE s.post_id = p.id AND s.user_id = ?) AS viewer_following,
+        EXISTS(SELECT 1 FROM organization_post_favorites f WHERE f.post_id = p.id AND f.user_id = ?) AS viewer_favorited
       FROM organization_posts p
+      JOIN writing_organizations o ON o.id = p.organization_id
       JOIN users author ON author.id = p.author_user_id
       LEFT JOIN organization_members viewer ON viewer.organization_id = p.organization_id AND viewer.user_id = ?
       ${clause}
-      ORDER BY p.pinned DESC, p.updated_at DESC, p.id DESC
+      ORDER BY ${order}
       LIMIT ? OFFSET ?
-    `).all(viewerId, ...args, limit, offset).map(organizationPostFromRow);
+    `).all(viewerId, viewerId, viewerId, ...args, limit, offset).map(organizationPostFromRow);
     return { items, total };
   }
 
@@ -3374,8 +3589,8 @@ class PassportStore {
       senderName: session.user.displayName || session.user.username,
       title: `${organization.name} 有新的${postType === 'announcement' ? '公告' : postType === 'decision' ? '社区决议' : '讨论'}`,
       body: title,
-      sourceUrl: `#/organization/${encodeURIComponent(organization.slug)}`,
-      sourceLabel: '查看组织讨论',
+      sourceUrl: `#/organization/${encodeURIComponent(organization.slug)}?tab=forum&topic=${result.lastInsertRowid}`,
+      sourceLabel: '查看讨论主题',
       excludeUserId: session.user.id,
     });
     return this.getOrganizationPost(session, result.lastInsertRowid);
@@ -3383,12 +3598,54 @@ class PassportStore {
 
   getOrganizationPost(session, postId) {
     return organizationPostFromRow(this.db.prepare(`
-      SELECT p.*, author.display_name AS author_name, author.username AS author_username, author.avatar_url AS author_avatar_url,
-        (SELECT count(*) FROM organization_post_replies r WHERE r.post_id = p.id AND r.status = 'published') AS reply_count
+      SELECT p.*, o.slug AS organization_slug, o.name AS organization_name,
+        author.display_name AS author_name, author.username AS author_username, author.avatar_url AS author_avatar_url,
+        (SELECT count(*) FROM organization_post_replies r WHERE r.post_id = p.id AND r.status = 'published') AS reply_count,
+        (SELECT count(*) FROM organization_post_favorites f WHERE f.post_id = p.id) AS favorite_count,
+        EXISTS(SELECT 1 FROM organization_post_subscriptions s WHERE s.post_id = p.id AND s.user_id = ?) AS viewer_following,
+        EXISTS(SELECT 1 FROM organization_post_favorites f WHERE f.post_id = p.id AND f.user_id = ?) AS viewer_favorited
       FROM organization_posts p
+      JOIN writing_organizations o ON o.id = p.organization_id
       JOIN users author ON author.id = p.author_user_id
-      WHERE p.id = ? AND p.status != 'hidden'
-    `).get(Number(postId)));
+      WHERE p.id = ? AND p.status != 'hidden' AND o.status = 'active'
+    `).get(Number(session?.user?.id || 0), Number(session?.user?.id || 0), Number(postId)));
+  }
+
+  setOrganizationPostFollow(session, postId, enabled = true) {
+    if (!session?.user) throw accessError('请先登录后关注讨论。', 401);
+    const post = this.getOrganizationPost(session, postId);
+    if (!post) throw accessError('组织讨论不存在。', 404);
+    const organization = this.organizationById(post.organizationId);
+    this.assertOrganizationRole(session, organization, 'member');
+    if (enabled) {
+      const now = nowIso();
+      this.db.prepare(`
+        INSERT INTO organization_post_subscriptions (post_id, user_id, created_at, updated_at)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(post_id, user_id) DO UPDATE SET updated_at = excluded.updated_at
+      `).run(post.id, session.user.id, now, now);
+    } else {
+      this.db.prepare('DELETE FROM organization_post_subscriptions WHERE post_id = ? AND user_id = ?').run(post.id, session.user.id);
+    }
+    return this.getOrganizationPost(session, post.id);
+  }
+
+  setOrganizationPostFavorite(session, postId, enabled = true) {
+    if (!session?.user) throw accessError('请先登录后收藏讨论。', 401);
+    const post = this.getOrganizationPost(session, postId);
+    if (!post) throw accessError('组织讨论不存在。', 404);
+    const organization = this.organizationById(post.organizationId);
+    this.assertOrganizationRole(session, organization, 'member');
+    if (enabled) {
+      this.db.prepare(`
+        INSERT INTO organization_post_favorites (post_id, user_id, created_at)
+        VALUES (?, ?, ?)
+        ON CONFLICT(post_id, user_id) DO NOTHING
+      `).run(post.id, session.user.id, nowIso());
+    } else {
+      this.db.prepare('DELETE FROM organization_post_favorites WHERE post_id = ? AND user_id = ?').run(post.id, session.user.id);
+    }
+    return this.getOrganizationPost(session, post.id);
   }
 
   listOrganizationPostReplies(session, postId, options = {}) {
@@ -3427,10 +3684,18 @@ class PassportStore {
       VALUES (?, ?, ?, ?, 'published', ?, ?)
     `).run(post.id, parentId, session.user.id, content, now, now);
     this.db.prepare('UPDATE organization_posts SET updated_at = ? WHERE id = ?').run(now, post.id);
-    return organizationPostReplyFromRow(this.db.prepare(`
+    const reply = organizationPostReplyFromRow(this.db.prepare(`
       SELECT r.*, u.display_name AS author_name, u.username AS author_username, u.avatar_url AS author_avatar_url
       FROM organization_post_replies r JOIN users u ON u.id = r.author_user_id WHERE r.id = ?
     `).get(result.lastInsertRowid));
+    this.notifyOrganizationPostFollowers(organization, post, {
+      senderUserId: session.user.id,
+      senderName: session.user.displayName || session.user.username,
+      title: `${organization.name} 的讨论有新回复`,
+      body: post.title,
+      includeAuthor: true,
+    });
+    return reply;
   }
 
   updateOrganizationPost(session, postId, input = {}) {
@@ -3442,7 +3707,64 @@ class PassportStore {
     const pinned = Object.prototype.hasOwnProperty.call(input, 'pinned') ? (input.pinned === true ? 1 : 0) : (post.pinned ? 1 : 0);
     this.db.prepare('UPDATE organization_posts SET status = ?, pinned = ?, updated_at = ? WHERE id = ?')
       .run(status, pinned, nowIso(), post.id);
-    return this.getOrganizationPost(session, post.id);
+    const updated = this.getOrganizationPost(session, post.id);
+    if (updated.status !== post.status || updated.pinned !== post.pinned) {
+      this.notifyOrganizationPostFollowers(organization, updated, {
+        senderUserId: session.user.id,
+        senderName: session.user.displayName || session.user.username,
+        title: `${organization.name} 更新了讨论状态`,
+        body: `${updated.title}：${updated.status === 'resolved' ? '已形成结论' : updated.status === 'locked' ? '已锁定' : '已重新开放'}。`,
+        includeAuthor: true,
+      });
+    }
+    return updated;
+  }
+
+  notifyOrganizationCoordinators(organization, input = {}) {
+    const recipients = this.db.prepare(`
+      SELECT m.user_id FROM organization_members m
+      JOIN users u ON u.id = m.user_id
+      WHERE m.organization_id = ? AND m.status = 'active' AND u.status = 'active'
+        AND m.role IN ('owner', 'coordinator')
+    `).all(organization.id);
+    for (const recipient of recipients) {
+      if (Number(recipient.user_id) === Number(input.excludeUserId || 0)) continue;
+      this.insertMessage({
+        recipientUserId: recipient.user_id,
+        senderUserId: input.senderUserId || null,
+        senderName: input.senderName || organization.name,
+        title: input.title || `${organization.name} 有待处理事项`,
+        body: input.body || '',
+        kind: 'organization',
+        sourceType: 'organization',
+        sourceUrl: input.sourceUrl || `#/organization/${encodeURIComponent(organization.slug)}?tab=members`,
+        sourceLabel: input.sourceLabel || '查看组织成员',
+      });
+    }
+  }
+
+  notifyOrganizationPostFollowers(organization, post, input = {}) {
+    const recipients = new Set();
+    if (input.includeAuthor && post.authorUserId) recipients.add(Number(post.authorUserId));
+    this.db.prepare(`
+      SELECT s.user_id FROM organization_post_subscriptions s
+      JOIN users u ON u.id = s.user_id
+      WHERE s.post_id = ? AND u.status = 'active'
+    `).all(post.id).forEach((row) => recipients.add(Number(row.user_id)));
+    for (const userId of recipients) {
+      if (!userId || userId === Number(input.senderUserId || 0)) continue;
+      this.insertMessage({
+        recipientUserId: userId,
+        senderUserId: input.senderUserId || null,
+        senderName: input.senderName || organization.name,
+        title: input.title || `${organization.name} 的讨论有新动态`,
+        body: input.body || post.title,
+        kind: 'organization',
+        sourceType: 'organization-post',
+        sourceUrl: `#/organization/${encodeURIComponent(organization.slug)}?tab=forum&topic=${post.id}`,
+        sourceLabel: '查看讨论主题',
+      });
+    }
   }
 
   notifyOrganizationMembers(organization, input = {}) {

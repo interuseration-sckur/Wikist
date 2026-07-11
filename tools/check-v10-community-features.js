@@ -60,6 +60,19 @@ try {
     focus: "抽象代数，群论，英文翻译",
     reviewThreshold: 2,
   });
+  const requestOrganization = passport.createOrganization(ownerSession, {
+    slug: "review-request-commons",
+    name: "Review Request Commons",
+    description: "A request-only organization used to verify collaboration notices.",
+    descriptionMd: "# Review request commons\n\nMembership is reviewed by coordinators.",
+    visibility: "request",
+    reviewThreshold: 2,
+  });
+  const ownerMessagesBeforeRequest = passport.countMessages(owner.id, {});
+  const requestedMembership = passport.joinOrganization(readerSession, requestOrganization.slug, { intro: "I would like to help review pages." });
+  const ownerMessagesAfterRequest = passport.countMessages(owner.id, {});
+  const approvedMembership = passport.updateOrganizationMember(ownerSession, requestOrganization.slug, reader.id, { role: "writer", status: "active" });
+  const readerMessagesAfterApproval = passport.countMessages(reader.id, {});
   const joinedReviewer = passport.joinOrganization(reviewerSession, organization.slug, { intro: "愿意参与来源核验和版本审阅。" });
   passport.joinOrganization(translatorSession, organization.slug, {});
   passport.updateOrganizationMember(ownerSession, organization.slug, reviewer.id, { role: "reviewer", status: "active" });
@@ -69,7 +82,15 @@ try {
   const pageReviewTask = passport.createOrganizationTask(ownerSession, organization.slug, { taskType: "review", pageSlug: source.slug, title: "社区审阅当前版本", summary: "两位审阅者完成可核验检查。" });
   const translationReviewTask = passport.createOrganizationTask(ownerSession, organization.slug, { taskType: "review", pageSlug: source.slug, language: "en", title: "英文译文社区审阅", summary: "核对术语与段落对应。" });
   const post = passport.createOrganizationPost(ownerSession, organization.slug, { postType: "discussion", title: "群论术语的英文表达", bodyMd: "请核对 **group** 与相关记法。", pageSlug: source.slug, language: "en" });
+  const followedPost = passport.setOrganizationPostFollow(reviewerSession, post.id, true);
+  const favoritedPost = passport.setOrganizationPostFavorite(reviewerSession, post.id, true);
   const reply = passport.replyToOrganizationPost(reviewerSession, post.id, { contentMd: "建议同时检查同态与子群术语。" });
+  const ownerProfile = passport.getUserProfile(owner.id);
+  const publicOwner = passport.getPublicUser(owner.username);
+  const pageTasks = passport.listPageOrganizationTasks(reviewerSession, source.slug, { limit: 10, offset: 0 });
+  const forumTopics = passport.listOrganizationPosts(reviewerSession, organization.slug, { postType: "discussion", query: "群论", sort: "active", limit: 10, offset: 0 });
+  const ownerMessageCount = passport.countMessages(owner.id, {});
+  const ownerMessages = passport.listMessages(owner.id, { limit: 50, offset: 0 });
   const pageVoteOne = passport.submitCommunityReview(ownerSession, "page", source.slug, { organizationId: organization.id, revisionId: source.revisionId, decision: "approve", comment: "结构和来源范围已核对。" });
   const pageVoteTwo = passport.submitCommunityReview(reviewerSession, "page", source.slug, { organizationId: organization.id, revisionId: source.revisionId, decision: "approve", comment: "同意建立稳定版本。" });
   pages.snapshotCurrentForReview(source.slug, source.revisionId);
@@ -103,13 +124,24 @@ try {
       && passport.organizationMembership(organization.id, reviewer.id)?.role === "reviewer",
     tasksCanBeCreatedAndClaimed: claimedTask.assigneeUserId === translator.id && tasks.total === 3 && tasks.items.some((task) => task.id === pageReviewTask.id && task.canReview),
     threadedDiscussionPersists: posts.total === 1 && replies.total === 1 && reply.authorUserId === reviewer.id,
+    academicIdentityAndPageTasksPersist: ownerProfile.organizations.some((item) => item.organizationSlug === organization.slug && item.role === "owner")
+      && publicOwner.stats.organizations === 2 && pageTasks.total === 3,
+    forumTopicsAreFilterableAndNotifyAuthors: forumTopics.total === 1 && forumTopics.items[0].organizationSlug === organization.slug
+      && ownerMessageCount >= 3 && ownerMessages.some((message) => message.sourceType === "organization-post")
+      && ownerMessages.some((message) => message.sourceType === "organization-task"),
+    requestMembershipNotifiesAndApprovalSyncs: requestedMembership.membership.status === "pending"
+      && ownerMessagesAfterRequest > ownerMessagesBeforeRequest
+      && approvedMembership.status === "active" && approvedMembership.role === "writer"
+      && readerMessagesAfterApproval >= 1,
+    forumFollowAndFavoritePersist: followedPost.following && favoritedPost.favorited && Number(favoritedPost.favoriteCount) === 1,
+    organizationMarkdownPersists: passport.organizationBySlug(requestOrganization.slug).descriptionMd.includes("Review request commons"),
     pageConsensusCreatesStableRevision: !pageVoteOne.reachedDecision && pageVoteTwo.reachedDecision === "approve" && pageFinal.finalized && pageFinal.review.isCurrentStable,
     translationConsensusPublishes: !translationVoteOne.reachedDecision && translationVoteTwo.reachedDecision === "approve" && translationFinal.finalized && translationFinal.translation.status === "published",
     communityReviewerCanInspectDraft: reviewerDraft?.id === translation.id,
     snapshotsExposeVotes: pageSnapshot.organizations[0].approve === 2 && pageSnapshot.organizations[0].finalized?.decision === "approve"
       && translationSnapshot.organizations[0].approve === 2 && translationSnapshot.organizations[0].finalized?.decision === "approve",
     ordinaryReaderCannotReview: readerDenied,
-    serverRoutesPresent: appSource.includes("/api/community/organizations") && appSource.includes("community-review") && appSource.includes("organizationPostPayload"),
+    serverRoutesPresent: appSource.includes("/api/community/organizations") && appSource.includes("community-review") && appSource.includes("organizationPostPayload") && appSource.includes("organizationPayload") && appSource.includes("/api/passport/organizations") && appSource.includes("publicUserOrganizationsMatch") && appSource.includes("organizationPostFollowMatch") && appSource.includes("organizationPostFavoriteMatch"),
   };
   const failed = Object.entries(checks).filter(([, ok]) => !ok).map(([name]) => name);
   assert.deepStrictEqual(failed, [], `v0.10 community checks failed: ${failed.join(", ")}`);

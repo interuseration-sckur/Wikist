@@ -57,6 +57,12 @@ function organizationPostPayload(post) {
   return { ...post, bodyHtml: rendered.html, toc: rendered.toc };
 }
 
+function organizationPayload(organization) {
+  if (!organization) return null;
+  const rendered = renderMarkdown(organization.descriptionMd || organization.description || "");
+  return { ...organization, descriptionHtml: rendered.html, descriptionToc: rendered.toc };
+}
+
 function organizationPostReplyPayload(reply) {
   const rendered = renderMarkdown(reply.contentMd || "");
   return { ...reply, contentHtml: rendered.html, toc: rendered.toc };
@@ -71,27 +77,35 @@ function passportSecurityPayload(config) {
   };
 }
 
-function authMailHtml(title, body, url) {
-  return `<div style="font-family:Segoe UI,Arial,sans-serif;line-height:1.7;color:#15211d"><h2>${title}</h2><p>${body}</p><p><a href="${url}" style="display:inline-block;padding:10px 16px;border-radius:8px;background:#0f8a6c;color:#fff;text-decoration:none;font-weight:700">打开 Wikist 验证链接</a></p><p style="color:#6b7b75;font-size:13px">如果按钮无法打开，请复制链接：<br>${url}</p></div>`;
+function configuredSiteName(config) {
+  return String(config?.name || "Wikist").trim() || "Wikist";
+}
+
+function authMailHtml(siteName, title, body, url) {
+  const safeName = escapeHtml(siteName);
+  const safeUrl = escapeHtml(url);
+  return `<div style="font-family:Segoe UI,Arial,sans-serif;line-height:1.7;color:#15211d"><h2>${escapeHtml(title)}</h2><p>${escapeHtml(body)}</p><p><a href="${safeUrl}" style="display:inline-block;padding:10px 16px;border-radius:8px;background:#0f8a6c;color:#fff;text-decoration:none;font-weight:700">打开 ${safeName} 验证链接</a></p><p style="color:#6b7b75;font-size:13px">如果按钮无法打开，请复制链接：<br>${safeUrl}</p></div>`;
 }
 
 async function sendEmailVerification(config, req, ticket) {
   const url = `${siteBaseUrl(config, req)}/#/verify-email/${encodeURIComponent(ticket.token)}`;
+  const siteName = configuredSiteName(config);
   return sendWikistMail(config, {
     to: ticket.user.email,
-    subject: `${config.name || "Wikist"} 邮箱验证`,
-    text: `请打开以下链接完成 Wikist 邮箱验证：\n${url}\n\n如果不是你本人操作，请忽略这封邮件。`,
-    html: authMailHtml("验证你的 Wikist 邮箱", "完成验证后，你可以更安全地找回密码并保护贡献身份。", url),
+    subject: `${siteName} 邮箱验证`,
+    text: `请打开以下链接完成 ${siteName} 邮箱验证：\n${url}\n\n如果不是你本人操作，请忽略这封邮件。`,
+    html: authMailHtml(siteName, `验证你的 ${siteName} 邮箱`, "完成验证后，你可以更安全地找回密码并保护贡献身份。", url),
   });
 }
 
 async function sendPasswordReset(config, req, ticket) {
   const url = `${siteBaseUrl(config, req)}/#/reset-password/${encodeURIComponent(ticket.token)}`;
+  const siteName = configuredSiteName(config);
   return sendWikistMail(config, {
     to: ticket.user.email,
-    subject: `${config.name || "Wikist"} 找回密码`,
-    text: `请打开以下链接重置 Wikist 密码：\n${url}\n\n如果不是你本人操作，请忽略这封邮件。`,
-    html: authMailHtml("重置 Wikist 密码", "链接短时间内有效。重置成功后，旧会话会自动失效。", url),
+    subject: `${siteName} 找回密码`,
+    text: `请打开以下链接重置 ${siteName} 密码：\n${url}\n\n如果不是你本人操作，请忽略这封邮件。`,
+    html: authMailHtml(siteName, `重置 ${siteName} 密码`, "链接短时间内有效。重置成功后，旧会话会自动失效。", url),
   });
 }
 
@@ -202,12 +216,15 @@ function siteIconUrl(config) {
 
 function serveIndexHtml(req, res, indexPath, config) {
   const icon = siteIconUrl(config);
+  const siteName = configuredSiteName(config);
   const html = fs.readFileSync(indexPath, "utf8")
-    .replace(/href="\/assets\/styles\.css\?v=wikist-core-20260711-76"/g, `href="${escapeHtml(assetUrl(config, "/assets/styles.css?v=wikist-core-20260711-76"))}"`)
-    .replace(/src="\/assets\/app\.js\?v=wikist-core-20260711-76"/g, `src="${escapeHtml(assetUrl(config, "/assets/app.js?v=wikist-core-20260711-76"))}"`)
+    .replace(/href="\/assets\/styles\.css\?v=wikist-core-20260711-78"/g, `href="${escapeHtml(assetUrl(config, "/assets/styles.css?v=wikist-core-20260711-78"))}"`)
+    .replace(/src="\/assets\/app\.js\?v=wikist-core-20260711-78"/g, `src="${escapeHtml(assetUrl(config, "/assets/app.js?v=wikist-core-20260711-78"))}"`)
     .replace(/href="\/assets\/wikist-emblem\.svg"/g, `href="${escapeHtml(icon)}"`)
     .replace(/src="\/assets\/wikist-emblem\.svg"/g, `src="${escapeHtml(icon)}"`)
-    .replace(/<title>Wikist<\/title>/, `<title>${escapeHtml(config.name || "Wikist")}</title>`);
+    .replace(/<title>Wikist<\/title>/, `<title>${escapeHtml(siteName)}</title>`)
+    .replace(/<strong id="siteName">Wikist<\/strong>/, `<strong id="siteName">${escapeHtml(siteName)}</strong>`)
+    .replace(/id="breadcrumbs">Wikist<\//, `id="breadcrumbs">${escapeHtml(siteName)}</`);
   res.writeHead(200, {
     "content-type": "text/html; charset=utf-8",
     "content-length": Buffer.byteLength(html),
@@ -251,8 +268,8 @@ const HOME_MODULE_DEFAULTS = {
 };
 
 const HOME_CONTENT_DEFAULTS = {
-  heroKicker: "Wikist Knowledge Core",
-  heroTitle: "欢迎来到 Wikist",
+  heroKicker: "Knowledge Core",
+  heroTitle: "首页",
   heroSummary: "开放、严谨、可验证的中文数学知识共同体。定义、证明、引用、讨论、权限与归档共同构成可审计的知识网络。",
   heroSearch: "搜索数学概念",
   heroContribute: "开始贡献",
@@ -263,7 +280,7 @@ const HOME_CONTENT_DEFAULTS = {
   pathTitle: "入门路径",
   progressTitle: "全球数学进展",
   actionsTitle: "协作控制台",
-  actionsSummary: "Wikist 正在建立可审计的知识协作体系。",
+  actionsSummary: "正在建立可审计的知识协作体系。",
   progressItems: [
     { tag: "国际会议", title: "ICM 2026", body: "国际数学家大会继续作为全球数学共同体的核心交流节点。", href: "https://www.mathunion.org/icm/icm-2026" },
     { tag: "形式化数学", title: "Lean / mathlib", body: "定理证明、形式化库与可验证证明正在进入更多数学工作流。", href: "https://github.com/leanprover-community/mathlib4" },
@@ -276,7 +293,11 @@ function homeSettingsPayload(config) {
 }
 
 function homeContentPayload(config) {
-  return { ...HOME_CONTENT_DEFAULTS, ...(config.homeContent || {}) };
+  const content = { ...HOME_CONTENT_DEFAULTS, ...(config.homeContent || {}) };
+  if (/^(欢迎来到|Welcome to)\s*Wikist$/i.test(String(content.heroTitle || "").trim())) content.heroTitle = "首页";
+  if (String(content.heroKicker || "").trim() === "Wikist Knowledge Core") content.heroKicker = `${configuredSiteName(config)} Knowledge Core`;
+  if (String(content.actionsSummary || "").includes("Wikist")) content.actionsSummary = String(content.actionsSummary).replace(/Wikist/g, configuredSiteName(config));
+  return content;
 }
 
 function sanitizeHomeSettings(input, current = {}) {
@@ -314,6 +335,7 @@ function sanitizeHomeContent(input, current = {}) {
       href: cleanSettingText(item?.href, 500),
     })).filter((item) => item.title);
   }
+  if (/^(欢迎来到|Welcome to)\s*Wikist$/i.test(String(next.heroTitle || "").trim())) next.heroTitle = "首页";
   return next;
 }
 
@@ -903,6 +925,19 @@ function createWikistServer(options) {
         return;
       }
 
+      if (pathname === "/api/passport/organizations" && req.method === "GET") {
+        if (!passport || !session?.user) {
+          sendJson(res, 401, { error: "请先登录后查看组织身份。" });
+          return;
+        }
+        const pagination = readPagination(url, 12, 60);
+        const includePending = url.searchParams.get("pending") !== "false";
+        const items = passport.listUserOrganizations(session.user.id, { includePending, limit: pagination.limit, offset: pagination.offset });
+        const total = passport.countUserOrganizations(session.user.id, { includePending });
+        sendJson(res, 200, paginationPayload(items, total, pagination));
+        return;
+      }
+
       if (pathname === "/api/passport/follows" && req.method === "GET") {
         if (!passport || !session?.user) {
           sendJson(res, 401, { error: "请先登录后查看社交关系。" });
@@ -974,7 +1009,7 @@ function createWikistServer(options) {
         }
         const member = session?.user ? passport.organizationMembership(organization.id, session.user.id) : null;
         sendJson(res, 200, {
-          organization,
+          organization: organizationPayload(organization),
           membership: member,
           members: passport.listOrganizationMembers(organization.id, { limit: 8, offset: 0 }),
           memberCount: passport.countOrganizationMembers(organization.id),
@@ -989,7 +1024,7 @@ function createWikistServer(options) {
         }
         const organization = passport.updateOrganization(session, decodePathPart(organizationMatch[1]), await readJsonBody(req));
         recordAudit(passport, req, session, { action: "organization.update", targetType: "organization", targetId: organization.slug, targetLabel: organization.name, summary: "更新写作组织" });
-        sendJson(res, 200, { organization });
+        sendJson(res, 200, { organization: organizationPayload(organization) });
         return;
       }
 
@@ -1069,7 +1104,14 @@ function createWikistServer(options) {
       if (organizationPostsMatch && req.method === "GET") {
         if (!passport) { sendJson(res, 404, { error: "写作组织功能未启用。" }); return; }
         const pagination = readPagination(url, 10, 50);
-        const result = passport.listOrganizationPosts(session, decodePathPart(organizationPostsMatch[1]), { status: url.searchParams.get("status") || "all", limit: pagination.limit, offset: pagination.offset });
+        const result = passport.listOrganizationPosts(session, decodePathPart(organizationPostsMatch[1]), {
+          status: url.searchParams.get("status") || "all",
+          postType: url.searchParams.get("type") || "all",
+          sort: url.searchParams.get("sort") || "latest",
+          query: url.searchParams.get("q") || "",
+          limit: pagination.limit,
+          offset: pagination.offset,
+        });
         sendJson(res, 200, { organization: result.organization, ...paginationPayload(result.items.map(organizationPostPayload), result.total, pagination) });
         return;
       }
@@ -1099,10 +1141,46 @@ function createWikistServer(options) {
       }
 
       const organizationPostMatch = pathname.match(/^\/api\/community\/posts\/(\d+)$/);
+      const organizationPostFollowMatch = pathname.match(/^\/api\/community\/posts\/(\d+)\/follow$/);
+      if (organizationPostFollowMatch && req.method === "PUT") {
+        if (!passport || !session?.user) { sendJson(res, 401, { error: "请先登录后关注讨论。" }); return; }
+        const body = await readJsonBody(req);
+        const post = passport.setOrganizationPostFollow(session, Number(organizationPostFollowMatch[1]), body.enabled !== false);
+        sendJson(res, 200, { post: organizationPostPayload(post) });
+        return;
+      }
+      const organizationPostFavoriteMatch = pathname.match(/^\/api\/community\/posts\/(\d+)\/favorite$/);
+      if (organizationPostFavoriteMatch && req.method === "PUT") {
+        if (!passport || !session?.user) { sendJson(res, 401, { error: "请先登录后收藏讨论。" }); return; }
+        const body = await readJsonBody(req);
+        const post = passport.setOrganizationPostFavorite(session, Number(organizationPostFavoriteMatch[1]), body.favorited !== false);
+        sendJson(res, 200, { post: organizationPostPayload(post) });
+        return;
+      }
+      if (organizationPostMatch && req.method === "GET") {
+        if (!passport) { sendJson(res, 404, { error: "写作组织功能未启用。" }); return; }
+        const post = passport.getOrganizationPost(session, Number(organizationPostMatch[1]));
+        if (!post) { sendJson(res, 404, { error: "组织讨论不存在或已隐藏。" }); return; }
+        sendJson(res, 200, { post: organizationPostPayload(post) });
+        return;
+      }
       if (organizationPostMatch && req.method === "PUT") {
         if (!passport || !session?.user) { sendJson(res, 401, { error: "请先登录后管理组织讨论。" }); return; }
         const post = passport.updateOrganizationPost(session, Number(organizationPostMatch[1]), await readJsonBody(req));
         sendJson(res, 200, { post: organizationPostPayload(post) });
+        return;
+      }
+
+      const publicUserOrganizationsMatch = pathname.match(/^\/api\/users\/([^/]+)\/organizations$/);
+      if (publicUserOrganizationsMatch && req.method === "GET") {
+        if (!passport) { sendJson(res, 404, { error: "Wikist 通行证未启用。" }); return; }
+        const username = decodePathPart(publicUserOrganizationsMatch[1]);
+        const profile = passport.getPublicUser(username);
+        if (!profile) { sendJson(res, 404, { error: "用户不存在。" }); return; }
+        const pagination = readPagination(url, 12, 60);
+        const items = passport.listUserOrganizations(profile.id, { limit: pagination.limit, offset: pagination.offset });
+        const total = passport.countUserOrganizations(profile.id);
+        sendJson(res, 200, { user: { id: profile.id, username: profile.username, displayName: profile.displayName }, ...paginationPayload(items, total, pagination) });
         return;
       }
 
@@ -2435,13 +2513,19 @@ function createWikistServer(options) {
       const pageCommunityMatch = pathname.match(/^\/api\/pages\/(.+)\/community$/);
       if (pageCommunityMatch && req.method === "GET") {
         if (!passport) {
-          sendJson(res, 200, { tasks: [], organizations: [], subjectType: "page" });
+          sendJson(res, 200, { tasks: [], pagination: { page: 1, pageSize: 6, total: 0, totalPages: 1, hasPrev: false, hasNext: false }, organizations: [], subjectType: "page" });
           return;
         }
         const slug = slugFromNestedPath(pathname, "/api/pages/", "/community");
         const current = pages.getPage(slug);
         if (!current) { sendJson(res, 404, { error: "词条不存在。", slug }); return; }
-        sendJson(res, 200, passport.communityReviewSnapshot(session, "page", current.slug, "", current.revisionId));
+        const pagination = readPagination(url, 6, 30);
+        const tasks = passport.listPageOrganizationTasks(session, current.slug, { status: url.searchParams.get("status") || "all", limit: pagination.limit, offset: pagination.offset });
+        sendJson(res, 200, {
+          ...passport.communityReviewSnapshot(session, "page", current.slug, "", current.revisionId),
+          tasks: tasks.items,
+          pagination: { ...paginationPayload([], tasks.total, pagination).pagination },
+        });
         return;
       }
 
