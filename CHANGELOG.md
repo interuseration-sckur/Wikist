@@ -9,6 +9,7 @@
 - Review opinions are now paginated ten at a time. Their original senior-editor author can withdraw them; withdrawing the approval that currently defines stability safely restores the latest remaining approval or clears the stable pointer.
 - Explicit article, category, and language subscriptions now also receive their own saved update in the inbox, so a contributor can verify the subscription pipeline without relying on a second account.
 - Fixed review-note withdrawal route parsing for nested and ordinary article slugs; no manual slug field is required.
+- Fixed route precedence so a review-note withdrawal is handled before the generic page-delete endpoint.
 - Bumped the framework package to `0.5.3` and the frontend asset version to `wikist-core-20260711-70`.
 
 ## 2026-07-11 - Final Light Surface Coverage

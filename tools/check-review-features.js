@@ -4,6 +4,7 @@ const path = require("path");
 const { PassportStore } = require("../src/core/passport-store");
 const { PageStore } = require("../src/core/page-store");
 const { buildLineDiff } = require("../src/core/revision-review");
+const appSource = fs.readFileSync(path.join(process.cwd(), "src", "server", "app.js"), "utf8");
 
 const tempRoot = path.join(process.cwd(), "data", "wikist-review-test");
 
@@ -92,6 +93,7 @@ try {
     memberCannotWithdraw,
     withdrawnChangeKeepsStable: withdrawnChange.withdrawn.decision === "changes_requested" && !withdrawnChange.stableChanged && withdrawnChange.review.stableRevisionId === first.revisionId,
     withdrawnApprovalClearsStable: withdrawnApproval.withdrawn.decision === "approve" && withdrawnApproval.stableChanged && !reviewAfterApprovalWithdrawal.hasStable,
+    withdrawalRoutePrecedesPageDelete: appSource.indexOf("const pageReviewNoteMatch") < appSource.indexOf('if (pathname.startsWith("/api/pages/") && req.method === "DELETE")'),
   };
   const failed = Object.entries(checks).filter(([, ok]) => !ok).map(([name]) => name);
   assert.deepStrictEqual(failed, [], `Review checks failed: ${failed.join(", ")}`);

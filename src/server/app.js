@@ -1945,6 +1945,28 @@ function createWikistServer(options) {
         return;
       }
 
+      const pageReviewNoteMatch = pathname.match(/^\/api\/pages\/(.+)\/review\/(\d+)$/);
+      if (pageReviewNoteMatch && req.method === "DELETE") {
+        requireDashboard(passport, session);
+        const slug = normalizeSlug(decodePathPart(pageReviewNoteMatch[1]));
+        const current = pages.getPage(slug);
+        if (!current) {
+          sendJson(res, 404, { error: "词条不存在。", slug });
+          return;
+        }
+        const result = passport.withdrawPageReview(session, current, Number(pageReviewNoteMatch[2]));
+        recordAudit(passport, req, session, {
+          action: "page.review.withdraw",
+          targetType: "page",
+          targetId: current.slug,
+          targetLabel: current.title,
+          summary: "撤回自己的审核意见",
+          metadata: { noteId: result.withdrawn.id, revisionId: result.withdrawn.revisionId, decision: result.withdrawn.decision, stableChanged: result.stableChanged },
+        });
+        sendJson(res, 200, { ...result, page: pagePreviewPayload(current) });
+        return;
+      }
+
       if (pathname.startsWith("/api/pages/") && req.method === "DELETE") {
         if (!passport || !session?.user) {
           sendJson(res, 401, { error: "请先登录后再删除词条。" });
@@ -2060,28 +2082,6 @@ function createWikistServer(options) {
           metadata: { revisionId: current.revisionId, hasComment: Boolean(String(input.comment || "").trim()) },
         });
         sendJson(res, 200, { review, page: pagePreviewPayload(current) });
-        return;
-      }
-
-      const pageReviewNoteMatch = pathname.match(/^\/api\/pages\/(.+)\/review\/(\d+)$/);
-      if (pageReviewNoteMatch && req.method === "DELETE") {
-        requireDashboard(passport, session);
-        const slug = normalizeSlug(decodePathPart(pageReviewNoteMatch[1]));
-        const current = pages.getPage(slug);
-        if (!current) {
-          sendJson(res, 404, { error: "词条不存在。", slug });
-          return;
-        }
-        const result = passport.withdrawPageReview(session, current, Number(pageReviewNoteMatch[2]));
-        recordAudit(passport, req, session, {
-          action: "page.review.withdraw",
-          targetType: "page",
-          targetId: current.slug,
-          targetLabel: current.title,
-          summary: "撤回自己的审核意见",
-          metadata: { noteId: result.withdrawn.id, revisionId: result.withdrawn.revisionId, decision: result.withdrawn.decision, stableChanged: result.stableChanged },
-        });
-        sendJson(res, 200, { ...result, page: pagePreviewPayload(current) });
         return;
       }
 
