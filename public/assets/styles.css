@@ -2298,11 +2298,105 @@ th {
   border: 0;
 }
 
-.permission-stack {
+.permission-workbench {
   display: grid;
-  gap: 18px;
-  max-width: 720px;
+  grid-template-columns: minmax(0, 1.08fr) minmax(340px, .92fr);
+  gap: 16px;
+  width: min(100%, 1180px);
+  align-items: start;
 }
+
+.permission-workbench .auth-panel {
+  min-width: 0;
+  margin: 0;
+}
+
+.permission-workbench .permission-panel { max-width: none; }
+
+.permission-panel-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.permission-panel-head h2 { margin: 4px 0 0; }
+
+.permission-panel-state {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  max-width: 46%;
+  padding: 4px 9px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--cyan) 35%, var(--line));
+  border-radius: 999px;
+  color: var(--cyan);
+  background: color-mix(in srgb, var(--cyan) 7%, var(--panel));
+  font-size: .78rem;
+  overflow-wrap: anywhere;
+}
+
+.permission-panel-state.danger {
+  border-color: color-mix(in srgb, var(--rose) 44%, var(--line));
+  color: var(--rose);
+  background: color-mix(in srgb, var(--rose) 8%, var(--panel));
+}
+
+.permission-policy-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.permission-policy-grid label,
+.move-page-fields label,
+.delete-page-fields label {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  color: var(--muted);
+}
+
+.permission-policy-grid label > span { color: var(--text); font-weight: 700; }
+
+.permission-policy-grid select,
+.move-page-fields input,
+.delete-page-fields input {
+  min-width: 0;
+  min-height: 42px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 0 12px;
+  color: var(--text);
+  background: color-mix(in srgb, var(--panel) 90%, transparent);
+}
+
+.permission-panel-actions { display: flex; align-items: center; gap: 10px; margin-top: 16px; }
+.permission-panel-actions .command-button { min-width: 148px; }
+
+.move-page-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.move-page-fields .editor-toggle { min-height: 42px; margin: 0; white-space: nowrap; }
+
+.danger-panel { grid-column: 1 / -1; }
+
+.delete-page-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(170px, .28fr);
+  align-items: end;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.delete-page-fields .command-button { min-height: 42px; }
 
 .danger-panel {
   border-color: rgba(255, 95, 138, .38);
@@ -2333,10 +2427,30 @@ th {
   background: rgba(183, 56, 94, .10);
 }
 
+:root[data-theme="light"] .permission-policy-grid select,
+:root[data-theme="light"] .move-page-fields input,
+:root[data-theme="light"] .delete-page-fields input {
+  border-color: #bdd6d1;
+  background: #ffffff;
+}
+
+:root[data-theme="light"] .permission-panel-state { background: #eaf8f5; border-color: #94cbc3; color: #087d73; }
+:root[data-theme="light"] .permission-panel-state.danger { background: #fff1f4; border-color: #edb5c2; color: #ae234b; }
+
+@media (max-width: 900px) {
+  .permission-workbench { grid-template-columns: 1fr; }
+  .danger-panel { grid-column: auto; }
+}
+
 @media (max-width: 680px) {
   .visual-editor-head {
     display: grid;
   }
+  .permission-policy-grid,
+  .move-page-fields,
+  .delete-page-fields { grid-template-columns: 1fr; }
+  .move-page-fields .editor-toggle { min-height: auto; white-space: normal; }
+  .permission-panel-actions .command-button { width: 100%; }
 }
 /* Admin, avatar and top quick navigation */
 .top-quick-nav {
@@ -8076,4 +8190,227 @@ html[data-theme="light"] .plugin-hook-card { background: #ffffff; border-color: 
 @media (max-width: 760px) {
   .search-index-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .search-index-details { grid-template-columns: 1fr; }
+}
+
+/* v0.9 translation quality layer */
+.translation-workspace-shell.has-quality {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(248px, 310px);
+  gap: 0 14px;
+}
+
+.translation-workspace-shell.has-quality .translation-workspace-bar { grid-column: 1 / -1; }
+.translation-workspace-shell.has-quality .translation-workbench { grid-column: 1; }
+
+.translation-quality-panel {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 14px;
+  background: rgba(10, 16, 14, .72);
+}
+
+.translation-quality-panel.has-changes { border-color: rgba(255, 209, 102, .46); }
+.translation-quality-panel.is-current { border-color: rgba(124, 255, 180, .30); }
+
+.translation-quality-panel > header,
+.translation-glossary-editor > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.translation-quality-panel h2,
+.translation-glossary-editor h2 { margin: 3px 0 0; font-size: 1.06rem; }
+
+.translation-quality-status {
+  display: grid;
+  gap: 4px;
+  border-left: 3px solid var(--green);
+  padding-left: 10px;
+}
+
+.has-changes .translation-quality-status { border-left-color: var(--amber); }
+.translation-quality-status span,
+.translation-suggestion small,
+.translation-glossary-copy { color: var(--muted); font-size: .82rem; line-height: 1.55; }
+
+.translation-change-details {
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 8px 10px;
+  color: var(--muted);
+  font-size: .8rem;
+}
+
+.translation-change-details summary { color: var(--amber); cursor: pointer; font-weight: 700; }
+.translation-change-details ul { display: grid; gap: 7px; margin: 10px 0 0; padding: 0; list-style: none; }
+.translation-change-details li { display: grid; gap: 2px; }
+.translation-change-details b { color: var(--text); }
+
+.translation-suggestion-group { display: grid; gap: 7px; }
+.translation-suggestion-group h3 { margin: 0; color: var(--muted); font-size: .76rem; text-transform: uppercase; letter-spacing: .04em; }
+
+.translation-suggestion {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  border: 1px solid rgba(56, 232, 255, .18);
+  border-radius: 7px;
+  padding: 9px;
+  overflow: hidden;
+  color: var(--text);
+  background: rgba(56, 232, 255, .045);
+  text-align: left;
+  cursor: pointer;
+}
+
+.translation-suggestion:hover { border-color: rgba(56, 232, 255, .55); background: rgba(56, 232, 255, .09); }
+.translation-suggestion.glossary { border-color: rgba(124, 255, 180, .20); background: rgba(124, 255, 180, .045); }
+.translation-suggestion.glossary:hover { border-color: rgba(124, 255, 180, .56); background: rgba(124, 255, 180, .10); }
+.translation-suggestion-kicker { overflow: hidden; color: var(--cyan); font-size: .7rem; text-overflow: ellipsis; white-space: nowrap; }
+.translation-suggestion.glossary .translation-suggestion-kicker { color: var(--green); }
+.translation-suggestion strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .86rem; }
+.translation-suggestion em { color: var(--amber); font-size: .74rem; font-style: normal; }
+.quality-empty { margin: 0; border-top: 1px solid var(--line); padding-top: 11px; font-size: .82rem; }
+
+.translation-glossary-toolbar {
+  margin: 0 0 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 12px;
+  background: rgba(10, 16, 14, .60);
+}
+
+.translation-glossary-toolbar form {
+  display: grid;
+  grid-template-columns: minmax(116px, .65fr) minmax(116px, .65fr) minmax(180px, 1.55fr) auto;
+  align-items: end;
+  gap: 10px;
+}
+
+.translation-glossary-toolbar label,
+.translation-glossary-editor label,
+.translation-glossary-language-pair label {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: .8rem;
+  font-weight: 700;
+}
+
+.translation-glossary-toolbar input,
+.translation-glossary-toolbar select,
+.translation-glossary-editor input,
+.translation-glossary-editor select,
+.translation-glossary-editor textarea {
+  min-width: 0;
+  min-height: 40px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 8px 10px;
+  color: var(--text);
+  background: rgba(4, 9, 8, .68);
+  font: inherit;
+}
+
+.translation-glossary-editor textarea { min-height: 94px; resize: vertical; }
+.translation-glossary-toolbar input:focus,
+.translation-glossary-toolbar select:focus,
+.translation-glossary-editor input:focus,
+.translation-glossary-editor select:focus,
+.translation-glossary-editor textarea:focus { border-color: var(--cyan); outline: 0; box-shadow: 0 0 0 3px rgba(56, 232, 255, .1); }
+
+.translation-glossary-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.translation-glossary-layout.has-editor { grid-template-columns: minmax(0, 1fr) minmax(292px, 360px); }
+.translation-glossary-list { display: grid; gap: 9px; }
+
+.translation-glossary-item {
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 14px;
+  background: rgba(10, 16, 14, .55);
+}
+
+.translation-glossary-item.is-inactive { opacity: .64; }
+.translation-glossary-term { display: flex; align-items: center; gap: 9px; min-width: 0; flex-wrap: wrap; }
+.translation-glossary-term span { color: var(--cyan); font-weight: 700; }
+.translation-glossary-term b { color: var(--muted); }
+.translation-glossary-term strong { color: var(--green); }
+.translation-glossary-term em { border: 1px solid rgba(255, 209, 102, .30); border-radius: 999px; padding: 2px 7px; color: var(--amber); font-size: .72rem; font-style: normal; }
+.translation-glossary-item footer { display: flex; align-items: center; gap: 9px; min-width: 0; color: var(--muted); font-size: .76rem; }
+.translation-glossary-item footer small { margin-left: auto; }
+.text-action { border: 0; padding: 0; color: var(--cyan); background: transparent; cursor: pointer; font: inherit; }
+.danger-text { color: var(--rose); }
+.translation-glossary-empty { margin: 0; border: 1px dashed var(--line); border-radius: var(--radius); padding: 24px; text-align: center; }
+
+.translation-glossary-editor {
+  display: grid;
+  gap: 14px;
+  border: 1px solid rgba(124, 255, 180, .28);
+  border-radius: var(--radius);
+  padding: 15px;
+  background: rgba(10, 19, 15, .68);
+}
+
+.translation-glossary-editor > header { display: block; }
+.translation-glossary-editor > header p { margin: 7px 0 0; color: var(--muted); font-size: .82rem; line-height: 1.55; }
+.translation-glossary-editor form { display: grid; gap: 11px; }
+.translation-glossary-language-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+.translation-glossary-actions { display: flex; gap: 8px; }
+.translator-panel-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+:root[data-theme="light"] .translation-quality-panel,
+:root[data-theme="light"] .translation-glossary-toolbar,
+:root[data-theme="light"] .translation-glossary-item,
+:root[data-theme="light"] .translation-glossary-editor {
+  border-color: #bdd6d0;
+  background: #ffffff;
+  box-shadow: 0 8px 20px rgba(23, 61, 51, .06);
+}
+
+:root[data-theme="light"] .translation-quality-panel.has-changes { border-color: #d8be7b; }
+:root[data-theme="light"] .translation-quality-panel.is-current { border-color: #91cdb0; }
+:root[data-theme="light"] .translation-suggestion { border-color: #b7d8dc; background: #f1fbfc; }
+:root[data-theme="light"] .translation-suggestion.glossary { border-color: #b4d8c0; background: #f2fbf5; }
+:root[data-theme="light"] .translation-change-details { border-color: #cedbd7; background: #f7fbfa; }
+:root[data-theme="light"] .translation-glossary-toolbar input,
+:root[data-theme="light"] .translation-glossary-toolbar select,
+:root[data-theme="light"] .translation-glossary-editor input,
+:root[data-theme="light"] .translation-glossary-editor select,
+:root[data-theme="light"] .translation-glossary-editor textarea { border-color: #b9d3ce; color: #16312c; background: #ffffff; }
+
+@media (max-width: 1240px) {
+  .translation-workspace-shell.has-quality { grid-template-columns: 1fr; }
+  .translation-workspace-shell.has-quality .translation-workbench { grid-column: 1; }
+  .translation-workspace-shell.has-quality .translation-quality-panel { grid-column: 1; margin-top: 14px; }
+  .translation-suggestion-group { grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); }
+  .translation-suggestion-group h3 { grid-column: 1 / -1; }
+}
+
+@media (max-width: 860px) {
+  .translation-glossary-layout.has-editor { grid-template-columns: 1fr; }
+  .translation-glossary-editor { order: -1; }
+}
+
+@media (max-width: 680px) {
+  .translation-glossary-toolbar form { grid-template-columns: 1fr 1fr; }
+  .translation-glossary-search,
+  .translation-glossary-toolbar .command-button { grid-column: 1 / -1; }
+  .translation-glossary-actions { display: grid; grid-template-columns: 1fr; }
+  .translation-glossary-item footer { align-items: flex-start; flex-wrap: wrap; }
+  .translation-glossary-item footer small { width: 100%; margin-left: 0; }
 }

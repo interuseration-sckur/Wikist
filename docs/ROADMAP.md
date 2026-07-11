@@ -57,16 +57,11 @@ Optional portable front matter now covers prerequisites, notation, canonical nam
 
 ## P2: Translation Quality
 
-### 7. Translation Memory And Glossary
+### Delivered: Translation Memory, Glossary, And Source Change Markers
 
-Extend the current side-by-side workbench with:
+The side-by-side workbench now offers per-language-pair exact-match translation memory populated only from approved translations, source snapshot comparison, and a community glossary with preferred translations, notation, notes, and discouraged alternatives. The glossary is paginated and searchable; only `senior_editor` and `admin` can curate it. The implementation stays in SQLite and uses Markdown paragraph boundaries rather than becoming a general localization platform. See [Translation Quality Layer](TRANSLATION_QUALITY.md).
 
-- Per-language-pair translation memory built from approved translations.
-- A community terminology glossary, including preferred Chinese names, English equivalents, notation notes, and forbidden ambiguous translations.
-- Changed-source segment markers so translators only revisit affected paragraphs.
-- Translation review states distinct from article review states.
-
-[MediaWiki Translate](https://www.mediawiki.org/wiki/Extension:Translate) demonstrates the value of completion statistics, translation memory, source-change visibility, glossary aids, and proofreading. Wikist should implement the smallest useful subset around article sections rather than build a general software-localization platform.
+[MediaWiki Translate](https://www.mediawiki.org/wiki/Extension:Translate) demonstrates the value of completion statistics, translation memory, source-change visibility, glossary aids, and proofreading. Wikist now implements the smallest useful subset around article sections; later work should focus on target-language link previews and translation coverage reporting.
 
 ### 8. Language-Aware Linking
 
@@ -119,8 +114,8 @@ Do not add a mandatory message broker, graph database, Elasticsearch cluster, fu
 
 1. Stable revision workflow, review queue, and source records.
 2. Category landing pages, rename repair, and richer link-graph reports.
-3. Translation memory, terminology glossary, and changed-source markers.
-4. SQLite FTS5, render cache, and image variants.
-5. Exchange adapters and a permission-scoped plugin hook API.
+3. Translation coverage reporting, target-language link previews, and lightweight render caching.
+4. SQLite FTS5 observability, image variants, and exchange adapters.
+5. Community governance metrics and targeted moderation tools.
 
 Each stage should ship with a focused migration, API contract, UI route, documentation update, and feature check. This keeps the system fast to deploy while steadily increasing its value as a serious knowledge wiki.

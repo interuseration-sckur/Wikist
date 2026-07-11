@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-07-11 - Translation Quality Layer And Governance Workbench
+
+- Rebuilt per-article governance into a responsive two-column workbench: access policy, move/rename, and archive-delete now use available desktop width while retaining a single, readable mobile flow and matched light/dark controls.
+- Added review-gated translation memory in SQLite. Only published translations contribute normalized paragraph pairs; drafts and pending reviews are never offered as suggestions.
+- Added source-snapshot comparison and bounded changed-paragraph markers in the translation workspace, so translators can see when an existing target needs revisiting without an automatic overwrite.
+- Added a paginated, searchable translation glossary with source/target language directions, preferred terms, notation, notes, discouraged alternatives, and reviewer-only curation.
+- Added [translation quality documentation](docs/TRANSLATION_QUALITY.md) and `npm run check:v09`, covering review-gated memory, source changes, glossary access, and safe page-move rekeying.
+- Bumped the framework package to `0.9.0` and the frontend asset version to `wikist-core-20260711-74`.
+
 ## 2026-07-11 - Knowledge Navigation, Safe Article Moves, And Translation Review
 
 - Added portable mathematical article metadata: prerequisites, related pages, canonical names, notation conventions, MSC/ACM-style classifications, and topic paths. It is editable with the article and preserved by Wikist export/import.

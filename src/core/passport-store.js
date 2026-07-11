@@ -2,6 +2,11 @@ const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 const { normalizeSlug } = require("./slug");
+const {
+  splitMarkdownSegments,
+  translationMemoryPairs,
+  translationSourceChanges,
+} = require("./translation-quality");
 
 let DatabaseSync;
 try {
@@ -637,6 +642,42 @@ function translationFromRow(row) {
   };
 }
 
+function translationMemoryFromRow(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    sourceLanguage: row.source_language,
+    targetLanguage: row.target_language,
+    sourceHash: row.source_hash,
+    sourceText: row.source_text || "",
+    targetText: row.target_text || "",
+    pageSlug: row.page_slug || "",
+    translationId: row.translation_id || null,
+    approvedAt: row.approved_at || "",
+    updatedAt: row.updated_at || "",
+    useCount: Number(row.use_count || 0),
+  };
+}
+
+function translationGlossaryFromRow(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    sourceLanguage: row.source_language,
+    targetLanguage: row.target_language,
+    sourceTerm: row.source_term || "",
+    targetTerm: row.target_term || "",
+    notation: row.notation || "",
+    note: row.note || "",
+    discouragedTerms: cleanJson(row.discouraged_terms_json, []),
+    status: row.status || "active",
+    createdBy: row.created_by || null,
+    updatedBy: row.updated_by || null,
+    createdAt: row.created_at || "",
+    updatedAt: row.updated_at || "",
+  };
+}
+
 function favoriteFromRow(row) {
   if (!row) return null;
   return {
@@ -1093,6 +1134,43 @@ class PassportStore {
 
       CREATE INDEX IF NOT EXISTS idx_page_translations_page ON page_translations(page_slug, language);
       CREATE INDEX IF NOT EXISTS idx_page_translations_user ON page_translations(translator_user_id, updated_at);
+
+      CREATE TABLE IF NOT EXISTS translation_memory (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        source_language TEXT NOT NULL,
+        target_language TEXT NOT NULL,
+        source_hash TEXT NOT NULL,
+        source_text TEXT NOT NULL,
+        target_text TEXT NOT NULL,
+        page_slug TEXT NOT NULL,
+        translation_id INTEGER REFERENCES page_translations(id) ON DELETE SET NULL,
+        approved_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        use_count INTEGER NOT NULL DEFAULT 1,
+        UNIQUE(source_language, target_language, source_hash)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_translation_memory_pair ON translation_memory(source_language, target_language, updated_at);
+      CREATE INDEX IF NOT EXISTS idx_translation_memory_page ON translation_memory(page_slug, updated_at);
+
+      CREATE TABLE IF NOT EXISTS translation_glossary (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        source_language TEXT NOT NULL,
+        target_language TEXT NOT NULL,
+        source_term TEXT NOT NULL,
+        target_term TEXT NOT NULL,
+        notation TEXT NOT NULL DEFAULT '',
+        note TEXT NOT NULL DEFAULT '',
+        discouraged_terms_json TEXT NOT NULL DEFAULT '[]',
+        status TEXT NOT NULL DEFAULT 'active',
+        created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        updated_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE(source_language, target_language, source_term)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_translation_glossary_pair ON translation_glossary(source_language, target_language, status, updated_at);
 
       CREATE TABLE IF NOT EXISTS watch_subscriptions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1849,6 +1927,7 @@ class PassportStore {
       ["page_ratings", "SELECT 1 FROM page_ratings WHERE page_slug = ? LIMIT 1"],
       ["page_favorites", "SELECT 1 FROM page_favorites WHERE page_slug = ? LIMIT 1"],
       ["page_translations", "SELECT 1 FROM page_translations WHERE page_slug = ? LIMIT 1"],
+      ["translation_memory", "SELECT 1 FROM translation_memory WHERE page_slug = ? LIMIT 1"],
       ["watch_subscriptions", "SELECT 1 FROM watch_subscriptions WHERE target_type = 'page' AND target_key = ? LIMIT 1"],
     ];
     const tables = probes.filter(([, sql]) => this.db.prepare(sql).get(normalized)).map(([table]) => table);
@@ -1858,13 +1937,17 @@ class PassportStore {
   movePageData(sourceSlug, targetSlug, pageTitle = "") {
     const source = normalizeKnowledgeSlug(sourceSlug, "page");
     const target = normalizeKnowledgeSlug(targetSlug, "page");
-    if (!source || !target || source === target) return { sourceSlug: source, targetSlug: target, links: 0, translations: 0 };
+    if (!source || !target || source === target) return { sourceSlug: source, targetSlug: target, links: 0, translations: 0, translationMemory: 0 };
     const now = nowIso();
     const escaped = source.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const linkPattern = new RegExp(`\\[\\[${escaped}(?=\\||\\]\\])`, "g");
     const replaceLinks = (value) => String(value || "").replace(linkPattern, `[[${target}`);
     const movedLinks = this.db.prepare("SELECT * FROM page_links WHERE source_slug = ? OR target_slug = ?").all(source, source);
     const translatedRows = this.db.prepare("SELECT id, source_md, translated_md FROM page_translations").all();
+    const memoryRows = this.db.prepare(`
+      SELECT id, source_text, target_text FROM translation_memory
+      WHERE page_slug = ? OR instr(source_text, ?) > 0 OR instr(target_text, ?) > 0
+    `).all(source, `[[${source}`, `[[${source}`);
     const transaction = () => {
       this.db.prepare("UPDATE page_permissions SET page_slug = ? WHERE page_slug = ?").run(target, source);
       this.db.prepare("UPDATE page_edit_events SET page_slug = ?, page_title = CASE WHEN page_title = '' THEN ? ELSE page_title END WHERE page_slug = ?").run(target, pageTitle, source);
@@ -1874,6 +1957,7 @@ class PassportStore {
       this.db.prepare("UPDATE page_ratings SET page_slug = ? WHERE page_slug = ?").run(target, source);
       this.db.prepare("UPDATE page_favorites SET page_slug = ?, page_title = ? WHERE page_slug = ?").run(target, pageTitle, source);
       this.db.prepare("UPDATE page_translations SET page_slug = ? WHERE page_slug = ?").run(target, source);
+      this.db.prepare("UPDATE translation_memory SET page_slug = ? WHERE page_slug = ?").run(target, source);
       this.db.prepare("UPDATE page_aliases SET target_slug = ?, updated_at = ? WHERE target_slug = ?").run(target, now, source);
       this.db.prepare("UPDATE page_aliases SET source_page_slug = ?, updated_at = ? WHERE source_page_slug = ?").run(target, now, source);
       this.db.prepare("INSERT OR IGNORE INTO watch_subscriptions (user_id, target_type, target_key, created_at, updated_at) SELECT user_id, target_type, ?, created_at, ? FROM watch_subscriptions WHERE target_type = 'page' AND target_key = ?").run(target, now, source);
@@ -1893,6 +1977,12 @@ class PassportStore {
         const translatedMd = replaceLinks(row.translated_md);
         if (sourceMd !== row.source_md || translatedMd !== row.translated_md) updateTranslation.run(sourceMd, translatedMd, now, row.id);
       }
+      const updateMemory = this.db.prepare("UPDATE translation_memory SET source_text = ?, target_text = ?, updated_at = ? WHERE id = ?");
+      for (const row of memoryRows) {
+        const sourceText = replaceLinks(row.source_text);
+        const targetText = replaceLinks(row.target_text);
+        if (sourceText !== row.source_text || targetText !== row.target_text) updateMemory.run(sourceText, targetText, now, row.id);
+      }
       this.db.prepare("UPDATE user_messages SET source_url = ? WHERE source_url = ?").run(`#/page/${target}`, `#/page/${source}`);
     };
     this.db.exec("BEGIN");
@@ -1903,7 +1993,7 @@ class PassportStore {
       try { this.db.exec("ROLLBACK"); } catch (_rollbackError) {}
       throw error;
     }
-    return { sourceSlug: source, targetSlug: target, links: movedLinks.length, translations: translatedRows.length };
+    return { sourceSlug: source, targetSlug: target, links: movedLinks.length, translations: translatedRows.length, translationMemory: memoryRows.length };
   }
 
   removePageAlias(session, aliasSlug) {
@@ -2226,8 +2316,194 @@ class PassportStore {
     return languages.map((language) => {
       if (language === "zh-CN") return { language, status: "source", progress: 100 };
       const row = byLang.get(language);
-      return row ? { language, status: row.status, progress: row.progress, updatedAt: row.updatedAt, translatorName: row.translatorName, reviewerName: row.reviewerName, reviewedAt: row.reviewedAt } : { language, status: "missing", progress: 0 };
+      return row ? {
+        language,
+        status: row.status,
+        progress: row.progress,
+        updatedAt: row.updatedAt,
+        translatorName: row.translatorName,
+        reviewerName: row.reviewerName,
+        reviewedAt: row.reviewedAt,
+        sourceChanged: translationSourceChanges(row.sourceMd || "", sourceMd || "").hasChanges,
+      } : { language, status: "missing", progress: 0 };
     });
+  }
+
+  canUseTranslationQuality(session) {
+    return Boolean(session?.user && (hasRole(session, "senior_editor") || this.getTranslatorProfile(session.user.id)));
+  }
+
+  assertTranslationQualityAccess(session) {
+    if (!session?.user) throw accessError("请先登录后使用翻译质量工具。", 401);
+    if (!this.canUseTranslationQuality(session)) throw accessError("请先加入翻译社区后使用翻译记忆与术语表。", 403);
+  }
+
+  listTranslationMemory(session, options = {}) {
+    this.assertTranslationQualityAccess(session);
+    const sourceLanguage = normalizeTranslationLang(options.sourceLanguage || options.source || "zh-CN", "zh-CN");
+    const targetLanguage = normalizeTranslationLang(options.targetLanguage || options.target || "en", "en");
+    const query = cleanText(options.query || options.q || "", 120);
+    const { limit, offset } = listOptions(options, 12, 60);
+    const clauses = ["source_language = ?", "target_language = ?"];
+    const args = [sourceLanguage, targetLanguage];
+    if (query) {
+      clauses.push("(source_text LIKE ? OR target_text LIKE ? OR page_slug LIKE ?)");
+      const like = `%${query}%`;
+      args.push(like, like, like);
+    }
+    const where = `WHERE ${clauses.join(" AND ")}`;
+    const total = Number(this.db.prepare(`SELECT count(*) AS n FROM translation_memory ${where}`).get(...args).n || 0);
+    const items = this.db.prepare(`
+      SELECT * FROM translation_memory ${where}
+      ORDER BY updated_at DESC, id DESC
+      LIMIT ? OFFSET ?
+    `).all(...args, limit, offset).map(translationMemoryFromRow);
+    return { items, total, sourceLanguage, targetLanguage };
+  }
+
+  listTranslationGlossary(session, options = {}) {
+    this.assertTranslationQualityAccess(session);
+    const sourceLanguage = normalizeTranslationLang(options.sourceLanguage || options.source || "zh-CN", "zh-CN");
+    const targetLanguage = normalizeTranslationLang(options.targetLanguage || options.target || "en", "en");
+    const query = cleanText(options.query || options.q || "", 120);
+    const status = hasRole(session, "senior_editor") && ["active", "inactive", "all"].includes(options.status) ? options.status : "active";
+    const { limit, offset } = listOptions(options, 16, 80);
+    const clauses = ["source_language = ?", "target_language = ?"];
+    const args = [sourceLanguage, targetLanguage];
+    if (status !== "all") {
+      clauses.push("status = ?");
+      args.push(status);
+    }
+    if (query) {
+      clauses.push("(source_term LIKE ? OR target_term LIKE ? OR notation LIKE ? OR note LIKE ?)");
+      const like = `%${query}%`;
+      args.push(like, like, like, like);
+    }
+    const where = `WHERE ${clauses.join(" AND ")}`;
+    const total = Number(this.db.prepare(`SELECT count(*) AS n FROM translation_glossary ${where}`).get(...args).n || 0);
+    const items = this.db.prepare(`
+      SELECT * FROM translation_glossary ${where}
+      ORDER BY updated_at DESC, id DESC
+      LIMIT ? OFFSET ?
+    `).all(...args, limit, offset).map(translationGlossaryFromRow);
+    return { items, total, sourceLanguage, targetLanguage, status };
+  }
+
+  saveTranslationGlossary(session, input = {}) {
+    this.assertCanReview(session);
+    const sourceLanguage = normalizeTranslationLang(input.sourceLanguage || input.source || "zh-CN", "zh-CN");
+    const targetLanguage = normalizeTranslationLang(input.targetLanguage || input.target || "en", "en");
+    const sourceTerm = cleanText(input.sourceTerm, 180);
+    const targetTerm = cleanText(input.targetTerm, 180);
+    if (!sourceTerm || !targetTerm) throw accessError("术语原文和推荐译法均不能为空。", 400);
+    const notation = cleanText(input.notation, 180);
+    const note = cleanText(input.note, 1200);
+    const discouragedTerms = Array.from(new Set((Array.isArray(input.discouragedTerms) ? input.discouragedTerms : String(input.discouragedTerms || "").split(/[，,\n]/))
+      .map((term) => cleanText(term, 120))
+      .filter(Boolean))).slice(0, 12);
+    const status = input.status === "inactive" ? "inactive" : "active";
+    const now = nowIso();
+    this.db.prepare(`
+      INSERT INTO translation_glossary (
+        source_language, target_language, source_term, target_term, notation, note,
+        discouraged_terms_json, status, created_by, updated_by, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(source_language, target_language, source_term) DO UPDATE SET
+        target_term = excluded.target_term,
+        notation = excluded.notation,
+        note = excluded.note,
+        discouraged_terms_json = excluded.discouraged_terms_json,
+        status = excluded.status,
+        updated_by = excluded.updated_by,
+        updated_at = excluded.updated_at
+    `).run(sourceLanguage, targetLanguage, sourceTerm, targetTerm, notation, note, jsonText(discouragedTerms), status, session.user.id, session.user.id, now, now);
+    return translationGlossaryFromRow(this.db.prepare(`
+      SELECT * FROM translation_glossary
+      WHERE source_language = ? AND target_language = ? AND source_term = ?
+    `).get(sourceLanguage, targetLanguage, sourceTerm));
+  }
+
+  deleteTranslationGlossary(session, glossaryId) {
+    this.assertCanReview(session);
+    const id = Number(glossaryId);
+    if (!Number.isInteger(id) || id <= 0) throw accessError("术语记录不存在。", 404);
+    const item = translationGlossaryFromRow(this.db.prepare("SELECT * FROM translation_glossary WHERE id = ?").get(id));
+    if (!item) throw accessError("术语记录不存在或已被删除。", 404);
+    this.db.prepare("DELETE FROM translation_glossary WHERE id = ?").run(id);
+    return item;
+  }
+
+  syncTranslationMemory(translation) {
+    if (!translation?.id || translation.status !== "published") return 0;
+    const pairs = translationMemoryPairs(translation.sourceMd, translation.translatedMd);
+    const now = nowIso();
+    this.db.exec("BEGIN");
+    try {
+      this.db.prepare("DELETE FROM translation_memory WHERE translation_id = ?").run(translation.id);
+      const insert = this.db.prepare(`
+        INSERT INTO translation_memory (
+          source_language, target_language, source_hash, source_text, target_text,
+          page_slug, translation_id, approved_at, updated_at, use_count
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+        ON CONFLICT(source_language, target_language, source_hash) DO UPDATE SET
+          source_text = excluded.source_text,
+          target_text = excluded.target_text,
+          page_slug = excluded.page_slug,
+          translation_id = excluded.translation_id,
+          approved_at = excluded.approved_at,
+          updated_at = excluded.updated_at,
+          use_count = translation_memory.use_count + 1
+      `);
+      for (const pair of pairs) {
+        insert.run(
+          translation.sourceLanguage || "zh-CN",
+          translation.language,
+          pair.sourceHash,
+          pair.sourceText,
+          pair.targetText,
+          translation.pageSlug,
+          translation.id,
+          translation.reviewedAt || now,
+          now,
+        );
+      }
+      this.db.exec("COMMIT");
+    } catch (error) {
+      try { this.db.exec("ROLLBACK"); } catch (_rollbackError) {}
+      throw error;
+    }
+    return pairs.length;
+  }
+
+  translationAssistant(session, sourcePage, translation, targetLanguage) {
+    this.assertTranslationQualityAccess(session);
+    const sourceLanguage = normalizeTranslationLang(translation?.sourceLanguage || "zh-CN", "zh-CN");
+    const target = normalizeTranslationLang(targetLanguage || translation?.language || "en", "en");
+    const changes = translation
+      ? translationSourceChanges(translation.sourceMd || "", sourcePage?.body || "")
+      : { hasChanges: false, previousSegmentCount: 0, currentSegmentCount: splitMarkdownSegments(sourcePage?.body || "").length, addedCount: 0, removedCount: 0, changedCount: 0, changedSegments: [], removedSegments: [] };
+    const segments = splitMarkdownSegments(sourcePage?.body || "").slice(0, 48);
+    const hashes = segments.map((segment) => segment.hash);
+    let memory = [];
+    if (hashes.length) {
+      const placeholders = hashes.map(() => "?").join(", ");
+      memory = this.db.prepare(`
+        SELECT * FROM translation_memory
+        WHERE source_language = ? AND target_language = ? AND source_hash IN (${placeholders})
+        ORDER BY updated_at DESC, id DESC
+        LIMIT 12
+      `).all(sourceLanguage, target, ...hashes).map(translationMemoryFromRow);
+    }
+    const glossary = this.db.prepare(`
+      SELECT * FROM translation_glossary
+      WHERE source_language = ? AND target_language = ? AND status = 'active'
+      ORDER BY length(source_term) DESC, updated_at DESC, id DESC
+      LIMIT 80
+    `).all(sourceLanguage, target)
+      .map(translationGlossaryFromRow)
+      .filter((item) => String(sourcePage?.body || "").includes(item.sourceTerm))
+      .slice(0, 12);
+    return { sourceLanguage, targetLanguage: target, sourceChanges: changes, memory, glossary };
   }
 
   saveTranslation(session, pageSlug, sourcePage, input = {}) {
@@ -2277,7 +2553,9 @@ class PassportStore {
       SET status = ?, reviewer_user_id = ?, reviewer_name = ?, review_comment = ?, reviewed_at = ?, updated_at = ?
       WHERE id = ?
     `).run(status, session.user.id, reviewer, comment, now, now, translation.id);
-    return this.getTranslation(pageSlug, language);
+    const reviewed = this.getTranslation(pageSlug, language);
+    if (reviewed.status === "published") this.syncTranslationMemory(reviewed);
+    return reviewed;
   }
 
   autoTranslationDraft(session, pageSlug, sourcePage, input = {}) {

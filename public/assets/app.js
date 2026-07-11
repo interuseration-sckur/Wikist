@@ -1,6 +1,6 @@
 const THEME_KEY = "wikist-theme";
 const LANG_KEY = "wikist-language";
-const CORE_ASSET_VERSION = "wikist-core-20260711-73";
+const CORE_ASSET_VERSION = "wikist-core-20260711-74";
 const VDITOR_VERSION = "3.11.2";
 const VDITOR_CDN = `https://cdn.jsdelivr.net/npm/vditor@${VDITOR_VERSION}`;
 const SWEETALERT_VERSION = "11.26.25";
@@ -2558,6 +2558,50 @@ function updateTranslationProgress(value) {
   if (barTarget) barTarget.style.width = `${progress}%`;
 }
 
+function translationQualityPanel(assistant, activeLang) {
+  if (!assistant) return "";
+  const changes = assistant.sourceChanges || {};
+  const status = changes.hasChanges
+    ? `<strong>源文已更新</strong><span>有 ${Number(changes.changedCount || 0)} 个段落差异，建议复核后再提交译文。</span>`
+    : `<strong>${changes.previousSegmentCount ? "源文保持一致" : "首次建立译文"}</strong><span>${changes.previousSegmentCount ? "当前源文与译文快照一致。" : "审核发布后会自动沉淀可复用的翻译记忆。"}</span>`;
+  const memory = (assistant.memory || []).map((item) => `
+    <button class="translation-suggestion" type="button" data-translation-insert="memory" data-translation-text="${escapeHtml(item.targetText)}">
+      <span class="translation-suggestion-kicker">已审阅记忆 · ${escapeHtml(item.pageSlug)}</span>
+      <strong>${escapeHtml(item.targetText)}</strong>
+      <small>${escapeHtml(item.sourceText)}</small>
+    </button>`).join("");
+  const glossary = (assistant.glossary || []).map((item) => `
+    <button class="translation-suggestion glossary" type="button" data-translation-insert="glossary" data-translation-text="${escapeHtml(item.targetTerm)}">
+      <span class="translation-suggestion-kicker">术语 · ${escapeHtml(item.sourceTerm)}</span>
+      <strong>${escapeHtml(item.targetTerm)}${item.notation ? ` <em>${escapeHtml(item.notation)}</em>` : ""}</strong>
+      ${item.note ? `<small>${escapeHtml(item.note)}</small>` : ""}
+    </button>`).join("");
+  const changed = (changes.changedSegments || []).map((item) => `<li><b>段落 ${item.index}</b>${escapeHtml(item.preview)}</li>`).join("");
+  return `
+    <aside class="translation-quality-panel ${changes.hasChanges ? "has-changes" : "is-current"}">
+      <header><div><span class="system-kicker">Translation Quality</span><h2>译文辅助</h2></div><a class="mini-link" href="#/translation-glossary?source=${encodeURIComponent(assistant.sourceLanguage || "zh-CN")}&target=${encodeURIComponent(activeLang)}">术语表</a></header>
+      <div class="translation-quality-status">${status}</div>
+      ${changed ? `<details class="translation-change-details"><summary>查看源文变更</summary><ul>${changed}</ul></details>` : ""}
+      ${memory ? `<section class="translation-suggestion-group"><h3>翻译记忆</h3>${memory}</section>` : ""}
+      ${glossary ? `<section class="translation-suggestion-group"><h3>命中术语</h3>${glossary}</section>` : ""}
+      ${!memory && !glossary ? '<p class="muted-line quality-empty">尚无可用建议；通过审核的译文会在这里逐步积累。</p>' : ""}
+    </aside>`;
+}
+
+function insertTranslationSuggestion(value) {
+  const textarea = document.querySelector("#translationForm textarea[name=translatedMd]");
+  if (!textarea || !value) return;
+  const start = Number.isInteger(textarea.selectionStart) ? textarea.selectionStart : textarea.value.length;
+  const end = Number.isInteger(textarea.selectionEnd) ? textarea.selectionEnd : start;
+  const before = textarea.value.slice(0, start);
+  const after = textarea.value.slice(end);
+  const insert = `${before && !/\s$/.test(before) ? " " : ""}${value}`;
+  textarea.value = `${before}${insert}${after}`;
+  textarea.focus();
+  textarea.setSelectionRange(start + insert.length, start + insert.length);
+  document.querySelector("#translationStatus").textContent = "已插入建议，请结合上下文校订后保存。";
+}
+
 async function renderTranslation(value) {
   const parsed = splitValueQuery(value);
   const slug = parsed.pathValue || state.currentSlug || state.site.defaultPage || "home";
@@ -2571,6 +2615,7 @@ async function renderTranslation(value) {
   el.editLink.href = `#/edit/${encodeSlug(state.currentSlug)}`;
   const activeLang = normalizeLanguageCode(translation.language || lang, "en");
   const translatedMd = translation.translatedMd || "";
+  const qualityPanel = translationQualityPanel(payload.assistant, activeLang);
   const joinNotice = payload.translator ? "" : `<div class="translation-join-box"><p>加入翻译社区后可以保存译文和生成自动初稿。</p><button class="command-button" type="button" id="joinTranslationFromPage">加入翻译社区</button></div>`;
   const progress = Math.max(0, Math.min(100, Number(translation.progress || 0)));
   const translationState = ({ published: "已发布", review: "待审", changes_requested: "待修改", draft: "草稿" })[translation.status] || "草稿";
@@ -2586,7 +2631,7 @@ async function renderTranslation(value) {
       </div>
     </header>
     ${joinNotice}
-    <section class="translation-workspace-shell">
+    <section class="translation-workspace-shell ${qualityPanel ? "has-quality" : ""}">
       <header class="translation-workspace-bar">
         <div><span class="system-kicker">Translation Workspace</span><strong>双栏翻译工作台</strong><small>同步校订标题、摘要与正文</small></div>
         <div class="translation-progress" aria-label="翻译完成度">
@@ -2629,6 +2674,7 @@ async function renderTranslation(value) {
           ${reviewControls}
         </form>
       </div>
+      ${qualityPanel}
     </section>`;
 
   document.querySelectorAll("[data-source-view]").forEach((button) => {
@@ -2664,6 +2710,12 @@ async function renderTranslation(value) {
     } catch (error) {
       status.textContent = error.message;
     }
+  });
+  document.querySelectorAll("[data-translation-insert]").forEach((button) => {
+    button.addEventListener("click", () => {
+      insertTranslationSuggestion(button.dataset.translationText || "");
+      uiToast("已插入翻译建议", "info");
+    });
   });
   document.querySelector("#translationForm")?.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -2702,6 +2754,123 @@ async function renderTranslation(value) {
   bindLanguageJumpForms(el.main);
 }
 
+async function renderTranslationGlossary(value) {
+  const parsed = splitValueQuery(value);
+  const sourceLanguage = normalizeLanguageCode(parsed.params.get("source") || "zh-CN", "zh-CN");
+  const targetLanguage = normalizeLanguageCode(parsed.params.get("target") || "en", "en");
+  const page = Math.max(1, Number(parsed.params.get("page")) || 1);
+  const query = parsed.params.get("q") || "";
+  const staff = canReviewContent();
+  const endpoint = `/api/translation-glossary?source=${encodeURIComponent(sourceLanguage)}&target=${encodeURIComponent(targetLanguage)}&page=${page}&limit=16&q=${encodeURIComponent(query)}${staff ? "&status=all" : ""}`;
+  const payload = await api(endpoint);
+  const { items, pagination } = normalizedPaged(payload, page, 16);
+  const languageOptions = supportedLanguages([sourceLanguage, targetLanguage]).map((language) => `<option value="${escapeHtml(language)}">${escapeHtml(languageLabel(language))}</option>`).join("");
+  setChromeTitle("翻译术语表");
+  renderToc([]);
+  el.editLink.href = "#/new";
+  el.main.innerHTML = `
+    <header class="article-head translation-glossary-head">
+      <span class="system-kicker">Translation Community</span>
+      <div class="article-title-row"><h1>翻译术语表</h1><span class="quality-badge">${pagination.total || 0} 条</span></div>
+      <p class="article-summary">面向全站译者的推荐术语与记法。审核通过的译文会自动沉淀为仅供建议的翻译记忆。</p>
+    </header>
+    <section class="translation-glossary-toolbar" aria-label="术语筛选">
+      <form id="translationGlossaryFilters">
+        <label><span>源语言</span><select name="sourceLanguage">${languageOptions}</select></label>
+        <label><span>目标语言</span><select name="targetLanguage">${languageOptions}</select></label>
+        <label class="translation-glossary-search"><span>检索术语</span><input name="q" value="${escapeHtml(query)}" placeholder="原词、译法、记法或说明" /></label>
+        <button class="command-button" type="submit">筛选</button>
+      </form>
+    </section>
+    <section class="translation-glossary-layout ${staff ? "has-editor" : ""}">
+      <div class="translation-glossary-list">
+        ${items.length ? items.map((item) => `
+          <article class="translation-glossary-item ${item.status === "inactive" ? "is-inactive" : ""}">
+            <div class="translation-glossary-term"><span>${escapeHtml(item.sourceTerm)}</span><b>→</b><strong>${escapeHtml(item.targetTerm)}</strong>${item.notation ? `<em>${escapeHtml(item.notation)}</em>` : ""}</div>
+            <div class="translation-glossary-copy">${item.note ? escapeHtml(item.note) : "未附加说明。"}</div>
+            <footer>${item.discouragedTerms?.length ? `<span>避免：${escapeHtml(item.discouragedTerms.join("、"))}</span>` : "<span>推荐术语</span>"}<small>${item.status === "inactive" ? "已停用" : "当前生效"}</small>${staff ? `<button class="text-action" type="button" data-glossary-edit="${item.id}">编辑</button><button class="text-action danger-text" type="button" data-glossary-delete="${item.id}">删除</button>` : ""}</footer>
+          </article>`).join("") : '<p class="muted-line translation-glossary-empty">这个语言方向还没有术语记录。</p>'}
+        ${paginationHtml(pagination, "术语表")}
+      </div>
+      ${staff ? `
+        <aside class="translation-glossary-editor">
+          <header><span class="system-kicker">Curate Glossary</span><h2>维护术语</h2><p>相同的语言方向与原术语会更新现有记录。</p></header>
+          <form id="translationGlossaryForm">
+            <div class="translation-glossary-language-pair">
+              <label><span>源语言</span><select name="sourceLanguage">${languageOptions}</select></label>
+              <label><span>目标语言</span><select name="targetLanguage">${languageOptions}</select></label>
+            </div>
+            <label><span>原术语</span><input name="sourceTerm" required maxlength="180" placeholder="例如：群" /></label>
+            <label><span>推荐译法</span><input name="targetTerm" required maxlength="180" placeholder="例如：group" /></label>
+            <label><span>记法（可选）</span><input name="notation" maxlength="180" placeholder="例如：G" /></label>
+            <label><span>说明（可选）</span><textarea name="note" rows="4" maxlength="1200" placeholder="适用的上下文或译法说明"></textarea></label>
+            <label><span>避免使用（逗号分隔）</span><input name="discouragedTerms" maxlength="800" placeholder="例如：grouping" /></label>
+            <label><span>状态</span><select name="status"><option value="active">生效</option><option value="inactive">停用</option></select></label>
+            <div class="translation-glossary-actions"><button class="command-button" type="submit">保存术语</button><button class="command-button secondary" type="reset">清空</button></div>
+            <p class="status-line" id="translationGlossaryStatus"></p>
+          </form>
+        </aside>` : ""}
+    </section>`;
+  const filterForm = document.querySelector("#translationGlossaryFilters");
+  filterForm.elements.sourceLanguage.value = sourceLanguage;
+  filterForm.elements.targetLanguage.value = targetLanguage;
+  filterForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    location.hash = `#/translation-glossary?source=${encodeURIComponent(form.get("sourceLanguage"))}&target=${encodeURIComponent(form.get("targetLanguage"))}&q=${encodeURIComponent(form.get("q") || "")}`;
+  });
+  bindPagination(el.main, (nextPage) => {
+    location.hash = `#/translation-glossary?source=${encodeURIComponent(sourceLanguage)}&target=${encodeURIComponent(targetLanguage)}&q=${encodeURIComponent(query)}&page=${nextPage}`;
+  });
+  if (staff) {
+    const form = document.querySelector("#translationGlossaryForm");
+    const status = document.querySelector("#translationGlossaryStatus");
+    form.elements.sourceLanguage.value = sourceLanguage;
+    form.elements.targetLanguage.value = targetLanguage;
+    const itemById = new Map(items.map((item) => [String(item.id), item]));
+    document.querySelectorAll("[data-glossary-edit]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const item = itemById.get(button.dataset.glossaryEdit);
+        if (!item) return;
+        form.elements.sourceLanguage.value = item.sourceLanguage;
+        form.elements.targetLanguage.value = item.targetLanguage;
+        form.elements.sourceTerm.value = item.sourceTerm;
+        form.elements.targetTerm.value = item.targetTerm;
+        form.elements.notation.value = item.notation || "";
+        form.elements.note.value = item.note || "";
+        form.elements.discouragedTerms.value = (item.discouragedTerms || []).join(", ");
+        form.elements.status.value = item.status || "active";
+        form.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+    });
+    document.querySelectorAll("[data-glossary-delete]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        const item = itemById.get(button.dataset.glossaryDelete);
+        if (!item || !await uiConfirm({ title: "删除术语", text: `确认删除“${item.sourceTerm} → ${item.targetTerm}”吗？`, danger: true, confirmText: "删除" })) return;
+        try {
+          await api(`/api/translation-glossary/${item.id}`, { method: "DELETE" });
+          uiToast("术语已删除");
+          await renderTranslationGlossary(value);
+        } catch (error) {
+          uiAlert("删除失败", error.message, "error");
+        }
+      });
+    });
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      status.textContent = "正在保存术语...";
+      try {
+        await api("/api/translation-glossary", { method: "POST", body: JSON.stringify(Object.fromEntries(new FormData(form).entries())) });
+        uiToast("术语已保存");
+        status.textContent = "术语已保存。";
+        await renderTranslationGlossary(`${parsed.pathValue}?source=${encodeURIComponent(form.elements.sourceLanguage.value)}&target=${encodeURIComponent(form.elements.targetLanguage.value)}`);
+      } catch (error) {
+        status.textContent = error.message;
+      }
+    });
+  }
+}
+
 async function renderPermissions(slug) {
   const page = await api(`/api/pages/${encodeSlug(slug)}`).catch(() => ({ slug, title: slug }));
   const permissions = await api(`/api/pages/${encodeSlug(slug)}/permissions`);
@@ -2714,26 +2883,29 @@ async function renderPermissions(slug) {
   el.main.innerHTML = `
     ${pageToolNav(state.currentSlug, "permissions")}
     <header class="article-head"><h1>权限</h1><p class="article-summary">控制 ${escapeHtml(page.title)} 的编辑、评论与删除策略。</p></header>
-    <section class="permission-stack">
+    <section class="permission-workbench">
       <form class="auth-panel permission-panel" id="permissionForm">
-        <h2>访问策略</h2>
-        <label>编辑权限<select name="editPolicy" ${disabled ? "disabled" : ""}>${policyOptions(permissions.editPolicy)}</select></label>
-        <label>评论权限<select name="commentPolicy" ${disabled ? "disabled" : ""}>${policyOptions(permissions.commentPolicy)}</select></label>
-        <label>删除权限<select name="deletePolicy" ${disabled ? "disabled" : ""}>${deletePolicyOptions(permissions.deletePolicy || "user")}</select></label>
-        ${disabled ? '<p class="muted-line">只有资深编辑和管理员可以修改权限。普通用户不能修改权限。</p>' : '<button class="command-button" type="submit">保存权限</button>'}
+        <div class="permission-panel-head"><div><span class="system-kicker">Access Control</span><h2>访问策略</h2></div><span class="permission-panel-state">${disabled ? "只读" : "可管理"}</span></div>
+        <p class="muted-line">分别设置编辑、评论与归档删除的访问边界。</p>
+        <div class="permission-policy-grid">
+          <label><span>编辑权限</span><select name="editPolicy" ${disabled ? "disabled" : ""}>${policyOptions(permissions.editPolicy)}</select></label>
+          <label><span>评论权限</span><select name="commentPolicy" ${disabled ? "disabled" : ""}>${policyOptions(permissions.commentPolicy)}</select></label>
+          <label><span>删除权限</span><select name="deletePolicy" ${disabled ? "disabled" : ""}>${deletePolicyOptions(permissions.deletePolicy || "user")}</select></label>
+        </div>
+        <div class="permission-panel-actions">${disabled ? '<p class="muted-line">只有资深编辑和管理员可以修改权限。普通用户不能修改权限。</p>' : '<button class="command-button" type="submit">保存权限</button>'}</div>
         <div class="status-line" id="permissionStatus"></div>
       </form>
-      <form class="auth-panel danger-panel" id="deleteForm">
-        <h2>删除词条</h2>
-        <p class="muted-line">删除会将 Markdown 文件移入归档目录，并在编辑记录中留下删除事件。</p>
-        ${disabled ? '<p class="muted-line">只有资深编辑和管理员可以删除词条。</p>' : deleteLocked ? '<p class="muted-line">当前删除权限不允许执行此操作。</p>' : `<label>确认 slug<input name="confirmSlug" placeholder="${escapeHtml(state.currentSlug)}" autocomplete="off" required /></label><button class="command-button danger" type="submit">归档并删除</button>`}
-        <div class="status-line" id="deleteStatus"></div>
-      </form>
       <form class="auth-panel move-page-panel" id="movePageForm">
-        <h2>移动 / 重命名词条</h2>
+        <div class="permission-panel-head"><div><span class="system-kicker">Article Identity</span><h2>移动 / 重命名</h2></div><span class="permission-panel-state">${escapeHtml(state.currentSlug)}</span></div>
         <p class="muted-line">会迁移修订、稳定版本、评论、评分、收藏、关注、译文和链接索引；旧 slug 默认保留为重定向。</p>
-        ${disabled ? '<p class="muted-line">只有资深编辑和管理员可以移动词条。</p>' : `<label>新 slug<input name="targetSlug" placeholder="例如 abstract-algebra/group-theory" autocomplete="off" required /></label><label class="editor-toggle"><input type="checkbox" name="leaveRedirect" checked /><span>保留旧 slug 重定向</span></label><button class="command-button" type="submit">移动词条</button>`}
+        ${disabled ? '<p class="muted-line">只有资深编辑和管理员可以移动词条。</p>' : `<div class="move-page-fields"><label>新 slug<input name="targetSlug" placeholder="例如 abstract-algebra/group-theory" autocomplete="off" required /></label><label class="editor-toggle"><input type="checkbox" name="leaveRedirect" checked /><span>保留旧 slug 重定向</span></label></div><div class="permission-panel-actions"><button class="command-button" type="submit">移动词条</button></div>`}
         <div class="status-line" id="movePageStatus"></div>
+      </form>
+      <form class="auth-panel danger-panel" id="deleteForm">
+        <div class="permission-panel-head"><div><span class="system-kicker">Archive Action</span><h2>归档并删除词条</h2></div><span class="permission-panel-state danger">不可逆入口</span></div>
+        <p class="muted-line">删除会将 Markdown 文件移入归档目录，并在编辑记录中留下删除事件。归档可在后台恢复。</p>
+        ${disabled ? '<p class="muted-line">只有资深编辑和管理员可以删除词条。</p>' : deleteLocked ? '<p class="muted-line">当前删除权限不允许执行此操作。</p>' : `<div class="delete-page-fields"><label>确认 slug<input name="confirmSlug" placeholder="${escapeHtml(state.currentSlug)}" autocomplete="off" required /></label><button class="command-button danger" type="submit">归档并删除</button></div>`}
+        <div class="status-line" id="deleteStatus"></div>
       </form>
     </section>
   `;
@@ -3859,7 +4031,7 @@ async function renderAccount() {
         <h2>翻译社区</h2>
         <p class="muted-line">${state.user.translator ? `已加入，目标语言：${(state.user.translator.languages || []).map(languageLabel).join("、")}` : "加入后可以在词条翻译页生成初稿、保存译文，并参与翻译度统计。"}</p>
         ${translatorLanguagePicker(state.user.translator?.languages || ["en", "zh-TW"])}
-        <button class="command-button" type="submit">${state.user.translator ? "更新翻译语言" : "加入翻译社区"}</button>
+        <div class="translator-panel-actions"><button class="command-button" type="submit">${state.user.translator ? "更新翻译语言" : "加入翻译社区"}</button><a class="mini-link" href="#/translation-glossary">翻译术语表</a></div>
         <div class="status-line" id="translatorJoinStatus"></div>
       </form>
       ${accountFavoritesHtml(state.user.favorites || [], Number(state.user.stats?.favorites || 0))}
@@ -5730,6 +5902,7 @@ async function route() {
     else if (name === "edit") await renderEditor(value);
     else if (name === "new") await renderEditor("");
     else if (name === "translate") await renderTranslation(value);
+    else if (name === "translation-glossary") await renderTranslationGlossary(value);
     else if (name === "history") await renderHistory(value);
     else if (name === "review") await renderPageReview(value);
     else if (name === "comments") await renderComments(value);

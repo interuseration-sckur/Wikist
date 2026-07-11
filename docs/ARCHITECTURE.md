@@ -117,6 +117,8 @@ When Passport's SQLite database and FTS5 are available, `advancedSearch.fts5` en
 
 Translation data stays in SQLite while the canonical source article stays in Markdown. Readers can select only a published translation directly; translators and senior editors use a separate side-by-side workbench with progress, language membership, and draft assistance. A save enters `draft` or `review`, an editor can publish or request changes, and a further translator save clears obsolete review approval. Article moves rekey translations and their embedded Wiki links in the same migration boundary.
 
+The v0.9 quality layer adds `translation_memory` and `translation_glossary` to the same Passport SQLite database. Memory is populated only by published translations and uses bounded exact paragraph hashes; glossary entries are reviewer-curated. The workbench compares its saved source snapshot to current Markdown and exposes source-change markers without duplicating source pages or adding a search service. See [Translation Quality Layer](TRANSLATION_QUALITY.md).
+
 Wikipedia import/export preserves source attribution and attempts to map headings, links, images, tables, mathematical notation, and common wikitext structures into Wikist Markdown. It is intentionally a converter with visible fallbacks, not a promise of lossless MediaWiki template execution.
 
 ## Operations And Safety
@@ -132,7 +134,7 @@ Wikipedia import/export preserves source attribution and attempts to map heading
 The following are planned as additive layers rather than implicit requirements:
 
 - optional DOI/arXiv metadata enrichment and citation-style selection;
-- translation memory, terminology glossaries, and source-change markers;
+- optional semantic or external translation-service integrations beyond the built-in exact-match memory and glossary;
 - an event/hook API with permission declarations for plugins;
 - an alternate Passport store backed by PostgreSQL or MySQL.
 

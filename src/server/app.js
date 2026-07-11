@@ -193,8 +193,8 @@ function siteIconUrl(config) {
 function serveIndexHtml(req, res, indexPath, config) {
   const icon = siteIconUrl(config);
   const html = fs.readFileSync(indexPath, "utf8")
-    .replace(/href="\/assets\/styles\.css\?v=wikist-core-20260711-73"/g, `href="${escapeHtml(assetUrl(config, "/assets/styles.css?v=wikist-core-20260711-73"))}"`)
-    .replace(/src="\/assets\/app\.js\?v=wikist-core-20260711-73"/g, `src="${escapeHtml(assetUrl(config, "/assets/app.js?v=wikist-core-20260711-73"))}"`)
+    .replace(/href="\/assets\/styles\.css\?v=wikist-core-20260711-74"/g, `href="${escapeHtml(assetUrl(config, "/assets/styles.css?v=wikist-core-20260711-74"))}"`)
+    .replace(/src="\/assets\/app\.js\?v=wikist-core-20260711-74"/g, `src="${escapeHtml(assetUrl(config, "/assets/app.js?v=wikist-core-20260711-74"))}"`)
     .replace(/href="\/assets\/wikist-emblem\.svg"/g, `href="${escapeHtml(icon)}"`)
     .replace(/src="\/assets\/wikist-emblem\.svg"/g, `src="${escapeHtml(icon)}"`)
     .replace(/<title>Wikist<\/title>/, `<title>${escapeHtml(config.name || "Wikist")}</title>`);
@@ -1844,6 +1844,64 @@ function createWikistServer(options) {
         return;
       }
 
+      if (pathname === "/api/translation-memory" && req.method === "GET") {
+        if (!passport) {
+          sendJson(res, 404, { error: "翻译质量工具未启用。" });
+          return;
+        }
+        const pagination = readPagination(url, 12, 60);
+        const result = passport.listTranslationMemory(session, {
+          sourceLanguage: url.searchParams.get("source") || "zh-CN",
+          targetLanguage: url.searchParams.get("target") || "en",
+          query: url.searchParams.get("q") || "",
+          limit: pagination.limit,
+          offset: pagination.offset,
+        });
+        sendJson(res, 200, paginationPayload(result.items, result.total, pagination));
+        return;
+      }
+
+      if (pathname === "/api/translation-glossary" && req.method === "GET") {
+        if (!passport) {
+          sendJson(res, 404, { error: "翻译术语表未启用。" });
+          return;
+        }
+        const pagination = readPagination(url, 16, 80);
+        const result = passport.listTranslationGlossary(session, {
+          sourceLanguage: url.searchParams.get("source") || "zh-CN",
+          targetLanguage: url.searchParams.get("target") || "en",
+          query: url.searchParams.get("q") || "",
+          status: url.searchParams.get("status") || "active",
+          limit: pagination.limit,
+          offset: pagination.offset,
+        });
+        sendJson(res, 200, paginationPayload(result.items, result.total, pagination));
+        return;
+      }
+
+      if (pathname === "/api/translation-glossary" && req.method === "POST") {
+        if (!passport || !session?.user) {
+          sendJson(res, 401, { error: "请先登录后管理翻译术语表。" });
+          return;
+        }
+        const glossary = passport.saveTranslationGlossary(session, await readJsonBody(req));
+        recordAudit(passport, req, session, { action: "translation.glossary.save", targetType: "translation-glossary", targetId: String(glossary.id), targetLabel: glossary.sourceTerm, summary: `保存术语 ${glossary.sourceTerm} → ${glossary.targetTerm}`, metadata: { sourceLanguage: glossary.sourceLanguage, targetLanguage: glossary.targetLanguage } });
+        sendJson(res, 200, { glossary });
+        return;
+      }
+
+      const translationGlossaryMatch = pathname.match(/^\/api\/translation-glossary\/(\d+)$/);
+      if (translationGlossaryMatch && req.method === "DELETE") {
+        if (!passport || !session?.user) {
+          sendJson(res, 401, { error: "请先登录后管理翻译术语表。" });
+          return;
+        }
+        const glossary = passport.deleteTranslationGlossary(session, Number(translationGlossaryMatch[1]));
+        recordAudit(passport, req, session, { action: "translation.glossary.delete", targetType: "translation-glossary", targetId: String(glossary.id), targetLabel: glossary.sourceTerm, summary: `删除术语 ${glossary.sourceTerm}`, metadata: { sourceLanguage: glossary.sourceLanguage, targetLanguage: glossary.targetLanguage } });
+        sendJson(res, 200, { glossary });
+        return;
+      }
+
       if (pathname.startsWith("/api/pages/") && pathname.endsWith("/translations") && req.method === "GET") {
         const slug = slugFromNestedPath(pathname, "/api/pages/", "/translations");
         const page = pages.getPage(slug);
@@ -1905,11 +1963,15 @@ function createWikistServer(options) {
         const workspace = url.searchParams.get("workspace") === "1";
         const translation = passport ? passport.getReadableTranslation(slug, language, session, { workspace }) : null;
         const renderedTranslation = translation?.translatedMd ? renderMarkdown(translation.translatedMd || "") : null;
+        const assistant = workspace && passport?.canUseTranslationQuality(session)
+          ? passport.translationAssistant(session, page, translation, language)
+          : null;
         sendJson(res, 200, {
           source: { slug: page.slug, title: page.title, summary: page.summary, body: page.body, html: page.html, toc: page.toc, language: "zh-CN", updatedAt: page.updatedAt },
           translation: translation && renderedTranslation ? { ...translation, html: renderedTranslation.html, toc: renderedTranslation.toc } : translation,
           translations: passport ? passport.translationSummary(slug, page.body, config.languages || []) : [],
           translator: session?.user && passport ? passport.getTranslatorProfile(session.user.id) : null,
+          assistant,
         });
         return;
       }
