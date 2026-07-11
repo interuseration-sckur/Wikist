@@ -299,6 +299,7 @@ function runChecks(options) {
   run(bin("npm"), ["run", "check:reviews"], options);
   run(bin("npm"), ["run", "check:v08"], options);
   run(bin("npm"), ["run", "check:v09"], options);
+  run(bin("npm"), ["run", "check:v10"], options);
 }
 
 function assertConfirmation(options) {

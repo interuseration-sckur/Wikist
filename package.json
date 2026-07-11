@@ -1,6 +1,6 @@
 {
   "name": "wikist",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "private": true,
   "description": "A fast, open, math-first wiki framework.",
   "main": "server.js",
@@ -9,7 +9,7 @@
     "dev": "node server.js",
     "update": "node tools/update.js",
     "plugins:sync": "node tools/sync-vendor-plugins.js",
-    "check": "node --check server.js && node --check src/server/app.js && node --check src/core/config.js && node --check src/core/http.js && node --check src/core/markdown.js && node --check src/core/citations.js && node --check src/core/revision-review.js && node --check src/core/plugin-registry.js && node --check src/core/page-store.js && node --check src/core/import-export.js && node --check src/core/backup.js && node --check src/core/fts-index.js && node --check src/core/knowledge-navigation.js && node --check src/core/translation-quality.js && node --check public/assets/app.js && node --check public/assets/install.js && node --check plugins/wikist-geometry-board/geometry.mjs && node --check plugins/wikist-math-chart/chart.mjs && node --check plugins/wikist-cosmic-experience/cosmic.mjs && node --check plugins/wikist-plugin-hooks/hooks.mjs && node --check tools/check-plugin-hooks.js && node --check tools/check-v08-knowledge-features.js && node --check tools/check-v09-translation-quality-features.js && node --check tools/update.js",
+    "check": "node --check server.js && node --check src/server/app.js && node --check src/core/config.js && node --check src/core/http.js && node --check src/core/markdown.js && node --check src/core/citations.js && node --check src/core/revision-review.js && node --check src/core/plugin-registry.js && node --check src/core/page-store.js && node --check src/core/import-export.js && node --check src/core/backup.js && node --check src/core/fts-index.js && node --check src/core/knowledge-navigation.js && node --check src/core/translation-quality.js && node --check public/assets/app.js && node --check public/assets/install.js && node --check plugins/wikist-geometry-board/geometry.mjs && node --check plugins/wikist-math-chart/chart.mjs && node --check plugins/wikist-cosmic-experience/cosmic.mjs && node --check plugins/wikist-plugin-hooks/hooks.mjs && node --check tools/check-plugin-hooks.js && node --check tools/check-v08-knowledge-features.js && node --check tools/check-v09-translation-quality-features.js && node --check tools/check-v10-community-features.js && node --check tools/update.js",
     "check:markdown": "node tools/check-markdown-features.js",
     "check:comments": "node tools/check-comment-rating-features.js",
     "check:search": "node tools/check-search-features.js",
@@ -24,7 +24,8 @@
     "check:reviews": "node tools/check-review-features.js",
     "check:hooks": "node tools/check-plugin-hooks.js",
     "check:v08": "node tools/check-v08-knowledge-features.js",
-    "check:v09": "node tools/check-v09-translation-quality-features.js"
+    "check:v09": "node tools/check-v09-translation-quality-features.js",
+    "check:v10": "node tools/check-v10-community-features.js"
   },
   "engines": {
     "node": ">=18"

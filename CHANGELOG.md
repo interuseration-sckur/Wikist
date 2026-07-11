@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-07-11 - Writing Commons And Community Review
+
+- Added self-contained writing organizations with direct or request-based joining, durable member roles, coordinator-managed task boards, and a paginated Markdown discussion stream.
+- Added claimable article-writing, translation, and review tasks. Organization updates and consensus events reuse the existing inbox instead of creating a second notification backend.
+- Added threshold-based community review for exact page revisions and translation snapshots. Eligible organization reviewers can form a documented approval or changes-requested consensus; approval creates a stable page snapshot or publishes the reviewed translation.
+- Added article-level organization task visibility and community review panels in both page and translation review workflows, while retaining senior-editor direct review as a maintenance path.
+- Changed `#/translate/<slug>` into an explicit target-language chooser; the actual workbench requires `?lang=<language>` and no longer silently defaults to English.
+- Added [writing commons documentation](docs/WRITING_COMMONS.md) and `npm run check:v10` coverage for roles, tasks, threads, consensus, publication, and authorization boundaries.
+- Bumped the framework package to `0.10.0` and the frontend asset version to `wikist-core-20260711-76`.
+
 ## 2026-07-11 - Translation Quality Layer And Governance Workbench
 
 - Rebuilt per-article governance into a responsive two-column workbench: access policy, move/rename, and archive-delete now use available desktop width while retaining a single, readable mobile flow and matched light/dark controls.

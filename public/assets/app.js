@@ -1,6 +1,6 @@
 const THEME_KEY = "wikist-theme";
 const LANG_KEY = "wikist-language";
-const CORE_ASSET_VERSION = "wikist-core-20260711-74";
+const CORE_ASSET_VERSION = "wikist-core-20260711-76";
 const VDITOR_VERSION = "3.11.2";
 const VDITOR_CDN = `https://cdn.jsdelivr.net/npm/vditor@${VDITOR_VERSION}`;
 const SWEETALERT_VERSION = "11.26.25";
@@ -1370,6 +1370,7 @@ function renderTopQuickNav() {
     href: item.href || `#/page/${encodeSlug(item.slug)}`,
   }));
   links.push({ label: "知识网络", href: "#/knowledge" });
+  links.push({ label: "写作社区", href: "#/community" });
   links.push({ label: "导入导出", href: "#/import-export" });
   if (canAccessAdmin()) links.push({ label: "后台", href: "#/admin/overview" });
   const seen = new Set();
@@ -1926,7 +1927,7 @@ async function loadPageTranslations(slug, activeLang = "zh-CN") {
   const translations = payload.translations || [];
   const active = normalizeLanguageCode(activeLang, "zh-CN");
   const activeInfo = translationInfo(translations, active);
-  const editHref = `#/translate/${encodeSlug(slug)}${active !== "zh-CN" ? `?lang=${encodeURIComponent(active)}` : ""}`;
+  const editHref = `#/translate/${encodeSlug(slug)}`;
   target.innerHTML = translations.length ? `
     <div class="translation-strip">
       <div class="translation-strip-head">
@@ -1935,9 +1936,21 @@ async function loadPageTranslations(slug, activeLang = "zh-CN") {
       </div>
       ${translationBadges(translations, active, slug, "read")}
       ${languageJumpForm(slug, "read")}
-      <a class="mini-link" href="${editHref}">参与翻译</a>
+      <a class="mini-link" href="${editHref}">选择语言并参与翻译</a>
     </div>` : "";
   bindLanguageJumpForms(target);
+}
+
+async function loadPageCommunity(slug) {
+  const target = document.querySelector("#pageCommunityPanel");
+  if (!target) return;
+  const payload = await api(`/api/pages/${encodeSlug(slug)}/community`).catch(() => ({ tasks: [], organizations: [] }));
+  const tasks = payload.tasks || [];
+  if (!tasks.length) {
+    target.innerHTML = '<section class="page-community-brief"><div><span class="system-kicker">Writing Commons</span><h2>组织协作</h2><p>尚未有组织认领这条词条。可以在写作社区建立撰写、翻译或审阅任务。</p></div><a class="mini-link" href="#/community">进入写作社区</a></section>';
+    return;
+  }
+  target.innerHTML = `<section class="page-community-brief"><header><div><span class="system-kicker">Writing Commons</span><h2>组织协作</h2></div><a class="mini-link" href="#/community">组织广场</a></header><div class="page-community-task-list">${tasks.slice(0, 4).map((task) => `<a href="#/organization/${encodeURIComponent(task.organizationSlug)}"><span>${escapeHtml(task.organizationName)}</span><strong>${escapeHtml(task.title)}</strong><small>${escapeHtml(ORGANIZATION_TASK_LABELS[task.taskType] || "协作")} · ${escapeHtml(task.status)}</small></a>`).join("")}</div>${tasks.some((task) => task.taskType === "review") ? `<a class="community-review-link" href="#/review/${encodeSlug(slug)}">进入社区审阅</a>` : ""}</section>`;
 }
 
 async function loadPageEdits(slug, targetId = "pageEditTimeline", options = {}) {
@@ -2111,13 +2124,78 @@ function reviewDiffHtml(changes = []) {
   return parts.join("") || '<p class="muted-line">当前版本与稳定版本没有内容差异。</p>';
 }
 
+const ORGANIZATION_ROLE_LABELS = {
+  member: "成员",
+  writer: "写作者",
+  translator: "译者",
+  reviewer: "审阅者",
+  coordinator: "协调者",
+  owner: "所有者",
+};
+
+const ORGANIZATION_TASK_LABELS = { write: "撰写", translate: "翻译", review: "审阅" };
+
+function organizationRoleLabel(role) {
+  return ORGANIZATION_ROLE_LABELS[role] || "成员";
+}
+
+function organizationTaskHtml(task, options = {}) {
+  const pageHref = `#/page/${encodeSlug(task.pageSlug)}`;
+  const taskLabel = ORGANIZATION_TASK_LABELS[task.taskType] || "协作";
+  const meta = [taskLabel, task.language ? languageLabel(task.language) : "源文", task.priority === "urgent" ? "紧急" : task.priority === "high" ? "高优先" : "常规"].join(" · ");
+  const actions = [];
+  if (task.canClaim) actions.push(`<button class="mini-button" type="button" data-community-claim="${task.id}">${task.assigneeUserId ? "继续认领" : "认领任务"}</button>`);
+  if (task.assigneeUserId && state.user && Number(task.assigneeUserId) === Number(state.user.id) && task.status !== "closed") actions.push(`<button class="mini-button" type="button" data-community-task-status="ready" data-community-task-id="${task.id}">提交待审</button>`);
+  if (options.manage && task.status !== "closed") actions.push(`<button class="mini-button secondary" type="button" data-community-task-status="closed" data-community-task-id="${task.id}">关闭</button>`);
+  return `<article class="community-task-card ${task.status === "closed" ? "closed" : ""}"><div class="community-task-top"><span class="community-task-type">${escapeHtml(taskLabel)}</span><span class="community-task-status">${escapeHtml(task.status === "open" ? "待认领" : task.status === "claimed" ? "进行中" : task.status === "ready" ? "待审阅" : "已完成")}</span></div><h3>${escapeHtml(task.title)}</h3><p>${escapeHtml(task.summary || "等待组织成员接手。")}</p><footer><a href="${pageHref}">${escapeHtml(task.pageSlug)}</a><span>${escapeHtml(meta)}</span>${task.assigneeUsername ? `<a href="#/user/${encodeURIComponent(task.assigneeUsername)}">@${escapeHtml(task.assigneeUsername)}</a>` : ""}${actions.join("")}</footer></article>`;
+}
+
+function communityReviewPanel(snapshot, subjectType, slug, language = "") {
+  const organizations = snapshot?.organizations || [];
+  if (!organizations.length) return `<section class="community-review-panel empty"><div><span class="system-kicker">Community Review</span><h2>社区审阅</h2><p>尚未有写作组织为当前${subjectType === "translation" ? "译文" : "词条"}建立审阅任务。</p></div><a class="mini-link" href="#/community">进入写作社区</a></section>`;
+  return `<section class="community-review-panel"><header><div><span class="system-kicker">Community Review</span><h2>组织社区审阅</h2><p>组织审阅者按任务投票；达到组织阈值后，会形成公开的稳定版本或译文结论。</p></div><a class="mini-link" href="#/community">组织广场</a></header><div class="community-review-grid">${organizations.map((group) => {
+    const stateLabel = group.finalized ? (group.finalized.decision === "approve" ? "已形成通过共识" : "已形成修改共识") : `${group.approve} 通过 / ${group.changesRequested} 修改 · 阈值 ${group.threshold}`;
+    const form = group.canReview && !group.finalized ? `<form class="community-review-form" data-community-review data-community-subject="${subjectType}" data-community-slug="${escapeHtml(slug)}" data-community-language="${escapeHtml(language)}" data-community-organization="${group.organizationId}"><textarea name="comment" rows="3" placeholder="写下可核验的审阅理由或需要修改的事项"></textarea><div><button class="mini-button" type="submit" data-community-decision="approve">支持通过</button><button class="mini-button secondary" type="submit" data-community-decision="changes_requested">要求修改</button></div><p class="status-line"></p></form>` : "";
+    return `<article class="community-review-card ${group.finalized ? "finalized" : ""}"><a href="#/organization/${encodeURIComponent(group.organizationSlug)}"><strong>${escapeHtml(group.organizationName)}</strong></a><span>${escapeHtml(stateLabel)}</span><small>${group.votes?.length ? group.votes.map((vote) => escapeHtml(vote.reviewerName || vote.reviewerUsername)).join("、") : "等待审阅者参与"}</small>${form}</article>`;
+  }).join("")}</div></section>`;
+}
+
+function bindCommunityReviewForms(root, refresh) {
+  root.querySelectorAll("form[data-community-review]").forEach((form) => {
+    form.addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-community-decision]");
+      if (button) form.dataset.decision = button.dataset.communityDecision;
+    });
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const decision = form.dataset.decision || "approve";
+      const subject = form.dataset.communitySubject;
+      const slug = form.dataset.communitySlug;
+      const language = form.dataset.communityLanguage || "";
+      const endpoint = subject === "translation"
+        ? `/api/pages/${encodeSlug(slug)}/translation/${encodeURIComponent(language)}/community-review`
+        : `/api/pages/${encodeSlug(slug)}/community-review`;
+      const status = form.querySelector(".status-line");
+      status.textContent = "正在记录社区审阅...";
+      try {
+        const result = await api(endpoint, { method: "POST", body: JSON.stringify({ organizationId: Number(form.dataset.communityOrganization), decision, comment: new FormData(form).get("comment") || "" }) });
+        uiToast(result.finalized?.finalized ? "组织共识已形成并已同步发布状态" : "社区审阅已记录");
+        await refresh();
+      } catch (error) {
+        status.textContent = error.message;
+      }
+    });
+  });
+}
+
 async function renderPageReview(slug) {
   const parsed = splitValueQuery(slug);
   const normalizedSlug = parsed.pathValue || state.site.defaultPage || "home";
   const notesPage = Math.max(1, Number(parsed.params.get("page")) || 1);
-  const [current, reviewPayload] = await Promise.all([
+  const [current, reviewPayload, community] = await Promise.all([
     api(`/api/pages/${encodeSlug(normalizedSlug)}`),
     api(`/api/pages/${encodeSlug(normalizedSlug)}/review?page=${notesPage}&limit=10`),
+    api(`/api/pages/${encodeSlug(normalizedSlug)}/community`).catch(() => ({ organizations: [] })),
   ]);
   const review = reviewPayload.review || current.review || {};
   const [stable, diff] = review.hasStable
@@ -2141,11 +2219,12 @@ async function renderPageReview(slug) {
   const diffPanel = diff
     ? `<section class="review-panel"><div class="review-panel-head"><div><span class="system-kicker">Current vs Stable</span><h2>差异比较</h2></div><span class="review-diff-summary">+${diff.summary?.added || 0} / -${diff.summary?.removed || 0}</span></div><div class="review-diff">${reviewDiffHtml(diff.changes || [])}</div></section>`
     : '<section class="review-panel"><div class="review-panel-head"><div><span class="system-kicker">Current vs Stable</span><h2>差异比较</h2></div></div><p class="muted-line">稳定版本建立后，这里会展示当前版本与稳定快照的行级差异。</p></section>';
-  el.main.innerHTML = `${pageToolNav(current.slug, "review")}<header class="article-head"><div class="article-title-row"><h1>版本审阅</h1><span class="quality-badge">${review.pending ? "待审" : "稳定"}</span></div><p class="article-summary">${escapeHtml(current.title)} 的当前版本与已审阅稳定版本。稳定快照仅在审核通过时创建，后续编辑会自动进入待审队列。</p></header><section class="review-version-grid"><article class="review-version-card current"><span>当前版本</span><strong>${fmtDate(current.updatedAt)}</strong><small>${escapeHtml(current.author || "Wikist")}</small></article>${stableCard}</section>${diffPanel}<section class="review-panel"><div class="review-panel-head"><div><span class="system-kicker">Review Notes</span><h2>审核意见</h2></div><span>${Number(reviewPayload.pagination?.total || 0)} 条</span></div><div class="review-note-list">${notes}</div><div class="review-notes-pagination">${notePagination}</div></section>${reviewerControls}`;
+  el.main.innerHTML = `${pageToolNav(current.slug, "review")}<header class="article-head"><div class="article-title-row"><h1>版本审阅</h1><span class="quality-badge">${review.pending ? "待审" : "稳定"}</span></div><p class="article-summary">${escapeHtml(current.title)} 的当前版本与已审阅稳定版本。稳定快照仅在审核通过时创建，后续编辑会自动进入待审队列。</p></header><section class="review-version-grid"><article class="review-version-card current"><span>当前版本</span><strong>${fmtDate(current.updatedAt)}</strong><small>${escapeHtml(current.author || "Wikist")}</small></article>${stableCard}</section>${diffPanel}${communityReviewPanel(community, "page", current.slug)}<section class="review-panel"><div class="review-panel-head"><div><span class="system-kicker">Review Notes</span><h2>审核意见</h2></div><span>${Number(reviewPayload.pagination?.total || 0)} 条</span></div><div class="review-note-list">${notes}</div><div class="review-notes-pagination">${notePagination}</div></section>${reviewerControls}`;
   document.querySelector("#pageReviewForm")?.addEventListener("click", (event) => {
     const button = event.target.closest("button[data-decision]");
     if (button) event.currentTarget.dataset.decision = button.dataset.decision;
   });
+  bindCommunityReviewForms(el.main, () => renderPageReview(`${current.slug}?page=${notesPage}`));
   document.querySelector("#pageReviewForm")?.addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = event.currentTarget;
@@ -2185,6 +2264,121 @@ async function renderPageReview(slug) {
       }
     });
   });
+}
+
+function communityPostHtml(post, options = {}) {
+  const type = { announcement: "公告", decision: "社区决议", discussion: "讨论" }[post.postType] || "讨论";
+  const author = post.authorUsername ? `<a href="#/user/${encodeURIComponent(post.authorUsername)}">${avatarHtml({ displayName: post.authorName, username: post.authorUsername, avatarUrl: post.authorAvatarUrl }, "small")}<span>${escapeHtml(post.authorName || post.authorUsername)}</span></a>` : escapeHtml(post.authorName || "组织成员");
+  const replyForm = options.canParticipate ? `<form class="community-post-reply-form" data-community-post-reply="${post.id}"><textarea name="content" rows="3" placeholder="回复这条组织讨论"></textarea><button class="mini-button" type="submit">回复</button><span class="status-line"></span></form>` : "";
+  return `<article class="community-post-card ${post.pinned ? "pinned" : ""}"><header><div><span class="community-post-type">${escapeHtml(type)}</span>${post.pageSlug ? `<a class="community-post-page" href="#/page/${encodeSlug(post.pageSlug)}">${escapeHtml(post.pageSlug)}</a>` : ""}</div><span>${fmtDate(post.updatedAt)}</span></header><h3>${escapeHtml(post.title)}</h3><article class="article-body community-post-body">${post.bodyHtml || `<p>${escapeHtml(post.bodyMd || "")}</p>`}</article><footer><span class="community-post-author">${author}</span><button class="text-action" type="button" data-community-load-replies="${post.id}">回复 ${post.replyCount || 0}</button>${options.canManage ? `<button class="text-action" type="button" data-community-post-status="${post.status === "open" ? "resolved" : "open"}" data-community-post-id="${post.id}">${post.status === "open" ? "标记已结论" : "重新打开"}</button>` : ""}</footer><div class="community-post-replies" id="communityPostReplies-${post.id}"></div>${replyForm}</article>`;
+}
+
+async function renderCommunity(value = "") {
+  const parsed = splitValueQuery(value);
+  const page = Math.max(1, Number(parsed.params.get("page")) || 1);
+  const query = parsed.params.get("q") || "";
+  const payload = await api(`/api/community/organizations?page=${page}&limit=12&q=${encodeURIComponent(query)}`);
+  const { items, pagination } = normalizedPaged(payload, page, 12);
+  setChromeTitle("写作社区");
+  renderToc([]);
+  el.editLink.href = "#/new";
+  el.main.innerHTML = `
+    <header class="article-head community-head"><span class="system-kicker">Wikist Writing Commons</span><div class="article-title-row"><h1>写作社区</h1><span class="quality-badge">组织协作</span></div><p class="article-summary">围绕学科与词条组织写作、翻译和审阅任务。公开讨论可形成结论，组织审阅者的共识会同步到词条稳定版本与译文发布状态。</p></header>
+    <section class="community-toolbar"><form id="communitySearchForm"><input name="q" value="${escapeHtml(query)}" placeholder="搜索组织、研究方向或简介" /><button class="command-button" type="submit">搜索组织</button></form><div class="community-reference"><span>开源治理参考</span><a href="https://github.com/discourse/discourse" target="_blank" rel="noreferrer">Discourse</a><a href="https://github.com/flarum/flarum" target="_blank" rel="noreferrer">Flarum</a><a href="https://www.mediawiki.org/wiki/Extension:PageAssessments" target="_blank" rel="noreferrer">WikiProject</a></div></section>
+    <section class="community-hub-grid"><div class="community-organization-list">${items.length ? items.map((organization) => `<a class="community-organization-card" href="#/organization/${encodeURIComponent(organization.slug)}"><span class="system-kicker">${escapeHtml(organization.slug)}</span><h2>${escapeHtml(organization.name)}</h2><p>${escapeHtml(organization.description || "暂未填写组织简介。")}</p><div>${(organization.focus || []).map((item) => `<em>${escapeHtml(item)}</em>`).join("") || "<em>开放协作</em>"}</div><footer><span>${organization.memberCount} 成员</span><span>${organization.taskCount} 项进行中任务</span><span>${organization.discussionCount} 条讨论</span></footer></a>`).join("") : '<p class="muted-line community-empty">还没有匹配的写作组织。</p>'}${paginationHtml(pagination, "写作组织")}</div>${state.user ? `<form class="community-create-panel" id="communityCreateForm"><header><span class="system-kicker">Start A Commons</span><h2>创建写作组织</h2><p>创建者自动成为所有者，可配置成员准入和社区审阅阈值。</p></header><label><span>组织标识</span><input name="slug" required maxlength="80" placeholder="例如：algebra-workshop" /></label><label><span>组织名称</span><input name="name" required maxlength="90" placeholder="例如：代数写作工坊" /></label><label><span>研究方向</span><input name="focus" maxlength="500" placeholder="例如：抽象代数，群论，英文翻译" /></label><label><span>组织简介</span><textarea name="description" rows="4" maxlength="900" placeholder="说明组织要共同维护的知识领域与协作方式"></textarea></label><div class="community-create-options"><label><span>加入方式</span><select name="visibility"><option value="public">直接加入</option><option value="request">申请后加入</option></select></label><label><span>审阅阈值</span><select name="reviewThreshold"><option value="2">2 位审阅者</option><option value="3">3 位审阅者</option><option value="4">4 位审阅者</option></select></label></div><button class="command-button" type="submit">创建组织</button><p class="status-line"></p></form>` : '<aside class="community-create-panel community-login-panel"><h2>加入协作</h2><p>登录后可创建或加入写作组织，认领词条、翻译和审阅任务。</p><a class="command-button" href="#/login">登录 Wikist Passport</a></aside>'}</section>`;
+  document.querySelector("#communitySearchForm")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const next = new FormData(event.currentTarget).get("q") || "";
+    location.hash = `#/community?q=${encodeURIComponent(next)}`;
+  });
+  bindPagination(document.querySelector(".community-organization-list"), (next) => { location.hash = `#/community?q=${encodeURIComponent(query)}&page=${next}`; });
+  document.querySelector("#communityCreateForm")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const status = form.querySelector(".status-line");
+    status.textContent = "正在创建组织...";
+    try {
+      const result = await api("/api/community/organizations", { method: "POST", body: JSON.stringify(Object.fromEntries(new FormData(form).entries())) });
+      uiToast("写作组织已创建");
+      location.hash = `#/organization/${encodeURIComponent(result.organization.slug)}`;
+    } catch (error) {
+      status.textContent = error.message;
+    }
+  });
+}
+
+async function loadCommunityPostReplies(postId) {
+  const target = document.querySelector(`#communityPostReplies-${postId}`);
+  if (!target) return;
+  target.innerHTML = '<p class="muted-line">正在加载回复...</p>';
+  const payload = await api(`/api/community/posts/${postId}/replies?page=1&limit=12`).catch(() => ({ items: [] }));
+  target.innerHTML = (payload.items || []).length ? `<div class="community-reply-stack">${payload.items.map((reply) => `<article class="community-reply"><a href="#/user/${encodeURIComponent(reply.authorUsername)}">${avatarHtml({ displayName: reply.authorName, username: reply.authorUsername, avatarUrl: reply.authorAvatarUrl }, "small")}</a><div><strong>${escapeHtml(reply.authorName)}</strong><article class="article-body">${reply.contentHtml || `<p>${escapeHtml(reply.contentMd || "")}</p>`}</article><small>${fmtDate(reply.createdAt)}</small></div></article>`).join("")}</div>` : '<p class="muted-line">暂无回复。</p>';
+}
+
+async function renderOrganization(value) {
+  const parsed = splitValueQuery(value);
+  const slug = parsed.pathValue;
+  const taskPage = Math.max(1, Number(parsed.params.get("tasks")) || 1);
+  const postPage = Math.max(1, Number(parsed.params.get("posts")) || 1);
+  const memberPage = Math.max(1, Number(parsed.params.get("members")) || 1);
+  const [detail, tasksPayload, postsPayload, membersPayload] = await Promise.all([
+    api(`/api/community/organizations/${encodeURIComponent(slug)}`),
+    api(`/api/community/organizations/${encodeURIComponent(slug)}/tasks?page=${taskPage}&limit=8`),
+    api(`/api/community/organizations/${encodeURIComponent(slug)}/posts?page=${postPage}&limit=6`),
+    api(`/api/community/organizations/${encodeURIComponent(slug)}/members?page=${memberPage}&limit=12`),
+  ]);
+  const organization = detail.organization;
+  const membership = detail.membership;
+  const activeMember = membership?.status === "active";
+  const canManage = activeMember && ["owner", "coordinator"].includes(membership.role);
+  const { items: tasks, pagination: taskPagination } = normalizedPaged(tasksPayload, taskPage, 8);
+  const { items: posts, pagination: postPagination } = normalizedPaged(postsPayload, postPage, 6);
+  const { items: members, pagination: memberPagination } = normalizedPaged(membersPayload, memberPage, 12);
+  setChromeTitle(`${organization.name} · 写作组织`);
+  renderToc([]);
+  el.editLink.href = "#/new";
+  el.main.innerHTML = `
+    <header class="organization-hero"><span class="system-kicker">Writing Organization</span><div class="article-title-row"><h1>${escapeHtml(organization.name)}</h1><span class="quality-badge">${escapeHtml(organization.visibility === "request" ? "申请加入" : "开放加入")}</span></div><p>${escapeHtml(organization.description || "该组织正在构建可持续维护的知识领域。")}</p><div class="organization-focus">${(organization.focus || []).map((item) => `<span>${escapeHtml(item)}</span>`).join("")}</div><footer><span>${organization.memberCount} 成员</span><span>${organization.taskCount} 项任务</span><span>审阅阈值 ${organization.reviewThreshold}</span>${membership ? `<span>你的角色：${escapeHtml(organizationRoleLabel(membership.role))}${membership.status !== "active" ? "（待批准）" : ""}</span>` : ""}</footer><div class="organization-hero-actions">${!membership && state.user ? '<button class="command-button" id="organizationJoinButton" type="button">加入组织</button>' : ""}${!state.user ? '<a class="command-button" href="#/login">登录后加入</a>' : ""}</div></header>
+    <section class="organization-workbench"><div class="organization-main-column"><section class="organization-section"><header class="organization-section-head"><div><span class="system-kicker">Task Board</span><h2>协作任务</h2></div><span>${taskPagination.total || 0} 项</span></header><div class="community-task-list">${tasks.length ? tasks.map((task) => organizationTaskHtml(task, { manage: canManage })).join("") : '<p class="muted-line">尚无协作任务。</p>'}</div>${paginationHtml(taskPagination, "协作任务")}${canManage ? `<form class="organization-task-form" id="organizationTaskForm"><h3>发布协作任务</h3><div class="organization-task-fields"><label><span>类型</span><select name="taskType"><option value="write">撰写词条</option><option value="translate">翻译词条</option><option value="review">社区审阅</option></select></label><label><span>词条 slug</span><input name="pageSlug" required placeholder="例如：abstract-algebra" /></label><label><span>语言</span><input name="language" placeholder="翻译/审阅时填写，如 en" /></label><label><span>优先级</span><select name="priority"><option value="normal">常规</option><option value="high">高</option><option value="urgent">紧急</option></select></label></div><label><span>任务标题</span><input name="title" required placeholder="说明需要完成的工作" /></label><label><span>任务说明</span><textarea name="summary" rows="3" placeholder="列出范围、来源、审阅要求或交付标准"></textarea></label><button class="command-button" type="submit">发布任务</button><p class="status-line"></p></form>` : ""}</section><section class="organization-section"><header class="organization-section-head"><div><span class="system-kicker">Discussion Stream</span><h2>组织讨论</h2></div><span>${postPagination.total || 0} 条</span></header><div class="community-post-list">${posts.length ? posts.map((post) => communityPostHtml(post, { canParticipate: activeMember, canManage })).join("") : '<p class="muted-line">尚无组织讨论。</p>'}</div>${paginationHtml(postPagination, "组织讨论")}${activeMember ? `<form class="organization-post-form" id="organizationPostForm"><h3>发起讨论</h3><div class="organization-post-head-fields"><label><span>类型</span><select name="postType"><option value="discussion">讨论</option>${canManage ? '<option value="announcement">公告</option><option value="decision">社区决议</option>' : ""}</select></label><label><span>关联词条</span><input name="pageSlug" placeholder="可选 slug" /></label><label><span>语言</span><input name="language" placeholder="可选，例如 en" /></label></div><label><span>标题</span><input name="title" required placeholder="提出一个可讨论、可归档的问题" /></label><label><span>内容</span><textarea name="bodyMd" rows="5" required placeholder="支持 Markdown 与数学公式"></textarea></label><button class="command-button" type="submit">发布讨论</button><p class="status-line"></p></form>` : ""}</section></div><aside class="organization-side-column"><section class="organization-section organization-members-section"><header class="organization-section-head"><div><span class="system-kicker">People</span><h2>组织成员</h2></div><span>${memberPagination.total || 0}</span></header><div class="organization-member-list">${members.map((member) => `<article><a href="#/user/${encodeURIComponent(member.username)}">${avatarHtml({ displayName: member.displayName, username: member.username, avatarUrl: member.avatarUrl }, "small")}<span><strong>${escapeHtml(member.displayName)}</strong><small>@${escapeHtml(member.username)}</small></span></a><em>${escapeHtml(organizationRoleLabel(member.role))}${member.status === "pending" ? "（待批准）" : ""}</em>${canManage && member.status === "pending" ? `<button class="mini-button" type="button" data-community-member-approve="${member.userId}">批准</button>` : ""}${canManage && member.status === "active" && member.userId !== state.user?.id ? `<select data-community-member-role="${member.userId}"><option value="member" ${member.role === "member" ? "selected" : ""}>成员</option><option value="writer" ${member.role === "writer" ? "selected" : ""}>写作者</option><option value="translator" ${member.role === "translator" ? "selected" : ""}>译者</option><option value="reviewer" ${member.role === "reviewer" ? "selected" : ""}>审阅者</option><option value="coordinator" ${member.role === "coordinator" ? "selected" : ""}>协调者</option></select>` : ""}</article>`).join("")}</div>${paginationHtml(memberPagination, "组织成员")}</section><section class="organization-section organization-guidance"><span class="system-kicker">Community Contract</span><h2>协作约定</h2><p>把讨论沉淀为任务，把任务沉淀为可审阅的版本；由多个明确身份的成员形成可追溯结论。</p><a href="#/page/contribution-guide">贡献规范</a></section></aside></section>`;
+  document.querySelector("#organizationJoinButton")?.addEventListener("click", async () => {
+    try {
+      const result = await api(`/api/community/organizations/${encodeURIComponent(organization.slug)}/join`, { method: "POST", body: "{}" });
+      uiToast(result.membership.status === "active" ? "已加入写作组织" : "申请已提交，等待协调者批准");
+      await renderOrganization(value);
+    } catch (error) { uiAlert("无法加入", error.message, "error"); }
+  });
+  document.querySelectorAll("[data-community-claim]").forEach((button) => button.addEventListener("click", async () => {
+    try { await api(`/api/community/tasks/${button.dataset.communityClaim}/claim`, { method: "POST", body: "{}" }); uiToast("任务已认领"); await renderOrganization(value); } catch (error) { uiAlert("认领失败", error.message, "error"); }
+  }));
+  document.querySelectorAll("[data-community-task-status]").forEach((button) => button.addEventListener("click", async () => {
+    try { await api(`/api/community/tasks/${button.dataset.communityTaskId}`, { method: "PUT", body: JSON.stringify({ status: button.dataset.communityTaskStatus }) }); await renderOrganization(value); } catch (error) { uiAlert("更新失败", error.message, "error"); }
+  }));
+  document.querySelector("#organizationTaskForm")?.addEventListener("submit", async (event) => {
+    event.preventDefault(); const form = event.currentTarget; const status = form.querySelector(".status-line"); status.textContent = "正在发布任务...";
+    try { await api(`/api/community/organizations/${encodeURIComponent(organization.slug)}/tasks`, { method: "POST", body: JSON.stringify(Object.fromEntries(new FormData(form).entries())) }); uiToast("协作任务已发布"); await renderOrganization(value); } catch (error) { status.textContent = error.message; }
+  });
+  document.querySelector("#organizationPostForm")?.addEventListener("submit", async (event) => {
+    event.preventDefault(); const form = event.currentTarget; const status = form.querySelector(".status-line"); status.textContent = "正在发布讨论...";
+    try { await api(`/api/community/organizations/${encodeURIComponent(organization.slug)}/posts`, { method: "POST", body: JSON.stringify(Object.fromEntries(new FormData(form).entries())) }); uiToast("组织讨论已发布"); await renderOrganization(value); } catch (error) { status.textContent = error.message; }
+  });
+  document.querySelectorAll("[data-community-load-replies]").forEach((button) => button.addEventListener("click", () => loadCommunityPostReplies(button.dataset.communityLoadReplies)));
+  document.querySelectorAll("[data-community-post-reply]").forEach((form) => form.addEventListener("submit", async (event) => {
+    event.preventDefault(); const status = form.querySelector(".status-line"); status.textContent = "发送中...";
+    try { await api(`/api/community/posts/${form.dataset.communityPostReply}/replies`, { method: "POST", body: JSON.stringify(Object.fromEntries(new FormData(form).entries())) }); form.reset(); status.textContent = "回复已发布。"; await loadCommunityPostReplies(form.dataset.communityPostReply); } catch (error) { status.textContent = error.message; }
+  }));
+  document.querySelectorAll("[data-community-post-status]").forEach((button) => button.addEventListener("click", async () => {
+    try { await api(`/api/community/posts/${button.dataset.communityPostId}`, { method: "PUT", body: JSON.stringify({ status: button.dataset.communityPostStatus }) }); await renderOrganization(value); } catch (error) { uiAlert("更新失败", error.message, "error"); }
+  }));
+  document.querySelectorAll("[data-community-member-role]").forEach((select) => select.addEventListener("change", async () => {
+    try { await api(`/api/community/organizations/${encodeURIComponent(organization.slug)}/members/${select.dataset.communityMemberRole}`, { method: "PUT", body: JSON.stringify({ role: select.value }) }); uiToast("成员角色已更新"); await renderOrganization(value); } catch (error) { uiAlert("更新失败", error.message, "error"); }
+  }));
+  document.querySelectorAll("[data-community-member-approve]").forEach((button) => button.addEventListener("click", async () => {
+    try { await api(`/api/community/organizations/${encodeURIComponent(organization.slug)}/members/${button.dataset.communityMemberApprove}`, { method: "PUT", body: JSON.stringify({ status: "active" }) }); uiToast("成员申请已批准"); await renderOrganization(value); } catch (error) { uiAlert("更新失败", error.message, "error"); }
+  }));
+  const changePage = (kind, next) => { const params = new URLSearchParams(parsed.params); params.set(kind, String(next)); location.hash = `#/organization/${encodeURIComponent(organization.slug)}?${params.toString()}`; };
+  bindPagination(document.querySelector(".community-task-list")?.parentElement, (next) => changePage("tasks", next));
+  bindPagination(document.querySelector(".community-post-list")?.parentElement, (next) => changePage("posts", next));
+  bindPagination(document.querySelector(".organization-members-section"), (next) => changePage("members", next));
 }
 
 async function renderPage(value) {
@@ -2233,8 +2427,8 @@ async function renderPage(value) {
     setChromeTitle(displayPage.title);
     renderToc(displayPage.toc);
     const aliasNotice = page.redirectedFrom ? `<aside class="knowledge-alias-notice"><strong>已通过别名跳转</strong><span>${escapeHtml(page.redirectedFrom)} → ${escapeHtml(page.slug)}</span></aside>` : "";
-    el.main.innerHTML = `${pageToolNav(page.slug, "page")}${aliasNotice}${articleHeader(displayPage)}${disambiguationPanelHtml(page)}${pageReviewStatusHtml(page)}${citationQualityPanelHtml(page)}${mathematicalMetadataHtml(page)}${translationNotice}<section class="page-translation-panel" id="pageTranslationPanel"></section><article class="article-body">${displayPage.html}</article><section id="pageKnowledgePanel"></section><section class="page-rating-panel" id="pageRatingPanel"></section><section class="edit-timeline-section"><div class="section-title-row"><h2>最近编辑</h2><a class="mini-link" href="#/history/${encodeSlug(page.slug)}">查看全部</a></div><div class="edit-timeline" id="pageEditTimeline"></div></section>`;
-    await Promise.all([loadPageTranslations(page.slug, activeLang), loadPageFavorite(page.slug), loadPageWatch(page.slug), loadPageKnowledge(page.slug), loadPageRating(page.slug), loadPageEdits(page.slug, "pageEditTimeline", { limit: 6, page: 1 })]);
+    el.main.innerHTML = `${pageToolNav(page.slug, "page")}${aliasNotice}${articleHeader(displayPage)}${disambiguationPanelHtml(page)}${pageReviewStatusHtml(page)}${citationQualityPanelHtml(page)}${mathematicalMetadataHtml(page)}${translationNotice}<section class="page-translation-panel" id="pageTranslationPanel"></section><article class="article-body">${displayPage.html}</article><section id="pageKnowledgePanel"></section><section id="pageCommunityPanel"></section><section class="page-rating-panel" id="pageRatingPanel"></section><section class="edit-timeline-section"><div class="section-title-row"><h2>最近编辑</h2><a class="mini-link" href="#/history/${encodeSlug(page.slug)}">查看全部</a></div><div class="edit-timeline" id="pageEditTimeline"></div></section>`;
+    await Promise.all([loadPageTranslations(page.slug, activeLang), loadPageFavorite(page.slug), loadPageWatch(page.slug), loadPageKnowledge(page.slug), loadPageCommunity(page.slug), loadPageRating(page.slug), loadPageEdits(page.slug, "pageEditTimeline", { limit: 6, page: 1 })]);
     typesetMath();
   } catch (_error) {
     if (state.currentSlug === (state.site.defaultPage || "home")) {
@@ -2517,7 +2711,7 @@ function translationLanguageItems(translations = [], activeLang = "zh-CN") {
 function languageModeHref(slug, lang, mode = "read") {
   const normalized = normalizeLanguageCode(lang, "zh-CN");
   if (mode === "edit" && normalized === "zh-CN") return `#/page/${encodeSlug(slug)}`;
-  if (mode === "edit") return `#/translate/${encodeSlug(slug)}${normalized !== "en" ? `?lang=${encodeURIComponent(normalized)}` : ""}`;
+  if (mode === "edit") return `#/translate/${encodeSlug(slug)}?lang=${encodeURIComponent(normalized)}`;
   return `#/page/${encodeSlug(slug)}${normalized !== "zh-CN" ? `?lang=${encodeURIComponent(normalized)}` : ""}`;
 }
 
@@ -2602,9 +2796,48 @@ function insertTranslationSuggestion(value) {
   document.querySelector("#translationStatus").textContent = "已插入建议，请结合上下文校订后保存。";
 }
 
+async function renderTranslationStart(slug) {
+  const page = await api(`/api/pages/${encodeSlug(slug)}`);
+  const payload = await api(`/api/pages/${encodeSlug(page.slug)}/translations`).catch(() => ({ translations: [], translator: null }));
+  const languages = supportedLanguages([
+    ...(payload.translations || []).map((item) => item.language),
+    ...(payload.translator?.languages || []),
+    state.uiLanguage,
+    "en",
+    "zh-TW",
+  ]).filter((language) => normalizeLanguageCode(language, "") !== "zh-CN");
+  state.currentSlug = page.slug;
+  setChromeTitle(`${page.title} · 选择翻译语言`);
+  renderToc([]);
+  el.editLink.href = `#/edit/${encodeSlug(page.slug)}`;
+  el.main.innerHTML = `
+    ${pageToolNav(page.slug, "translate")}
+    <header class="article-head translation-select-head"><span class="system-kicker">Translation Community</span><div class="article-title-row"><h1>选择翻译语言</h1><span class="quality-badge">${escapeHtml(page.title)}</span></div><p class="article-summary">先明确目标语言，再进入双栏工作台。已有译文会保留其进度、源文变更和社区审阅状态。</p></header>
+    <section class="translation-language-chooser">
+      <div class="translation-language-chooser-grid">
+        ${languages.map((language) => {
+          const item = translationInfo(payload.translations || [], language);
+          const status = item.status === "missing" ? "新建译文" : item.sourceChanged ? "源文已变更" : `${Number(item.progress || 0)}%`;
+          return `<a class="translation-language-choice ${item.status === "missing" ? "missing" : ""}" href="#/translate/${encodeSlug(page.slug)}?lang=${encodeURIComponent(language)}"><span>${escapeHtml(languageLabel(language))}</span><strong>${escapeHtml(status)}</strong><small>${item.status === "published" ? "已发布版本" : item.status === "review" ? "等待审阅" : item.status === "changes_requested" ? "需要修改" : "进入工作台"}</small></a>`;
+        }).join("")}
+      </div>
+      <form class="translation-language-custom" id="translationLanguageCustom"><label><span>其他语言</span><input name="language" placeholder="例如：fr / ja / de-DE" autocomplete="off" /></label><button class="command-button" type="submit">进入翻译</button></form>
+    </section>`;
+  document.querySelector("#translationLanguageCustom")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const language = normalizeLanguageCode(new FormData(event.currentTarget).get("language"), "");
+    if (!language || language === "zh-CN") { event.currentTarget.querySelector("input")?.focus(); return; }
+    location.hash = `#/translate/${encodeSlug(page.slug)}?lang=${encodeURIComponent(language)}`;
+  });
+}
+
 async function renderTranslation(value) {
   const parsed = splitValueQuery(value);
   const slug = parsed.pathValue || state.currentSlug || state.site.defaultPage || "home";
+  if (!parsed.params.get("lang")) {
+    await renderTranslationStart(slug);
+    return;
+  }
   const lang = parsed.params.get("lang") || "en";
   const payload = await api(`/api/pages/${encodeSlug(slug)}/translation?lang=${encodeURIComponent(lang)}&workspace=1`);
   const source = payload.source || {};
@@ -2616,7 +2849,10 @@ async function renderTranslation(value) {
   const activeLang = normalizeLanguageCode(translation.language || lang, "en");
   const translatedMd = translation.translatedMd || "";
   const qualityPanel = translationQualityPanel(payload.assistant, activeLang);
+  const communityPanel = translation.id ? communityReviewPanel(payload.community, "translation", state.currentSlug, activeLang) : "";
   const joinNotice = payload.translator ? "" : `<div class="translation-join-box"><p>加入翻译社区后可以保存译文和生成自动初稿。</p><button class="command-button" type="button" id="joinTranslationFromPage">加入翻译社区</button></div>`;
+  const editorReadOnly = !payload.translator;
+  const editorDisabled = editorReadOnly ? "disabled" : "";
   const progress = Math.max(0, Math.min(100, Number(translation.progress || 0)));
   const translationState = ({ published: "已发布", review: "待审", changes_requested: "待修改", draft: "草稿" })[translation.status] || "草稿";
   const reviewControls = canReviewContent() && translation.id ? `<div class="translation-review-actions"><button class="command-button" type="button" data-translation-review="approve">通过并发布</button><button class="command-button secondary" type="button" data-translation-review="changes_requested">要求修改</button></div>` : "";
@@ -2659,15 +2895,14 @@ async function renderTranslation(value) {
           </header>
           <input type="hidden" name="language" value="${escapeHtml(activeLang)}" />
           <div class="translation-meta-fields">
-            <label class="translation-field"><span>译文标题</span><input name="title" value="${escapeHtml(translation.title || source.title || "")}" /></label>
-            <label class="translation-field"><span>译文摘要</span><textarea name="summary" rows="3">${escapeHtml(translation.summary || source.summary || "")}</textarea></label>
+            <label class="translation-field"><span>译文标题</span><input name="title" value="${escapeHtml(translation.title || source.title || "")}" ${editorDisabled} /></label>
+            <label class="translation-field"><span>译文摘要</span><textarea name="summary" rows="3" ${editorDisabled}>${escapeHtml(translation.summary || source.summary || "")}</textarea></label>
           </div>
-          <label class="translation-field translation-body-field"><span>正文 Markdown</span><textarea name="translatedMd" class="profile-markdown translation-textarea" spellcheck="false" placeholder="在这里编辑译文，公式与 Wikist 扩展语法会原样保留。">${escapeHtml(translatedMd)}</textarea></label>
+          <label class="translation-field translation-body-field"><span>正文 Markdown</span><textarea name="translatedMd" class="profile-markdown translation-textarea" spellcheck="false" placeholder="在这里编辑译文，公式与 Wikist 扩展语法会原样保留。" ${editorDisabled}>${escapeHtml(translatedMd)}</textarea></label>
           <footer class="translation-editor-footer">
             <div class="status-line" id="translationStatus" aria-live="polite"></div>
             <div class="editor-actions">
-              <button class="command-button secondary" type="button" id="autoTranslateButton">自动生成初稿</button>
-              <button class="command-button" type="submit">保存译文</button>
+              ${editorReadOnly ? '<span class="translation-readonly-note">当前以社区审阅身份查看草稿；投票不会改动译文。</span>' : '<button class="command-button secondary" type="button" id="autoTranslateButton">自动生成初稿</button><button class="command-button" type="submit">保存译文</button>'}
             </div>
           </footer>
           ${translation.reviewComment ? `<aside class="translation-review-note"><strong>${escapeHtml(translation.reviewerName || "审核意见")}</strong><span>${escapeHtml(translation.reviewComment)}</span></aside>` : ""}
@@ -2675,7 +2910,8 @@ async function renderTranslation(value) {
         </form>
       </div>
       ${qualityPanel}
-    </section>`;
+    </section>
+    ${communityPanel}`;
 
   document.querySelectorAll("[data-source-view]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -2750,6 +2986,7 @@ async function renderTranslation(value) {
       }
     });
   });
+  bindCommunityReviewForms(el.main, () => renderTranslation(`${state.currentSlug}?lang=${encodeURIComponent(activeLang)}`));
   typesetMath();
   bindLanguageJumpForms(el.main);
 }
@@ -5918,6 +6155,8 @@ async function route() {
     else if (name === "watchlist") await renderWatchlist(value);
     else if (name === "following") await renderFollowing(value);
     else if (name === "messages") await renderMessages();
+    else if (name === "community") await renderCommunity(value);
+    else if (name === "organization") await renderOrganization(value);
     else if (name === "knowledge") await renderKnowledge(value);
     else if (name === "category") await renderCategory(value);
     else if (name === "topic") await renderTopic(value);

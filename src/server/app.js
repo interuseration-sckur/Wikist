@@ -52,6 +52,16 @@ function commentPayload(comment) {
   return { ...comment, contentHtml: rendered.html, toc: rendered.toc };
 }
 
+function organizationPostPayload(post) {
+  const rendered = renderMarkdown(post.bodyMd || "");
+  return { ...post, bodyHtml: rendered.html, toc: rendered.toc };
+}
+
+function organizationPostReplyPayload(reply) {
+  const rendered = renderMarkdown(reply.contentMd || "");
+  return { ...reply, contentHtml: rendered.html, toc: rendered.toc };
+}
+
 function passportSecurityPayload(config) {
   return {
     requireEmailVerification: config.passport?.requireEmailVerification === true,
@@ -193,8 +203,8 @@ function siteIconUrl(config) {
 function serveIndexHtml(req, res, indexPath, config) {
   const icon = siteIconUrl(config);
   const html = fs.readFileSync(indexPath, "utf8")
-    .replace(/href="\/assets\/styles\.css\?v=wikist-core-20260711-74"/g, `href="${escapeHtml(assetUrl(config, "/assets/styles.css?v=wikist-core-20260711-74"))}"`)
-    .replace(/src="\/assets\/app\.js\?v=wikist-core-20260711-74"/g, `src="${escapeHtml(assetUrl(config, "/assets/app.js?v=wikist-core-20260711-74"))}"`)
+    .replace(/href="\/assets\/styles\.css\?v=wikist-core-20260711-76"/g, `href="${escapeHtml(assetUrl(config, "/assets/styles.css?v=wikist-core-20260711-76"))}"`)
+    .replace(/src="\/assets\/app\.js\?v=wikist-core-20260711-76"/g, `src="${escapeHtml(assetUrl(config, "/assets/app.js?v=wikist-core-20260711-76"))}"`)
     .replace(/href="\/assets\/wikist-emblem\.svg"/g, `href="${escapeHtml(icon)}"`)
     .replace(/src="\/assets\/wikist-emblem\.svg"/g, `src="${escapeHtml(icon)}"`)
     .replace(/<title>Wikist<\/title>/, `<title>${escapeHtml(config.name || "Wikist")}</title>`);
@@ -925,6 +935,174 @@ function createWikistServer(options) {
         }
         const translator = passport.joinTranslatorCommunity(session, await readJsonBody(req));
         sendJson(res, 200, { translator });
+        return;
+      }
+
+      if (pathname === "/api/community/organizations" && req.method === "GET") {
+        if (!passport) {
+          sendJson(res, 200, paginationPayload([], 0, readPagination(url, 12, 60)));
+          return;
+        }
+        const pagination = readPagination(url, 12, 60);
+        const result = passport.listOrganizations({ query: url.searchParams.get("q") || "", limit: pagination.limit, offset: pagination.offset });
+        sendJson(res, 200, paginationPayload(result.items, result.total, pagination));
+        return;
+      }
+
+      if (pathname === "/api/community/organizations" && req.method === "POST") {
+        if (!passport || !session?.user) {
+          sendJson(res, 401, { error: "请先登录后创建写作组织。" });
+          return;
+        }
+        const organization = passport.createOrganization(session, await readJsonBody(req));
+        recordAudit(passport, req, session, { action: "organization.create", targetType: "organization", targetId: organization.slug, targetLabel: organization.name, summary: "创建写作组织" });
+        sendJson(res, 200, { organization });
+        return;
+      }
+
+      const organizationMatch = pathname.match(/^\/api\/community\/organizations\/([^/]+)$/);
+      if (organizationMatch && req.method === "GET") {
+        if (!passport) {
+          sendJson(res, 404, { error: "写作组织功能未启用。" });
+          return;
+        }
+        const slug = decodePathPart(organizationMatch[1]);
+        const organization = passport.organizationBySlug(slug);
+        if (!organization || organization.status !== "active") {
+          sendJson(res, 404, { error: "写作组织不存在或已停用。" });
+          return;
+        }
+        const member = session?.user ? passport.organizationMembership(organization.id, session.user.id) : null;
+        sendJson(res, 200, {
+          organization,
+          membership: member,
+          members: passport.listOrganizationMembers(organization.id, { limit: 8, offset: 0 }),
+          memberCount: passport.countOrganizationMembers(organization.id),
+        });
+        return;
+      }
+
+      if (organizationMatch && req.method === "PUT") {
+        if (!passport || !session?.user) {
+          sendJson(res, 401, { error: "请先登录后维护写作组织。" });
+          return;
+        }
+        const organization = passport.updateOrganization(session, decodePathPart(organizationMatch[1]), await readJsonBody(req));
+        recordAudit(passport, req, session, { action: "organization.update", targetType: "organization", targetId: organization.slug, targetLabel: organization.name, summary: "更新写作组织" });
+        sendJson(res, 200, { organization });
+        return;
+      }
+
+      const organizationJoinMatch = pathname.match(/^\/api\/community\/organizations\/([^/]+)\/join$/);
+      if (organizationJoinMatch && req.method === "POST") {
+        if (!passport || !session?.user) {
+          sendJson(res, 401, { error: "请先登录后加入写作组织。" });
+          return;
+        }
+        const joined = passport.joinOrganization(session, decodePathPart(organizationJoinMatch[1]), await readJsonBody(req));
+        recordAudit(passport, req, session, { action: "organization.join", targetType: "organization", targetId: joined.organization.slug, targetLabel: joined.organization.name, summary: "加入写作组织", metadata: { status: joined.membership.status } });
+        sendJson(res, 200, joined);
+        return;
+      }
+
+      const organizationMembersMatch = pathname.match(/^\/api\/community\/organizations\/([^/]+)\/members$/);
+      if (organizationMembersMatch && req.method === "GET") {
+        if (!passport) {
+          sendJson(res, 404, { error: "写作组织功能未启用。" });
+          return;
+        }
+        const organization = passport.organizationBySlug(decodePathPart(organizationMembersMatch[1]));
+        if (!organization) { sendJson(res, 404, { error: "写作组织不存在。" }); return; }
+        const pagination = readPagination(url, 18, 80);
+        sendJson(res, 200, paginationPayload(passport.listOrganizationMembers(organization.id, pagination), passport.countOrganizationMembers(organization.id), pagination));
+        return;
+      }
+
+      const organizationMemberMatch = pathname.match(/^\/api\/community\/organizations\/([^/]+)\/members\/(\d+)$/);
+      if (organizationMemberMatch && req.method === "PUT") {
+        if (!passport || !session?.user) { sendJson(res, 401, { error: "请先登录后维护组织成员。" }); return; }
+        const member = passport.updateOrganizationMember(session, decodePathPart(organizationMemberMatch[1]), Number(organizationMemberMatch[2]), await readJsonBody(req));
+        recordAudit(passport, req, session, { action: "organization.member.update", targetType: "organization-member", targetId: `${member.organizationId}:${member.userId}`, targetLabel: member.username || String(member.userId), summary: "更新组织成员角色", metadata: { role: member.role, status: member.status } });
+        sendJson(res, 200, { member });
+        return;
+      }
+
+      const organizationTasksMatch = pathname.match(/^\/api\/community\/organizations\/([^/]+)\/tasks$/);
+      if (organizationTasksMatch && req.method === "GET") {
+        if (!passport) { sendJson(res, 404, { error: "写作组织功能未启用。" }); return; }
+        const pagination = readPagination(url, 12, 60);
+        const result = passport.listOrganizationTasks(session, decodePathPart(organizationTasksMatch[1]), { status: url.searchParams.get("status") || "all", query: url.searchParams.get("q") || "", limit: pagination.limit, offset: pagination.offset });
+        sendJson(res, 200, { organization: result.organization, ...paginationPayload(result.items, result.total, pagination) });
+        return;
+      }
+
+      if (organizationTasksMatch && req.method === "POST") {
+        if (!passport || !session?.user) { sendJson(res, 401, { error: "请先登录后创建协作任务。" }); return; }
+        const body = await readJsonBody(req);
+        const page = pages.getPage(normalizeSlug(body.pageSlug || ""));
+        if (!page) { sendJson(res, 404, { error: "关联词条不存在。" }); return; }
+        const task = passport.createOrganizationTask(session, decodePathPart(organizationTasksMatch[1]), body);
+        recordAudit(passport, req, session, { action: "organization.task.create", targetType: "organization-task", targetId: String(task.id), targetLabel: task.title, summary: "创建协作任务", metadata: { pageSlug: task.pageSlug, taskType: task.taskType, language: task.language } });
+        sendJson(res, 200, { task });
+        return;
+      }
+
+      const organizationTaskClaimMatch = pathname.match(/^\/api\/community\/tasks\/(\d+)\/claim$/);
+      if (organizationTaskClaimMatch && req.method === "POST") {
+        if (!passport || !session?.user) { sendJson(res, 401, { error: "请先登录后认领协作任务。" }); return; }
+        const task = passport.claimOrganizationTask(session, Number(organizationTaskClaimMatch[1]));
+        recordAudit(passport, req, session, { action: "organization.task.claim", targetType: "organization-task", targetId: String(task.id), targetLabel: task.title, summary: "认领协作任务" });
+        sendJson(res, 200, { task });
+        return;
+      }
+
+      const organizationTaskMatch = pathname.match(/^\/api\/community\/tasks\/(\d+)$/);
+      if (organizationTaskMatch && req.method === "PUT") {
+        if (!passport || !session?.user) { sendJson(res, 401, { error: "请先登录后更新协作任务。" }); return; }
+        const task = passport.updateOrganizationTask(session, Number(organizationTaskMatch[1]), await readJsonBody(req));
+        recordAudit(passport, req, session, { action: "organization.task.update", targetType: "organization-task", targetId: String(task.id), targetLabel: task.title, summary: "更新协作任务", metadata: { status: task.status } });
+        sendJson(res, 200, { task });
+        return;
+      }
+
+      const organizationPostsMatch = pathname.match(/^\/api\/community\/organizations\/([^/]+)\/posts$/);
+      if (organizationPostsMatch && req.method === "GET") {
+        if (!passport) { sendJson(res, 404, { error: "写作组织功能未启用。" }); return; }
+        const pagination = readPagination(url, 10, 50);
+        const result = passport.listOrganizationPosts(session, decodePathPart(organizationPostsMatch[1]), { status: url.searchParams.get("status") || "all", limit: pagination.limit, offset: pagination.offset });
+        sendJson(res, 200, { organization: result.organization, ...paginationPayload(result.items.map(organizationPostPayload), result.total, pagination) });
+        return;
+      }
+
+      if (organizationPostsMatch && req.method === "POST") {
+        if (!passport || !session?.user) { sendJson(res, 401, { error: "请先登录后发布组织讨论。" }); return; }
+        const post = passport.createOrganizationPost(session, decodePathPart(organizationPostsMatch[1]), await readJsonBody(req));
+        recordAudit(passport, req, session, { action: "organization.post.create", targetType: "organization-post", targetId: String(post.id), targetLabel: post.title, summary: "发布组织讨论", metadata: { postType: post.postType } });
+        sendJson(res, 200, { post: organizationPostPayload(post) });
+        return;
+      }
+
+      const organizationPostRepliesMatch = pathname.match(/^\/api\/community\/posts\/(\d+)\/replies$/);
+      if (organizationPostRepliesMatch && req.method === "GET") {
+        if (!passport) { sendJson(res, 404, { error: "写作组织功能未启用。" }); return; }
+        const pagination = readPagination(url, 12, 60);
+        const result = passport.listOrganizationPostReplies(session, Number(organizationPostRepliesMatch[1]), pagination);
+        sendJson(res, 200, { post: organizationPostPayload(result.post), ...paginationPayload(result.items.map(organizationPostReplyPayload), result.total, pagination) });
+        return;
+      }
+
+      if (organizationPostRepliesMatch && req.method === "POST") {
+        if (!passport || !session?.user) { sendJson(res, 401, { error: "请先登录后参与组织讨论。" }); return; }
+        const reply = passport.replyToOrganizationPost(session, Number(organizationPostRepliesMatch[1]), await readJsonBody(req));
+        sendJson(res, 200, { reply: organizationPostReplyPayload(reply) });
+        return;
+      }
+
+      const organizationPostMatch = pathname.match(/^\/api\/community\/posts\/(\d+)$/);
+      if (organizationPostMatch && req.method === "PUT") {
+        if (!passport || !session?.user) { sendJson(res, 401, { error: "请先登录后管理组织讨论。" }); return; }
+        const post = passport.updateOrganizationPost(session, Number(organizationPostMatch[1]), await readJsonBody(req));
+        sendJson(res, 200, { post: organizationPostPayload(post) });
         return;
       }
 
@@ -1933,6 +2111,33 @@ function createWikistServer(options) {
         return;
       }
 
+      const translationCommunityReviewMatch = pathname.match(/^\/api\/pages\/(.+)\/translation\/([^/]+)\/community-review$/);
+      if (translationCommunityReviewMatch && req.method === "POST") {
+        if (!passport || !session?.user) {
+          sendJson(res, 401, { error: "请先登录后提交译文社区审阅。" });
+          return;
+        }
+        const slug = normalizeSlug(decodePathPart(translationCommunityReviewMatch[1]));
+        const language = decodePathPart(translationCommunityReviewMatch[2]);
+        const page = pages.getPage(slug);
+        if (!page) { sendJson(res, 404, { error: "词条不存在。", slug }); return; }
+        const translation = passport.getTranslation(slug, language);
+        if (!translation) { sendJson(res, 404, { error: "译文不存在。" }); return; }
+        const input = await readJsonBody(req);
+        input.language = translation.language;
+        input.revisionId = translation.updatedAt;
+        const submitted = passport.submitCommunityReview(session, "translation", slug, input);
+        const finalized = submitted.reachedDecision ? passport.finalizeCommunityTranslationReview(session, slug, translation.language, {
+          organizationId: submitted.organization.id,
+          decision: submitted.reachedDecision,
+          comment: input.comment,
+          revisionId: translation.updatedAt,
+        }) : null;
+        recordAudit(passport, req, session, { action: "community.review.translation", targetType: "page", targetId: slug, targetLabel: page.title, summary: "提交组织译文审阅", metadata: { organizationId: submitted.organization.id, language: translation.language, decision: input.decision, reachedDecision: submitted.reachedDecision || "" } });
+        sendJson(res, 200, { ...submitted, finalized, translation: passport.getTranslation(slug, translation.language) });
+        return;
+      }
+
       const translationReviewMatch = pathname.match(/^\/api\/pages\/(.+)\/translation\/([^/]+)\/review$/);
       if (translationReviewMatch && req.method === "POST") {
         if (!passport || !session?.user) {
@@ -1966,12 +2171,16 @@ function createWikistServer(options) {
         const assistant = workspace && passport?.canUseTranslationQuality(session)
           ? passport.translationAssistant(session, page, translation, language)
           : null;
+        const community = workspace && passport && translation
+          ? passport.communityReviewSnapshot(session, "translation", page.slug, translation.language, translation.updatedAt)
+          : null;
         sendJson(res, 200, {
           source: { slug: page.slug, title: page.title, summary: page.summary, body: page.body, html: page.html, toc: page.toc, language: "zh-CN", updatedAt: page.updatedAt },
           translation: translation && renderedTranslation ? { ...translation, html: renderedTranslation.html, toc: renderedTranslation.toc } : translation,
           translations: passport ? passport.translationSummary(slug, page.body, config.languages || []) : [],
           translator: session?.user && passport ? passport.getTranslatorProfile(session.user.id) : null,
           assistant,
+          community,
         });
         return;
       }
@@ -2223,6 +2432,44 @@ function createWikistServer(options) {
       }
 
       const pageReviewMatch = pathname.match(/^\/api\/pages\/(.+)\/review$/);
+      const pageCommunityMatch = pathname.match(/^\/api\/pages\/(.+)\/community$/);
+      if (pageCommunityMatch && req.method === "GET") {
+        if (!passport) {
+          sendJson(res, 200, { tasks: [], organizations: [], subjectType: "page" });
+          return;
+        }
+        const slug = slugFromNestedPath(pathname, "/api/pages/", "/community");
+        const current = pages.getPage(slug);
+        if (!current) { sendJson(res, 404, { error: "词条不存在。", slug }); return; }
+        sendJson(res, 200, passport.communityReviewSnapshot(session, "page", current.slug, "", current.revisionId));
+        return;
+      }
+
+      const pageCommunityReviewMatch = pathname.match(/^\/api\/pages\/(.+)\/community-review$/);
+      if (pageCommunityReviewMatch && req.method === "POST") {
+        if (!passport || !session?.user) { sendJson(res, 401, { error: "请先登录后提交社区审阅。" }); return; }
+        const slug = slugFromNestedPath(pathname, "/api/pages/", "/community-review");
+        const current = pages.getPage(slug);
+        if (!current) { sendJson(res, 404, { error: "词条不存在。", slug }); return; }
+        const input = await readJsonBody(req);
+        input.revisionId = current.revisionId;
+        const submitted = passport.submitCommunityReview(session, "page", current.slug, input);
+        let finalized = null;
+        if (submitted.reachedDecision) {
+          if (submitted.reachedDecision === "approve") {
+            const snapshot = pages.snapshotCurrentForReview(current.slug, current.revisionId);
+            if (!snapshot) { sendJson(res, 409, { error: "无法创建当前版本的稳定快照。" }); return; }
+          }
+          finalized = passport.finalizeCommunityPageReview(session, current, {
+            organizationId: submitted.organization.id,
+            decision: submitted.reachedDecision,
+            comment: input.comment,
+          });
+        }
+        recordAudit(passport, req, session, { action: "community.review.page", targetType: "page", targetId: current.slug, targetLabel: current.title, summary: "提交组织社区审阅", metadata: { organizationId: submitted.organization.id, decision: input.decision, reachedDecision: submitted.reachedDecision || "" } });
+        sendJson(res, 200, { ...submitted, finalized, review: passport.getPageReview(current.slug, current.revisionId) });
+        return;
+      }
       if (pageReviewMatch && req.method === "GET") {
         const slug = slugFromNestedPath(pathname, "/api/pages/", "/review");
         const resolved = resolveLivePage(pages, passport, slug);

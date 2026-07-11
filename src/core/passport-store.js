@@ -46,6 +46,10 @@ const DEFAULT_PERMISSIONS = {
   deletePolicy: "user",
 };
 const WATCH_TARGET_TYPES = ["page", "category", "language"];
+const ORGANIZATION_MEMBER_ROLES = ["member", "writer", "translator", "reviewer", "coordinator", "owner"];
+const ORGANIZATION_ROLE_RANK = Object.fromEntries(ORGANIZATION_MEMBER_ROLES.map((role, index) => [role, index]));
+const ORGANIZATION_TASK_TYPES = ["write", "translate", "review"];
+const ORGANIZATION_TASK_STATUSES = ["open", "claimed", "ready", "closed"];
 
 function nowIso() {
   return new Date().toISOString();
@@ -381,6 +385,15 @@ function hasRole(session, minimumRole) {
   return Boolean(session?.user) && roleRank(sessionRole(session)) >= roleRank(minimumRole);
 }
 
+function organizationRoleRank(role) {
+  return ORGANIZATION_ROLE_RANK[String(role || "member")] ?? 0;
+}
+
+function normalizeOrganizationRole(role, fallback = "member") {
+  const value = String(role || fallback).trim().toLowerCase();
+  return ORGANIZATION_MEMBER_ROLES.includes(value) ? value : fallback;
+}
+
 function accessError(message, statusCode = 403) {
   const error = new Error(message);
   error.statusCode = statusCode;
@@ -678,6 +691,133 @@ function translationGlossaryFromRow(row) {
   };
 }
 
+function organizationFromRow(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    slug: row.slug,
+    name: row.name || row.slug,
+    description: row.description || "",
+    focus: cleanJson(row.focus_json, []),
+    visibility: row.visibility || "public",
+    reviewThreshold: Math.max(1, Number(row.review_threshold || 2)),
+    status: row.status || "active",
+    createdBy: row.created_by || null,
+    founderName: row.founder_name || "",
+    founderUsername: row.founder_username || "",
+    memberCount: Number(row.member_count || 0),
+    taskCount: Number(row.task_count || 0),
+    discussionCount: Number(row.discussion_count || 0),
+    createdAt: row.created_at || "",
+    updatedAt: row.updated_at || "",
+  };
+}
+
+function organizationMemberFromRow(row) {
+  if (!row) return null;
+  return {
+    organizationId: row.organization_id,
+    userId: row.user_id,
+    role: normalizeOrganizationRole(row.role),
+    status: row.status || "active",
+    intro: row.intro || "",
+    displayName: row.display_name || "",
+    username: row.username || "",
+    avatarUrl: row.avatar_url || "",
+    joinedAt: row.joined_at || "",
+    updatedAt: row.updated_at || "",
+  };
+}
+
+function organizationTaskFromRow(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    organizationId: row.organization_id,
+    organizationSlug: row.organization_slug || "",
+    organizationName: row.organization_name || "",
+    taskType: row.task_type || "write",
+    pageSlug: row.page_slug || "",
+    language: row.language || "",
+    title: row.title || "",
+    summary: row.summary || "",
+    priority: row.priority || "normal",
+    status: row.status || "open",
+    createdBy: row.created_by || null,
+    creatorName: row.creator_name || "",
+    assigneeUserId: row.assignee_user_id || null,
+    assigneeName: row.assignee_name || "",
+    assigneeUsername: row.assignee_username || "",
+    organizationRole: row.organization_role || "",
+    canClaim: Boolean(row.can_claim),
+    canReview: Boolean(row.can_review),
+    createdAt: row.created_at || "",
+    updatedAt: row.updated_at || "",
+    claimedAt: row.claimed_at || "",
+    closedAt: row.closed_at || "",
+  };
+}
+
+function organizationPostFromRow(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    organizationId: row.organization_id,
+    postType: row.post_type || "discussion",
+    title: row.title || "",
+    bodyMd: row.body_md || "",
+    pageSlug: row.page_slug || "",
+    language: row.language || "",
+    status: row.status || "open",
+    pinned: Boolean(row.pinned),
+    authorUserId: row.author_user_id || null,
+    authorName: row.author_name || "",
+    authorUsername: row.author_username || "",
+    authorAvatarUrl: row.author_avatar_url || "",
+    replyCount: Number(row.reply_count || 0),
+    createdAt: row.created_at || "",
+    updatedAt: row.updated_at || "",
+  };
+}
+
+function organizationPostReplyFromRow(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    postId: row.post_id,
+    parentId: row.parent_id || null,
+    authorUserId: row.author_user_id || null,
+    authorName: row.author_name || "",
+    authorUsername: row.author_username || "",
+    authorAvatarUrl: row.author_avatar_url || "",
+    contentMd: row.content_md || "",
+    status: row.status || "published",
+    createdAt: row.created_at || "",
+    updatedAt: row.updated_at || "",
+  };
+}
+
+function communityReviewFromRow(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    organizationId: row.organization_id,
+    organizationSlug: row.organization_slug || "",
+    organizationName: row.organization_name || "",
+    subjectType: row.subject_type,
+    pageSlug: row.page_slug,
+    language: row.language || "",
+    revisionId: row.revision_id || "",
+    decision: row.decision,
+    comment: row.comment || "",
+    reviewerUserId: row.reviewer_user_id || null,
+    reviewerName: row.reviewer_name || "",
+    reviewerUsername: row.reviewer_username || "",
+    createdAt: row.created_at || "",
+    updatedAt: row.updated_at || "",
+  };
+}
+
 function favoriteFromRow(row) {
   if (!row) return null;
   return {
@@ -725,6 +865,16 @@ function normalizeKnowledgeSlug(value, fieldName = "词条") {
     return normalizeSlug(String(value || ""));
   } catch (_error) {
     throw new Error(`${fieldName}标识无效。`);
+  }
+}
+
+function normalizeOrganizationSlug(value) {
+  const raw = cleanText(value, 80).toLowerCase();
+  if (!raw) throw new Error("组织标识不能为空。");
+  try {
+    return normalizeSlug(raw);
+  } catch (_error) {
+    throw new Error("组织标识无效，请使用字母、数字和连字符。");
   }
 }
 
@@ -1171,6 +1321,116 @@ class PassportStore {
       );
 
       CREATE INDEX IF NOT EXISTS idx_translation_glossary_pair ON translation_glossary(source_language, target_language, status, updated_at);
+
+      CREATE TABLE IF NOT EXISTS writing_organizations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        slug TEXT NOT NULL UNIQUE COLLATE NOCASE,
+        name TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        focus_json TEXT NOT NULL DEFAULT '[]',
+        visibility TEXT NOT NULL DEFAULT 'public',
+        review_threshold INTEGER NOT NULL DEFAULT 2,
+        status TEXT NOT NULL DEFAULT 'active',
+        created_by INTEGER NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS organization_members (
+        organization_id INTEGER NOT NULL REFERENCES writing_organizations(id) ON DELETE CASCADE,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        role TEXT NOT NULL DEFAULT 'member',
+        status TEXT NOT NULL DEFAULT 'active',
+        intro TEXT NOT NULL DEFAULT '',
+        joined_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (organization_id, user_id)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_organization_members_user ON organization_members(user_id, status, updated_at);
+      CREATE INDEX IF NOT EXISTS idx_organization_members_org ON organization_members(organization_id, status, role);
+
+      CREATE TABLE IF NOT EXISTS organization_tasks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        organization_id INTEGER NOT NULL REFERENCES writing_organizations(id) ON DELETE CASCADE,
+        task_type TEXT NOT NULL,
+        page_slug TEXT NOT NULL,
+        language TEXT NOT NULL DEFAULT '',
+        title TEXT NOT NULL,
+        summary TEXT NOT NULL DEFAULT '',
+        priority TEXT NOT NULL DEFAULT 'normal',
+        status TEXT NOT NULL DEFAULT 'open',
+        created_by INTEGER NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+        assignee_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        claimed_at TEXT NOT NULL DEFAULT '',
+        closed_at TEXT NOT NULL DEFAULT ''
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_organization_tasks_org ON organization_tasks(organization_id, status, updated_at);
+      CREATE INDEX IF NOT EXISTS idx_organization_tasks_page ON organization_tasks(page_slug, task_type, language, status);
+      CREATE INDEX IF NOT EXISTS idx_organization_tasks_assignee ON organization_tasks(assignee_user_id, status, updated_at);
+
+      CREATE TABLE IF NOT EXISTS organization_posts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        organization_id INTEGER NOT NULL REFERENCES writing_organizations(id) ON DELETE CASCADE,
+        post_type TEXT NOT NULL DEFAULT 'discussion',
+        title TEXT NOT NULL,
+        body_md TEXT NOT NULL,
+        page_slug TEXT NOT NULL DEFAULT '',
+        language TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'open',
+        pinned INTEGER NOT NULL DEFAULT 0,
+        author_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_organization_posts_org ON organization_posts(organization_id, pinned, status, updated_at);
+      CREATE INDEX IF NOT EXISTS idx_organization_posts_page ON organization_posts(page_slug, language, updated_at);
+
+      CREATE TABLE IF NOT EXISTS organization_post_replies (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        post_id INTEGER NOT NULL REFERENCES organization_posts(id) ON DELETE CASCADE,
+        parent_id INTEGER REFERENCES organization_post_replies(id) ON DELETE CASCADE,
+        author_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+        content_md TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'published',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_organization_post_replies_post ON organization_post_replies(post_id, parent_id, created_at);
+
+      CREATE TABLE IF NOT EXISTS community_review_votes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        organization_id INTEGER NOT NULL REFERENCES writing_organizations(id) ON DELETE CASCADE,
+        subject_type TEXT NOT NULL,
+        page_slug TEXT NOT NULL,
+        language TEXT NOT NULL DEFAULT '',
+        revision_id TEXT NOT NULL,
+        decision TEXT NOT NULL,
+        comment TEXT NOT NULL DEFAULT '',
+        reviewer_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE(organization_id, subject_type, page_slug, language, revision_id, reviewer_user_id)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_community_review_subject ON community_review_votes(subject_type, page_slug, language, revision_id, organization_id);
+
+      CREATE TABLE IF NOT EXISTS community_review_consensus (
+        organization_id INTEGER NOT NULL REFERENCES writing_organizations(id) ON DELETE CASCADE,
+        subject_type TEXT NOT NULL,
+        page_slug TEXT NOT NULL,
+        language TEXT NOT NULL DEFAULT '',
+        revision_id TEXT NOT NULL,
+        decision TEXT NOT NULL,
+        finalizer_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+        finalized_at TEXT NOT NULL,
+        PRIMARY KEY (organization_id, subject_type, page_slug, language, revision_id)
+      );
 
       CREATE TABLE IF NOT EXISTS watch_subscriptions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1928,6 +2188,9 @@ class PassportStore {
       ["page_favorites", "SELECT 1 FROM page_favorites WHERE page_slug = ? LIMIT 1"],
       ["page_translations", "SELECT 1 FROM page_translations WHERE page_slug = ? LIMIT 1"],
       ["translation_memory", "SELECT 1 FROM translation_memory WHERE page_slug = ? LIMIT 1"],
+      ["organization_tasks", "SELECT 1 FROM organization_tasks WHERE page_slug = ? LIMIT 1"],
+      ["organization_posts", "SELECT 1 FROM organization_posts WHERE page_slug = ? LIMIT 1"],
+      ["community_review_votes", "SELECT 1 FROM community_review_votes WHERE page_slug = ? LIMIT 1"],
       ["watch_subscriptions", "SELECT 1 FROM watch_subscriptions WHERE target_type = 'page' AND target_key = ? LIMIT 1"],
     ];
     const tables = probes.filter(([, sql]) => this.db.prepare(sql).get(normalized)).map(([table]) => table);
@@ -1937,7 +2200,7 @@ class PassportStore {
   movePageData(sourceSlug, targetSlug, pageTitle = "") {
     const source = normalizeKnowledgeSlug(sourceSlug, "page");
     const target = normalizeKnowledgeSlug(targetSlug, "page");
-    if (!source || !target || source === target) return { sourceSlug: source, targetSlug: target, links: 0, translations: 0, translationMemory: 0 };
+    if (!source || !target || source === target) return { sourceSlug: source, targetSlug: target, links: 0, translations: 0, translationMemory: 0, community: 0 };
     const now = nowIso();
     const escaped = source.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const linkPattern = new RegExp(`\\[\\[${escaped}(?=\\||\\]\\])`, "g");
@@ -1958,6 +2221,10 @@ class PassportStore {
       this.db.prepare("UPDATE page_favorites SET page_slug = ?, page_title = ? WHERE page_slug = ?").run(target, pageTitle, source);
       this.db.prepare("UPDATE page_translations SET page_slug = ? WHERE page_slug = ?").run(target, source);
       this.db.prepare("UPDATE translation_memory SET page_slug = ? WHERE page_slug = ?").run(target, source);
+      this.db.prepare("UPDATE organization_tasks SET page_slug = ?, updated_at = ? WHERE page_slug = ?").run(target, now, source);
+      this.db.prepare("UPDATE organization_posts SET page_slug = ?, updated_at = ? WHERE page_slug = ?").run(target, now, source);
+      this.db.prepare("UPDATE community_review_votes SET page_slug = ?, updated_at = ? WHERE page_slug = ?").run(target, now, source);
+      this.db.prepare("UPDATE community_review_consensus SET page_slug = ? WHERE page_slug = ?").run(target, source);
       this.db.prepare("UPDATE page_aliases SET target_slug = ?, updated_at = ? WHERE target_slug = ?").run(target, now, source);
       this.db.prepare("UPDATE page_aliases SET source_page_slug = ?, updated_at = ? WHERE source_page_slug = ?").run(target, now, source);
       this.db.prepare("INSERT OR IGNORE INTO watch_subscriptions (user_id, target_type, target_key, created_at, updated_at) SELECT user_id, target_type, ?, created_at, ? FROM watch_subscriptions WHERE target_type = 'page' AND target_key = ?").run(target, now, source);
@@ -1993,7 +2260,10 @@ class PassportStore {
       try { this.db.exec("ROLLBACK"); } catch (_rollbackError) {}
       throw error;
     }
-    return { sourceSlug: source, targetSlug: target, links: movedLinks.length, translations: translatedRows.length, translationMemory: memoryRows.length };
+    const community = Number(this.db.prepare("SELECT count(*) AS n FROM organization_tasks WHERE page_slug = ?").get(target).n || 0)
+      + Number(this.db.prepare("SELECT count(*) AS n FROM organization_posts WHERE page_slug = ?").get(target).n || 0)
+      + Number(this.db.prepare("SELECT count(*) AS n FROM community_review_votes WHERE page_slug = ?").get(target).n || 0);
+    return { sourceSlug: source, targetSlug: target, links: movedLinks.length, translations: translatedRows.length, translationMemory: memoryRows.length, community };
   }
 
   removePageAlias(session, aliasSlug) {
@@ -2287,7 +2557,28 @@ class PassportStore {
   }
 
   canReviewTranslation(session, translation) {
-    return Boolean(session?.user && (hasRole(session, "senior_editor") || Number(translation?.translatorUserId || 0) === Number(session.user.id)));
+    return Boolean(session?.user && (
+      hasRole(session, "senior_editor")
+      || Number(translation?.translatorUserId || 0) === Number(session.user.id)
+      || this.canCommunityReviewSubject(session, 'translation', translation?.pageSlug, translation?.language)
+    ));
+  }
+
+  canCommunityReviewSubject(session, subjectType, pageSlug, language = '') {
+    if (!session?.user || !pageSlug) return false;
+    const subject = subjectType === 'translation' ? 'translation' : 'page';
+    const targetLanguage = subject === 'translation' ? normalizeTranslationLang(language, '') : '';
+    const row = this.db.prepare(`
+      SELECT 1
+      FROM organization_tasks t
+      JOIN writing_organizations o ON o.id = t.organization_id AND o.status = 'active'
+      JOIN organization_members m ON m.organization_id = o.id AND m.user_id = ? AND m.status = 'active'
+      WHERE t.task_type = 'review' AND t.page_slug = ? AND t.status != 'closed'
+        AND (t.language = '' OR t.language = ?)
+        AND m.role IN ('reviewer', 'coordinator', 'owner')
+      LIMIT 1
+    `).get(session.user.id, String(pageSlug || ''), targetLanguage);
+    return Boolean(row);
   }
 
   getReadableTranslation(pageSlug, language, session = null, options = {}) {
@@ -2761,6 +3052,589 @@ class PassportStore {
       stableChanged,
       review: this.getPageReview(pageSlug, page?.revisionId || ""),
     };
+  }
+
+  organizationById(id) {
+    return organizationFromRow(this.db.prepare(`
+      SELECT o.*, u.display_name AS founder_name, u.username AS founder_username,
+        (SELECT count(*) FROM organization_members m WHERE m.organization_id = o.id AND m.status = 'active') AS member_count,
+        (SELECT count(*) FROM organization_tasks t WHERE t.organization_id = o.id AND t.status != 'closed') AS task_count,
+        (SELECT count(*) FROM organization_posts p WHERE p.organization_id = o.id AND p.status != 'hidden') AS discussion_count
+      FROM writing_organizations o
+      LEFT JOIN users u ON u.id = o.created_by
+      WHERE o.id = ?
+    `).get(Number(id)));
+  }
+
+  organizationBySlug(slug) {
+    const normalized = normalizeOrganizationSlug(slug);
+    return organizationFromRow(this.db.prepare(`
+      SELECT o.*, u.display_name AS founder_name, u.username AS founder_username,
+        (SELECT count(*) FROM organization_members m WHERE m.organization_id = o.id AND m.status = 'active') AS member_count,
+        (SELECT count(*) FROM organization_tasks t WHERE t.organization_id = o.id AND t.status != 'closed') AS task_count,
+        (SELECT count(*) FROM organization_posts p WHERE p.organization_id = o.id AND p.status != 'hidden') AS discussion_count
+      FROM writing_organizations o
+      LEFT JOIN users u ON u.id = o.created_by
+      WHERE o.slug = ?
+    `).get(normalized));
+  }
+
+  organizationMembership(organizationId, userId) {
+    return organizationMemberFromRow(this.db.prepare(`
+      SELECT m.*, u.display_name, u.username, u.avatar_url
+      FROM organization_members m
+      JOIN users u ON u.id = m.user_id
+      WHERE m.organization_id = ? AND m.user_id = ?
+    `).get(Number(organizationId), Number(userId)));
+  }
+
+  assertOrganizationRole(session, organization, minimumRole = 'member') {
+    if (!session?.user) throw accessError('请先登录后参与写作组织。', 401);
+    const org = typeof organization === 'object' ? organization : this.organizationById(organization);
+    if (!org || org.status !== 'active') throw accessError('写作组织不存在或已停用。', 404);
+    const membership = this.organizationMembership(org.id, session.user.id);
+    if (!membership || membership.status !== 'active') throw accessError('请先加入该写作组织。', 403);
+    if (organizationRoleRank(membership.role) < organizationRoleRank(minimumRole)) {
+      throw accessError('你的组织角色没有执行此操作的权限。', 403);
+    }
+    return { organization: org, membership };
+  }
+
+  listOrganizations(options = {}) {
+    const { limit, offset } = listOptions(options, 12, 60);
+    const query = cleanText(options.query || options.q || '', 120);
+    const args = [];
+    let where = "WHERE o.status = 'active'";
+    if (query) {
+      const like = `%${query}%`;
+      where += ' AND (o.slug LIKE ? OR o.name LIKE ? OR o.description LIKE ?)';
+      args.push(like, like, like);
+    }
+    const total = Number(this.db.prepare(`SELECT count(*) AS n FROM writing_organizations o ${where}`).get(...args).n || 0);
+    const items = this.db.prepare(`
+      SELECT o.*, u.display_name AS founder_name, u.username AS founder_username,
+        (SELECT count(*) FROM organization_members m WHERE m.organization_id = o.id AND m.status = 'active') AS member_count,
+        (SELECT count(*) FROM organization_tasks t WHERE t.organization_id = o.id AND t.status != 'closed') AS task_count,
+        (SELECT count(*) FROM organization_posts p WHERE p.organization_id = o.id AND p.status != 'hidden') AS discussion_count
+      FROM writing_organizations o
+      LEFT JOIN users u ON u.id = o.created_by
+      ${where}
+      ORDER BY o.updated_at DESC, o.id DESC
+      LIMIT ? OFFSET ?
+    `).all(...args, limit, offset).map(organizationFromRow);
+    return { items, total };
+  }
+
+  createOrganization(session, input = {}) {
+    if (!session?.user) throw accessError('请先登录后创建写作组织。', 401);
+    const slug = normalizeOrganizationSlug(input.slug || input.name);
+    const name = cleanText(input.name || slug, 90);
+    if (!name) throw accessError('组织名称不能为空。', 400);
+    const description = cleanText(input.description, 900);
+    const focus = Array.from(new Set((Array.isArray(input.focus) ? input.focus : String(input.focus || '').split(/[，,\n]/))
+      .map((item) => cleanText(item, 80)).filter(Boolean))).slice(0, 12);
+    const visibility = input.visibility === 'request' ? 'request' : 'public';
+    const reviewThreshold = Math.max(1, Math.min(Number(input.reviewThreshold) || 2, 8));
+    const now = nowIso();
+    const result = this.db.prepare(`
+      INSERT INTO writing_organizations (slug, name, description, focus_json, visibility, review_threshold, status, created_by, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)
+    `).run(slug, name, description, jsonText(focus), visibility, reviewThreshold, session.user.id, now, now);
+    const organization = this.organizationById(result.lastInsertRowid);
+    this.db.prepare(`
+      INSERT INTO organization_members (organization_id, user_id, role, status, intro, joined_at, updated_at)
+      VALUES (?, ?, 'owner', 'active', '', ?, ?)
+    `).run(organization.id, session.user.id, now, now);
+    return this.organizationById(organization.id);
+  }
+
+  updateOrganization(session, slug, input = {}) {
+    const organization = this.organizationBySlug(slug);
+    const access = this.assertOrganizationRole(session, organization, 'coordinator');
+    const name = cleanText(input.name || organization.name, 90);
+    const description = cleanText(Object.prototype.hasOwnProperty.call(input, 'description') ? input.description : organization.description, 900);
+    const focus = Object.prototype.hasOwnProperty.call(input, 'focus')
+      ? Array.from(new Set((Array.isArray(input.focus) ? input.focus : String(input.focus || '').split(/[，,\n]/)).map((item) => cleanText(item, 80)).filter(Boolean))).slice(0, 12)
+      : organization.focus;
+    const visibility = access.membership.role === 'owner' && input.visibility === 'request' ? 'request' : organization.visibility;
+    const reviewThreshold = access.membership.role === 'owner'
+      ? Math.max(1, Math.min(Number(input.reviewThreshold) || organization.reviewThreshold, 8))
+      : organization.reviewThreshold;
+    this.db.prepare(`
+      UPDATE writing_organizations SET name = ?, description = ?, focus_json = ?, visibility = ?, review_threshold = ?, updated_at = ? WHERE id = ?
+    `).run(name, description, jsonText(focus), visibility, reviewThreshold, nowIso(), organization.id);
+    return this.organizationById(organization.id);
+  }
+
+  joinOrganization(session, slug, input = {}) {
+    if (!session?.user) throw accessError('请先登录后加入写作组织。', 401);
+    const organization = this.organizationBySlug(slug);
+    if (!organization || organization.status !== 'active') throw accessError('写作组织不存在或已停用。', 404);
+    const intro = cleanText(input.intro, 500);
+    const status = organization.visibility === 'request' ? 'pending' : 'active';
+    const now = nowIso();
+    this.db.prepare(`
+      INSERT INTO organization_members (organization_id, user_id, role, status, intro, joined_at, updated_at)
+      VALUES (?, ?, 'member', ?, ?, ?, ?)
+      ON CONFLICT(organization_id, user_id) DO UPDATE SET intro = excluded.intro, updated_at = excluded.updated_at
+    `).run(organization.id, session.user.id, status, intro, now, now);
+    return { organization, membership: this.organizationMembership(organization.id, session.user.id) };
+  }
+
+  updateOrganizationMember(session, slug, userId, input = {}) {
+    const organization = this.organizationBySlug(slug);
+    const actor = this.assertOrganizationRole(session, organization, 'coordinator');
+    const member = this.organizationMembership(organization.id, userId);
+    if (!member) throw accessError('组织成员不存在。', 404);
+    const nextRole = normalizeOrganizationRole(input.role || member.role, member.role);
+    const nextStatus = ['active', 'pending', 'removed'].includes(input.status) ? input.status : member.status;
+    if (nextRole === 'owner' && actor.membership.role !== 'owner') throw accessError('只有组织所有者可以授予所有者角色。', 403);
+    if (member.role === 'owner' && nextRole !== 'owner') {
+      const ownerCount = Number(this.db.prepare("SELECT count(*) AS n FROM organization_members WHERE organization_id = ? AND role = 'owner' AND status = 'active'").get(organization.id).n || 0);
+      if (ownerCount <= 1) throw accessError('组织至少需要保留一名所有者。', 409);
+    }
+    this.db.prepare('UPDATE organization_members SET role = ?, status = ?, updated_at = ? WHERE organization_id = ? AND user_id = ?')
+      .run(nextRole, nextStatus, nowIso(), organization.id, Number(userId));
+    return this.organizationMembership(organization.id, userId);
+  }
+
+  listOrganizationMembers(organizationId, options = {}) {
+    const { limit, offset } = listOptions(options, 18, 80);
+    return this.db.prepare(`
+      SELECT m.*, u.display_name, u.username, u.avatar_url
+      FROM organization_members m
+      JOIN users u ON u.id = m.user_id
+      WHERE m.organization_id = ? AND m.status != 'removed'
+      ORDER BY CASE m.role WHEN 'owner' THEN 5 WHEN 'coordinator' THEN 4 WHEN 'reviewer' THEN 3 WHEN 'translator' THEN 2 WHEN 'writer' THEN 1 ELSE 0 END DESC, m.joined_at ASC
+      LIMIT ? OFFSET ?
+    `).all(Number(organizationId), limit, offset).map(organizationMemberFromRow);
+  }
+
+  countOrganizationMembers(organizationId) {
+    return Number(this.db.prepare("SELECT count(*) AS n FROM organization_members WHERE organization_id = ? AND status != 'removed'").get(Number(organizationId)).n || 0);
+  }
+
+  organizationTaskQuery(session, organizationId, options = {}) {
+    const { limit, offset } = listOptions(options, 12, 60);
+    const query = cleanText(options.query || options.q || '', 120);
+    const status = ORGANIZATION_TASK_STATUSES.includes(options.status) ? options.status : 'all';
+    const viewerId = Number(session?.user?.id || 0);
+    const where = ['t.organization_id = ?'];
+    const args = [Number(organizationId)];
+    if (status !== 'all') { where.push('t.status = ?'); args.push(status); }
+    if (query) {
+      const like = `%${query}%`;
+      where.push('(t.title LIKE ? OR t.summary LIKE ? OR t.page_slug LIKE ?)');
+      args.push(like, like, like);
+    }
+    const clause = `WHERE ${where.join(' AND ')}`;
+    const total = Number(this.db.prepare(`SELECT count(*) AS n FROM organization_tasks t ${clause}`).get(...args).n || 0);
+    const rows = this.db.prepare(`
+      SELECT t.*, o.slug AS organization_slug, o.name AS organization_name,
+        creator.display_name AS creator_name, assignee.display_name AS assignee_name, assignee.username AS assignee_username,
+        viewer.role AS organization_role, viewer.status AS viewer_status
+      FROM organization_tasks t
+      JOIN writing_organizations o ON o.id = t.organization_id
+      LEFT JOIN users creator ON creator.id = t.created_by
+      LEFT JOIN users assignee ON assignee.id = t.assignee_user_id
+      LEFT JOIN organization_members viewer ON viewer.organization_id = t.organization_id AND viewer.user_id = ?
+      ${clause}
+      ORDER BY CASE t.priority WHEN 'urgent' THEN 3 WHEN 'high' THEN 2 ELSE 1 END DESC, t.updated_at DESC, t.id DESC
+      LIMIT ? OFFSET ?
+    `).all(viewerId, ...args, limit, offset);
+    return {
+      items: rows.map((row) => organizationTaskFromRow({
+        ...row,
+        can_claim: row.viewer_status === 'active' && ['open', 'claimed'].includes(row.status) && (!row.assignee_user_id || Number(row.assignee_user_id) === viewerId),
+        can_review: row.viewer_status === 'active' && organizationRoleRank(row.organization_role) >= organizationRoleRank('reviewer') && row.task_type === 'review' && row.status !== 'closed',
+      })),
+      total,
+    };
+  }
+
+  listOrganizationTasks(session, slug, options = {}) {
+    const organization = this.organizationBySlug(slug);
+    if (!organization || organization.status !== 'active') throw accessError('写作组织不存在或已停用。', 404);
+    return { organization, ...this.organizationTaskQuery(session, organization.id, options) };
+  }
+
+  createOrganizationTask(session, slug, input = {}) {
+    const organization = this.organizationBySlug(slug);
+    this.assertOrganizationRole(session, organization, 'coordinator');
+    const taskType = ORGANIZATION_TASK_TYPES.includes(input.taskType) ? input.taskType : 'write';
+    const pageSlug = normalizeKnowledgeSlug(input.pageSlug, '词条');
+    const language = taskType === 'translate' || input.language ? normalizeTranslationLang(input.language, '') : '';
+    if (taskType === 'translate' && !language) throw accessError('翻译任务需要指定目标语言。', 400);
+    const title = cleanText(input.title || `${pageSlug} 协作任务`, 160);
+    const summary = cleanText(input.summary, 1400);
+    const priority = ['normal', 'high', 'urgent'].includes(input.priority) ? input.priority : 'normal';
+    const now = nowIso();
+    const result = this.db.prepare(`
+      INSERT INTO organization_tasks (organization_id, task_type, page_slug, language, title, summary, priority, status, created_by, assignee_user_id, created_at, updated_at, claimed_at, closed_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'open', ?, NULL, ?, ?, '', '')
+    `).run(organization.id, taskType, pageSlug, language, title, summary, priority, session.user.id, now, now);
+    return this.getOrganizationTask(session, result.lastInsertRowid);
+  }
+
+  getOrganizationTask(session, taskId) {
+    const row = this.db.prepare(`
+      SELECT t.*, o.slug AS organization_slug, o.name AS organization_name,
+        creator.display_name AS creator_name, assignee.display_name AS assignee_name, assignee.username AS assignee_username,
+        viewer.role AS organization_role, viewer.status AS viewer_status
+      FROM organization_tasks t
+      JOIN writing_organizations o ON o.id = t.organization_id
+      LEFT JOIN users creator ON creator.id = t.created_by
+      LEFT JOIN users assignee ON assignee.id = t.assignee_user_id
+      LEFT JOIN organization_members viewer ON viewer.organization_id = t.organization_id AND viewer.user_id = ?
+      WHERE t.id = ?
+    `).get(Number(session?.user?.id || 0), Number(taskId));
+    if (!row) return null;
+    return organizationTaskFromRow({
+      ...row,
+      can_claim: row.viewer_status === 'active' && ['open', 'claimed'].includes(row.status) && (!row.assignee_user_id || Number(row.assignee_user_id) === Number(session?.user?.id || 0)),
+      can_review: row.viewer_status === 'active' && organizationRoleRank(row.organization_role) >= organizationRoleRank('reviewer') && row.task_type === 'review' && row.status !== 'closed',
+    });
+  }
+
+  claimOrganizationTask(session, taskId) {
+    if (!session?.user) throw accessError('请先登录后认领协作任务。', 401);
+    const task = this.getOrganizationTask(session, taskId);
+    if (!task) throw accessError('协作任务不存在。', 404);
+    this.assertOrganizationRole(session, task.organizationId, 'member');
+    if (task.status === 'closed') throw accessError('该协作任务已经关闭。', 409);
+    if (task.assigneeUserId && Number(task.assigneeUserId) !== Number(session.user.id)) throw accessError('该协作任务已被其他成员认领。', 409);
+    const now = nowIso();
+    this.db.prepare("UPDATE organization_tasks SET assignee_user_id = ?, status = 'claimed', claimed_at = ?, updated_at = ? WHERE id = ?")
+      .run(session.user.id, now, now, Number(taskId));
+    return this.getOrganizationTask(session, taskId);
+  }
+
+  updateOrganizationTask(session, taskId, input = {}) {
+    const task = this.getOrganizationTask(session, taskId);
+    if (!task) throw accessError('协作任务不存在。', 404);
+    const access = this.assertOrganizationRole(session, task.organizationId, 'member');
+    const canCoordinate = organizationRoleRank(access.membership.role) >= organizationRoleRank('coordinator');
+    const assigned = Number(task.assigneeUserId || 0) === Number(session.user.id);
+    if (!canCoordinate && !assigned) throw accessError('只有任务认领者或组织协调者可以更新任务。', 403);
+    const status = ORGANIZATION_TASK_STATUSES.includes(input.status) ? input.status : task.status;
+    const now = nowIso();
+    this.db.prepare("UPDATE organization_tasks SET status = ?, updated_at = ?, closed_at = CASE WHEN ? = 'closed' THEN ? ELSE closed_at END WHERE id = ?")
+      .run(status, now, status, now, Number(taskId));
+    return this.getOrganizationTask(session, taskId);
+  }
+
+  organizationPostQuery(session, organizationId, options = {}) {
+    const { limit, offset } = listOptions(options, 10, 50);
+    const status = ['open', 'resolved', 'locked'].includes(options.status) ? options.status : 'all';
+    const viewerId = Number(session?.user?.id || 0);
+    const where = ["p.organization_id = ?", "p.status != 'hidden'"];
+    const args = [Number(organizationId)];
+    if (status !== 'all') { where.push('p.status = ?'); args.push(status); }
+    const clause = `WHERE ${where.join(' AND ')}`;
+    const total = Number(this.db.prepare(`SELECT count(*) AS n FROM organization_posts p ${clause}`).get(...args).n || 0);
+    const items = this.db.prepare(`
+      SELECT p.*, author.display_name AS author_name, author.username AS author_username, author.avatar_url AS author_avatar_url,
+        viewer.role AS organization_role, viewer.status AS viewer_status,
+        (SELECT count(*) FROM organization_post_replies r WHERE r.post_id = p.id AND r.status = 'published') AS reply_count
+      FROM organization_posts p
+      JOIN users author ON author.id = p.author_user_id
+      LEFT JOIN organization_members viewer ON viewer.organization_id = p.organization_id AND viewer.user_id = ?
+      ${clause}
+      ORDER BY p.pinned DESC, p.updated_at DESC, p.id DESC
+      LIMIT ? OFFSET ?
+    `).all(viewerId, ...args, limit, offset).map(organizationPostFromRow);
+    return { items, total };
+  }
+
+  listOrganizationPosts(session, slug, options = {}) {
+    const organization = this.organizationBySlug(slug);
+    if (!organization || organization.status !== 'active') throw accessError('写作组织不存在或已停用。', 404);
+    return { organization, ...this.organizationPostQuery(session, organization.id, options) };
+  }
+
+  createOrganizationPost(session, slug, input = {}) {
+    const organization = this.organizationBySlug(slug);
+    const access = this.assertOrganizationRole(session, organization, 'member');
+    const postType = ['discussion', 'announcement', 'decision'].includes(input.postType) ? input.postType : 'discussion';
+    if (['announcement', 'decision'].includes(postType) && organizationRoleRank(access.membership.role) < organizationRoleRank('coordinator')) {
+      throw accessError('只有组织协调者可以发布公告或决议。', 403);
+    }
+    const title = cleanText(input.title, 180);
+    const body = cleanText(input.bodyMd || input.body || '', COMMENT_MAX_LENGTH);
+    if (!title || !body) throw accessError('讨论标题和内容不能为空。', 400);
+    const pageSlug = input.pageSlug ? normalizeKnowledgeSlug(input.pageSlug, '关联词条') : '';
+    const language = input.language ? normalizeTranslationLang(input.language, '') : '';
+    const now = nowIso();
+    const result = this.db.prepare(`
+      INSERT INTO organization_posts (organization_id, post_type, title, body_md, page_slug, language, status, pinned, author_user_id, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, 'open', ?, ?, ?, ?)
+    `).run(organization.id, postType, title, body, pageSlug, language, input.pinned === true ? 1 : 0, session.user.id, now, now);
+    this.notifyOrganizationMembers(organization, {
+      senderUserId: session.user.id,
+      senderName: session.user.displayName || session.user.username,
+      title: `${organization.name} 有新的${postType === 'announcement' ? '公告' : postType === 'decision' ? '社区决议' : '讨论'}`,
+      body: title,
+      sourceUrl: `#/organization/${encodeURIComponent(organization.slug)}`,
+      sourceLabel: '查看组织讨论',
+      excludeUserId: session.user.id,
+    });
+    return this.getOrganizationPost(session, result.lastInsertRowid);
+  }
+
+  getOrganizationPost(session, postId) {
+    return organizationPostFromRow(this.db.prepare(`
+      SELECT p.*, author.display_name AS author_name, author.username AS author_username, author.avatar_url AS author_avatar_url,
+        (SELECT count(*) FROM organization_post_replies r WHERE r.post_id = p.id AND r.status = 'published') AS reply_count
+      FROM organization_posts p
+      JOIN users author ON author.id = p.author_user_id
+      WHERE p.id = ? AND p.status != 'hidden'
+    `).get(Number(postId)));
+  }
+
+  listOrganizationPostReplies(session, postId, options = {}) {
+    const post = this.getOrganizationPost(session, postId);
+    if (!post) throw accessError('组织讨论不存在。', 404);
+    const { limit, offset } = listOptions(options, 12, 60);
+    const total = Number(this.db.prepare("SELECT count(*) AS n FROM organization_post_replies WHERE post_id = ? AND status = 'published'").get(post.id).n || 0);
+    const items = this.db.prepare(`
+      SELECT r.*, u.display_name AS author_name, u.username AS author_username, u.avatar_url AS author_avatar_url
+      FROM organization_post_replies r
+      JOIN users u ON u.id = r.author_user_id
+      WHERE r.post_id = ? AND r.status = 'published'
+      ORDER BY r.created_at ASC, r.id ASC
+      LIMIT ? OFFSET ?
+    `).all(post.id, limit, offset).map(organizationPostReplyFromRow);
+    return { post, items, total };
+  }
+
+  replyToOrganizationPost(session, postId, input = {}) {
+    if (!session?.user) throw accessError('请先登录后参与组织讨论。', 401);
+    const post = this.getOrganizationPost(session, postId);
+    if (!post) throw accessError('组织讨论不存在。', 404);
+    const organization = this.organizationById(post.organizationId);
+    this.assertOrganizationRole(session, organization, 'member');
+    if (post.status === 'locked') throw accessError('该组织讨论已锁定。', 409);
+    const content = cleanText(input.contentMd || input.content || '', COMMENT_MAX_LENGTH);
+    if (!content) throw accessError('回复内容不能为空。', 400);
+    const parentId = Number(input.parentId || 0) || null;
+    if (parentId) {
+      const parent = this.db.prepare("SELECT id FROM organization_post_replies WHERE id = ? AND post_id = ? AND status = 'published'").get(parentId, post.id);
+      if (!parent) throw accessError('要回复的讨论内容不存在。', 404);
+    }
+    const now = nowIso();
+    const result = this.db.prepare(`
+      INSERT INTO organization_post_replies (post_id, parent_id, author_user_id, content_md, status, created_at, updated_at)
+      VALUES (?, ?, ?, ?, 'published', ?, ?)
+    `).run(post.id, parentId, session.user.id, content, now, now);
+    this.db.prepare('UPDATE organization_posts SET updated_at = ? WHERE id = ?').run(now, post.id);
+    return organizationPostReplyFromRow(this.db.prepare(`
+      SELECT r.*, u.display_name AS author_name, u.username AS author_username, u.avatar_url AS author_avatar_url
+      FROM organization_post_replies r JOIN users u ON u.id = r.author_user_id WHERE r.id = ?
+    `).get(result.lastInsertRowid));
+  }
+
+  updateOrganizationPost(session, postId, input = {}) {
+    const post = this.getOrganizationPost(session, postId);
+    if (!post) throw accessError('组织讨论不存在。', 404);
+    const organization = this.organizationById(post.organizationId);
+    const access = this.assertOrganizationRole(session, organization, 'coordinator');
+    const status = ['open', 'resolved', 'locked'].includes(input.status) ? input.status : post.status;
+    const pinned = Object.prototype.hasOwnProperty.call(input, 'pinned') ? (input.pinned === true ? 1 : 0) : (post.pinned ? 1 : 0);
+    this.db.prepare('UPDATE organization_posts SET status = ?, pinned = ?, updated_at = ? WHERE id = ?')
+      .run(status, pinned, nowIso(), post.id);
+    return this.getOrganizationPost(session, post.id);
+  }
+
+  notifyOrganizationMembers(organization, input = {}) {
+    const recipients = this.db.prepare(`
+      SELECT m.user_id FROM organization_members m
+      JOIN users u ON u.id = m.user_id
+      WHERE m.organization_id = ? AND m.status = 'active' AND u.status = 'active'
+    `).all(organization.id);
+    let count = 0;
+    for (const recipient of recipients) {
+      if (Number(recipient.user_id) === Number(input.excludeUserId || 0)) continue;
+      this.insertMessage({
+        recipientUserId: recipient.user_id,
+        senderUserId: input.senderUserId || null,
+        senderName: input.senderName || organization.name,
+        title: input.title || `${organization.name} 社区更新`,
+        body: input.body || '',
+        kind: 'organization',
+        sourceType: 'organization',
+        sourceUrl: input.sourceUrl || `#/organization/${encodeURIComponent(organization.slug)}`,
+        sourceLabel: input.sourceLabel || '查看组织',
+      });
+      count += 1;
+    }
+    return count;
+  }
+
+  communityReviewSnapshot(session, subjectType, pageSlug, language = '', revisionId = '') {
+    const subject = subjectType === 'translation' ? 'translation' : 'page';
+    const slug = normalizeKnowledgeSlug(pageSlug, '词条');
+    const targetLanguage = subject === 'translation' ? normalizeTranslationLang(language) : '';
+    const revision = String(revisionId || '').replace(/[^0-9TZ-]/g, '');
+    const viewerId = Number(session?.user?.id || 0);
+    const taskRows = this.db.prepare(`
+      SELECT t.*, o.slug AS organization_slug, o.name AS organization_name, o.review_threshold,
+        viewer.role AS organization_role, viewer.status AS viewer_status,
+        creator.display_name AS creator_name, assignee.display_name AS assignee_name, assignee.username AS assignee_username
+      FROM organization_tasks t
+      JOIN writing_organizations o ON o.id = t.organization_id AND o.status = 'active'
+      LEFT JOIN organization_members viewer ON viewer.organization_id = o.id AND viewer.user_id = ?
+      LEFT JOIN users creator ON creator.id = t.created_by
+      LEFT JOIN users assignee ON assignee.id = t.assignee_user_id
+      WHERE t.task_type = 'review' AND t.page_slug = ? AND t.status != 'closed'
+        AND (t.language = '' OR t.language = ?)
+      ORDER BY t.updated_at DESC, t.id DESC
+    `).all(viewerId, slug, targetLanguage);
+    const tasks = taskRows.map((row) => organizationTaskFromRow({
+      ...row,
+      can_claim: row.viewer_status === 'active' && ['open', 'claimed'].includes(row.status) && (!row.assignee_user_id || Number(row.assignee_user_id) === viewerId),
+      can_review: row.viewer_status === 'active' && organizationRoleRank(row.organization_role) >= organizationRoleRank('reviewer'),
+    }));
+    const voteRows = revision ? this.db.prepare(`
+      SELECT v.*, o.slug AS organization_slug, o.name AS organization_name, u.display_name AS reviewer_name, u.username AS reviewer_username
+      FROM community_review_votes v
+      JOIN writing_organizations o ON o.id = v.organization_id
+      JOIN users u ON u.id = v.reviewer_user_id
+      WHERE v.subject_type = ? AND v.page_slug = ? AND v.language = ? AND v.revision_id = ?
+      ORDER BY v.updated_at DESC, v.id DESC
+    `).all(subject, slug, targetLanguage, revision).map(communityReviewFromRow) : [];
+    const consensusRows = revision ? this.db.prepare(`
+      SELECT organization_id, decision, finalized_at FROM community_review_consensus
+      WHERE subject_type = ? AND page_slug = ? AND language = ? AND revision_id = ?
+    `).all(subject, slug, targetLanguage, revision) : [];
+    const byOrg = new Map();
+    for (const task of tasks) {
+      if (!byOrg.has(task.organizationId)) byOrg.set(task.organizationId, {
+        organizationId: task.organizationId,
+        organizationSlug: task.organizationSlug,
+        organizationName: task.organizationName,
+        threshold: Math.max(1, Number(taskRows.find((row) => Number(row.organization_id) === Number(task.organizationId))?.review_threshold || 2)),
+        taskIds: [],
+        canReview: false,
+        approve: 0,
+        changesRequested: 0,
+        votes: [],
+        finalized: null,
+      });
+      const group = byOrg.get(task.organizationId);
+      group.taskIds.push(task.id);
+      group.canReview ||= task.canReview;
+    }
+    for (const vote of voteRows) {
+      const group = byOrg.get(vote.organizationId);
+      if (!group) continue;
+      if (vote.decision === 'approve') group.approve += 1;
+      else group.changesRequested += 1;
+      group.votes.push(vote);
+    }
+    for (const consensus of consensusRows) {
+      const group = byOrg.get(consensus.organization_id);
+      if (group) group.finalized = { decision: consensus.decision, finalizedAt: consensus.finalized_at };
+    }
+    return { subjectType: subject, pageSlug: slug, language: targetLanguage, revisionId: revision, tasks, organizations: [...byOrg.values()] };
+  }
+
+  submitCommunityReview(session, subjectType, pageSlug, input = {}) {
+    if (!session?.user) throw accessError('请先登录后提交社区审阅。', 401);
+    const subject = subjectType === 'translation' ? 'translation' : 'page';
+    const slug = normalizeKnowledgeSlug(pageSlug, '词条');
+    const language = subject === 'translation' ? normalizeTranslationLang(input.language) : '';
+    const revisionId = String(input.revisionId || '').replace(/[^0-9TZ-]/g, '');
+    if (!revisionId) throw accessError('当前版本不可参与社区审阅。', 400);
+    const organizationId = Number(input.organizationId);
+    const decision = input.decision === 'approve' ? 'approve' : input.decision === 'changes_requested' ? 'changes_requested' : '';
+    if (!Number.isInteger(organizationId) || organizationId <= 0 || !decision) throw accessError('社区审阅参数无效。', 400);
+    const snapshot = this.communityReviewSnapshot(session, subject, slug, language, revisionId);
+    const group = snapshot.organizations.find((item) => Number(item.organizationId) === organizationId);
+    if (!group) throw accessError('该组织没有匹配的审阅任务。', 403);
+    if (!group.canReview) throw accessError('你需要以组织审阅者身份参与该任务。', 403);
+    if (group.finalized) throw accessError('该组织已对当前版本形成社区结论。', 409);
+    const comment = cleanText(input.comment, 2000);
+    const now = nowIso();
+    this.db.prepare(`
+      INSERT INTO community_review_votes (organization_id, subject_type, page_slug, language, revision_id, decision, comment, reviewer_user_id, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(organization_id, subject_type, page_slug, language, revision_id, reviewer_user_id) DO UPDATE SET
+        decision = excluded.decision, comment = excluded.comment, updated_at = excluded.updated_at
+    `).run(organizationId, subject, slug, language, revisionId, decision, comment, session.user.id, now, now);
+    const next = this.communityReviewSnapshot(session, subject, slug, language, revisionId);
+    const nextGroup = next.organizations.find((item) => Number(item.organizationId) === organizationId);
+    const reachedDecision = nextGroup.approve >= nextGroup.threshold ? 'approve'
+      : nextGroup.changesRequested >= nextGroup.threshold ? 'changes_requested' : '';
+    return { snapshot: next, organization: this.organizationById(organizationId), group: nextGroup, reachedDecision };
+  }
+
+  finalizeCommunityPageReview(session, page, input = {}) {
+    const organization = this.organizationById(input.organizationId);
+    const decision = input.decision === 'approve' ? 'approve' : 'changes_requested';
+    const pageSlug = normalizeKnowledgeSlug(page?.slug, '词条');
+    const revisionId = String(page?.revisionId || '').replace(/[^0-9TZ-]/g, '');
+    const result = this.db.prepare(`
+      INSERT OR IGNORE INTO community_review_consensus (organization_id, subject_type, page_slug, language, revision_id, decision, finalizer_user_id, finalized_at)
+      VALUES (?, 'page', ?, '', ?, ?, ?, ?)
+    `).run(organization.id, pageSlug, revisionId, decision, session.user.id, nowIso());
+    if (!result.changes) return { finalized: false, review: this.getPageReview(pageSlug, revisionId) };
+    const reviewerName = `${organization.name} 社区共识`;
+    const comment = cleanText(input.comment, 2000) || `经 ${organization.name} 审阅成员达成 ${Math.max(1, Number(organization.reviewThreshold || 2))} 票共识。`;
+    const now = nowIso();
+    if (decision === 'approve') {
+      this.db.prepare(`
+        INSERT INTO page_stable_revisions (page_slug, stable_revision_id, reviewer_user_id, reviewer_name, review_comment, reviewed_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(page_slug) DO UPDATE SET stable_revision_id = excluded.stable_revision_id, reviewer_user_id = excluded.reviewer_user_id,
+          reviewer_name = excluded.reviewer_name, review_comment = excluded.review_comment, reviewed_at = excluded.reviewed_at, updated_at = excluded.updated_at
+      `).run(pageSlug, revisionId, session.user.id, reviewerName, comment, now, now);
+    }
+    this.db.prepare(`
+      INSERT INTO page_review_notes (page_slug, revision_id, decision, reviewer_user_id, reviewer_name, comment, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(pageSlug, revisionId, decision, session.user.id, reviewerName, comment, now);
+    this.notifyOrganizationMembers(organization, {
+      senderUserId: session.user.id,
+      senderName: reviewerName,
+      title: `${organization.name} 已形成词条审阅共识`,
+      body: `${page.title || pageSlug}：${decision === 'approve' ? '通过并建立稳定版本' : '要求继续修改'}。`,
+      sourceUrl: `#/review/${pageSlug.split('/').map(encodeURIComponent).join('/')}`,
+      sourceLabel: '查看版本审阅',
+      excludeUserId: session.user.id,
+    });
+    return { finalized: true, review: this.getPageReview(pageSlug, revisionId) };
+  }
+
+  finalizeCommunityTranslationReview(session, pageSlug, language, input = {}) {
+    const organization = this.organizationById(input.organizationId);
+    const translation = this.getTranslation(pageSlug, language);
+    if (!translation) throw accessError('译文不存在。', 404);
+    const decision = input.decision === 'approve' ? 'approve' : 'changes_requested';
+    const revisionId = String(input.revisionId || translation.updatedAt || '').replace(/[^0-9TZ-]/g, '');
+    const result = this.db.prepare(`
+      INSERT OR IGNORE INTO community_review_consensus (organization_id, subject_type, page_slug, language, revision_id, decision, finalizer_user_id, finalized_at)
+      VALUES (?, 'translation', ?, ?, ?, ?, ?, ?)
+    `).run(organization.id, translation.pageSlug, translation.language, revisionId, decision, session.user.id, nowIso());
+    if (!result.changes) return { finalized: false, translation };
+    const now = nowIso();
+    const reviewerName = `${organization.name} 社区共识`;
+    const comment = cleanText(input.comment, 2000) || `经 ${organization.name} 审阅成员达成 ${Math.max(1, Number(organization.reviewThreshold || 2))} 票共识。`;
+    const status = decision === 'approve' ? 'published' : 'changes_requested';
+    this.db.prepare(`
+      UPDATE page_translations SET status = ?, reviewer_user_id = ?, reviewer_name = ?, review_comment = ?, reviewed_at = ?, updated_at = ? WHERE id = ?
+    `).run(status, session.user.id, reviewerName, comment, now, now, translation.id);
+    const reviewed = this.getTranslation(pageSlug, language);
+    if (reviewed.status === 'published') this.syncTranslationMemory(reviewed);
+    this.notifyOrganizationMembers(organization, {
+      senderUserId: session.user.id,
+      senderName: reviewerName,
+      title: `${organization.name} 已形成译文审阅共识`,
+      body: `${translation.pageSlug} · ${translation.language}：${decision === 'approve' ? '通过并发布' : '要求继续修改'}。`,
+      sourceUrl: `#/translate/${translation.pageSlug.split('/').map(encodeURIComponent).join('/')}?lang=${encodeURIComponent(translation.language)}`,
+      sourceLabel: '查看译文',
+      excludeUserId: session.user.id,
+    });
+    return { finalized: true, translation: reviewed };
   }
 
   updatePagePermissions(slug, input, userId) {

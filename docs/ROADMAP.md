@@ -99,12 +99,15 @@ Evolve manifests into a small, documented extension contract:
 
 ## P5: Community Governance
 
+### Delivered: Writing Commons And Community Review
+
+Wikist now has lightweight writing organizations, member roles, claimable writing/translation/review tasks, scoped Markdown discussion threads, and threshold-based community consensus for exact article and translation snapshots. The workflow reuses Passport, messages, stable revisions, and translation review rather than adding a separate forum service. See [Writing Commons And Community Review](WRITING_COMMONS.md).
+
 ### 13. Transparent Contribution Tools
 
-- Per-page change summary and meaningful diff view.
-- Contributor statistics based on edits, reviews, translations, and accepted citations rather than raw activity counts.
+- Contributor statistics based on edits, organization tasks, reviews, translations, and accepted citations rather than raw activity counts.
 - Moderation reasons, reversible page protection, and rate limits for anonymous edits.
-- A public quality dashboard that distinguishes article completeness, review status, source coverage, and translation coverage.
+- A public quality dashboard that distinguishes article completeness, review status, source coverage, translation coverage, and active organization ownership.
 
 ## Not A Near-Term Goal
 
@@ -116,6 +119,6 @@ Do not add a mandatory message broker, graph database, Elasticsearch cluster, fu
 2. Category landing pages, rename repair, and richer link-graph reports.
 3. Translation coverage reporting, target-language link previews, and lightweight render caching.
 4. SQLite FTS5 observability, image variants, and exchange adapters.
-5. Community governance metrics and targeted moderation tools.
+5. Community governance metrics, organization health, and targeted moderation tools.
 
 Each stage should ship with a focused migration, API contract, UI route, documentation update, and feature check. This keeps the system fast to deploy while steadily increasing its value as a serious knowledge wiki.

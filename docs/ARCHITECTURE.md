@@ -119,6 +119,8 @@ Translation data stays in SQLite while the canonical source article stays in Mar
 
 The v0.9 quality layer adds `translation_memory` and `translation_glossary` to the same Passport SQLite database. Memory is populated only by published translations and uses bounded exact paragraph hashes; glossary entries are reviewer-curated. The workbench compares its saved source snapshot to current Markdown and exposes source-change markers without duplicating source pages or adding a search service. See [Translation Quality Layer](TRANSLATION_QUALITY.md).
 
+The v0.10 writing commons adds organizations, memberships, tasks, discussion posts/replies, votes, and consensus records to Passport SQLite. These are collaboration metadata rather than an alternate article store. Consensus is scoped to one organization and one immutable page or translation snapshot; threshold approval reuses the existing stable-revision or published-translation path. See [Writing Commons And Community Review](WRITING_COMMONS.md).
+
 Wikipedia import/export preserves source attribution and attempts to map headings, links, images, tables, mathematical notation, and common wikitext structures into Wikist Markdown. It is intentionally a converter with visible fallbacks, not a promise of lossless MediaWiki template execution.
 
 ## Operations And Safety
@@ -135,6 +137,7 @@ The following are planned as additive layers rather than implicit requirements:
 
 - optional DOI/arXiv metadata enrichment and citation-style selection;
 - optional semantic or external translation-service integrations beyond the built-in exact-match memory and glossary;
+- a separate forum, message broker, or social-feed service beyond organization-scoped discussion threads;
 - an event/hook API with permission declarations for plugins;
 - an alternate Passport store backed by PostgreSQL or MySQL.
 
