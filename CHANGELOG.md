@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-07-11 - Watch Delivery And Review Workflow
+
+- Article saves now return the actual targeted-notification count and current review state; page, category, language, and author followers continue to receive one direct inbox update per matching save.
+- Reworked the article follow control around “follow updates” and made the Account -> Watchlist action fill its panel instead of appearing as a small orphaned link.
+- Completed the edit-to-review path: every save creates the current revision, clearly enters the pending-review queue, and gives senior editors a direct choice to open the diff and approve a reviewed stable snapshot.
+- Rebuilt the review-decision surface with native Wikist CSS controls, responsive action cards, accessible focus states, and coordinated light/dark themes.
+- Review opinions are now paginated ten at a time. Their original senior-editor author can withdraw them; withdrawing the approval that currently defines stability safely restores the latest remaining approval or clears the stable pointer.
+- Explicit article, category, and language subscriptions now also receive their own saved update in the inbox, so a contributor can verify the subscription pipeline without relying on a second account.
+- Fixed review-note withdrawal route parsing for nested and ordinary article slugs; no manual slug field is required.
+- Bumped the framework package to `0.5.3` and the frontend asset version to `wikist-core-20260711-70`.
+
 ## 2026-07-11 - Final Light Surface Coverage
 
 - Added light-theme coverage for Plugin management syntax previews, code text, horizontal scrollbars, and the Import / Export signed-in identity card.

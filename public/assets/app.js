@@ -1,6 +1,6 @@
 const THEME_KEY = "wikist-theme";
 const LANG_KEY = "wikist-language";
-const CORE_ASSET_VERSION = "wikist-core-20260711-68";
+const CORE_ASSET_VERSION = "wikist-core-20260711-70";
 const VDITOR_VERSION = "3.11.2";
 const VDITOR_CDN = `https://cdn.jsdelivr.net/npm/vditor@${VDITOR_VERSION}`;
 const SWEETALERT_VERSION = "11.26.25";
@@ -1669,7 +1669,7 @@ function pageWatchButtonHtml(page) {
   return `
     <button class="article-watch-button" id="pageWatchButton" type="button" data-page-watch="${escapeHtml(page.slug)}" aria-pressed="false">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4.5a7.5 7.5 0 0 1 7.5 7.5c0 2.1-.88 4-2.3 5.36L18.5 21H5.5l1.3-3.64A7.46 7.46 0 0 1 4.5 12 7.5 7.5 0 0 1 12 4.5Zm0 3a4.5 4.5 0 0 0-4.5 4.5c0 1.36.6 2.58 1.55 3.4l.44.38-.58 1.62h6.18l-.58-1.62.44-.38A4.47 4.47 0 0 0 16.5 12 4.5 4.5 0 0 0 12 7.5Z"/></svg>
-      <span data-watch-label>关注</span>
+      <span data-watch-label>关注更新</span>
     </button>`;
 }
 
@@ -1678,9 +1678,9 @@ function updatePageWatchButton(button, watch = {}) {
   const active = Boolean(watch.watched);
   button.classList.toggle("active", active);
   button.setAttribute("aria-pressed", String(active));
-  button.title = active ? "取消关注词条" : "关注词条更新";
+  button.title = active ? "取消关注词条更新" : "关注词条更新";
   const label = button.querySelector("[data-watch-label]");
-  if (label) label.textContent = active ? "已关注" : "关注";
+  if (label) label.textContent = active ? "已关注更新" : "关注更新";
 }
 
 async function loadPageWatch(slug) {
@@ -1989,13 +1989,16 @@ function pageReviewStatusHtml(page) {
     ? `${review.reviewerName || "审核者"} · ${fmtDate(review.reviewedAt)}`
     : "提交后由资深编辑或管理员审核";
   const note = review.latestNote?.decision === "changes_requested" ? `最近意见：${shortText(review.latestNote.comment || "需要修改", 72)}` : "";
-  return `<section class="page-review-status ${review.pending ? "pending" : "stable"}"><div><span class="system-kicker">Version Review</span><h2>${stableText}</h2><p>${escapeHtml(detail)}</p>${note ? `<small>${escapeHtml(note)}</small>` : ""}</div><div class="page-review-status-actions"><span class="review-version-chip current">当前</span>${review.hasStable ? '<span class="review-version-chip stable">已审阅</span>' : ""}<a class="command-button secondary" href="#/review/${encodeSlug(page.slug)}">版本审阅</a></div></section>`;
+  const actionLabel = canReviewContent() && review.pending ? "立即审阅" : "查看审阅";
+  return `<section class="page-review-status ${review.pending ? "pending" : "stable"}"><div><span class="system-kicker">Version Review</span><h2>${stableText}</h2><p>${escapeHtml(detail)}</p>${note ? `<small>${escapeHtml(note)}</small>` : ""}</div><div class="page-review-status-actions"><span class="review-version-chip current">当前</span>${review.hasStable ? '<span class="review-version-chip stable">已审阅</span>' : ""}<a class="review-status-action" href="#/review/${encodeSlug(page.slug)}">${actionLabel}</a></div></section>`;
 }
 
 function reviewNoteHtml(note) {
   const decision = note.decision === "approve" ? "已通过" : "要求修改";
   const tone = note.decision === "approve" ? "stable" : "pending";
-  return `<article class="review-note"><div><span class="review-version-chip ${tone}">${decision}</span><strong>${escapeHtml(note.reviewerName || "Wikist Reviewer")}</strong><small>${fmtDate(note.createdAt)}</small></div><p>${escapeHtml(note.comment || "未填写文字意见。")}</p></article>`;
+  const ownNote = Number(note.reviewerUserId || 0) === Number(state.user?.id || 0) && canReviewContent();
+  const withdraw = ownNote ? `<button class="review-note-withdraw" type="button" data-withdraw-review-note="${Number(note.id)}">撤回意见</button>` : "";
+  return `<article class="review-note"><div class="review-note-head"><div><span class="review-version-chip ${tone}">${decision}</span><strong>${escapeHtml(note.reviewerName || "Wikist Reviewer")}</strong><small>${fmtDate(note.createdAt)}</small></div>${withdraw}</div><p>${escapeHtml(note.comment || "未填写文字意见。")}</p></article>`;
 }
 
 function reviewDiffHtml(changes = []) {
@@ -2021,10 +2024,12 @@ function reviewDiffHtml(changes = []) {
 }
 
 async function renderPageReview(slug) {
-  const normalizedSlug = String(slug || "").split("?")[0] || state.site.defaultPage || "home";
+  const parsed = splitValueQuery(slug);
+  const normalizedSlug = parsed.pathValue || state.site.defaultPage || "home";
+  const notesPage = Math.max(1, Number(parsed.params.get("page")) || 1);
   const [current, reviewPayload] = await Promise.all([
     api(`/api/pages/${encodeSlug(normalizedSlug)}`),
-    api(`/api/pages/${encodeSlug(normalizedSlug)}/review?page=1&limit=12`),
+    api(`/api/pages/${encodeSlug(normalizedSlug)}/review?page=${notesPage}&limit=10`),
   ]);
   const review = reviewPayload.review || current.review || {};
   const [stable, diff] = review.hasStable
@@ -2038,8 +2043,9 @@ async function renderPageReview(slug) {
   renderToc([]);
   el.editLink.href = `#/edit/${encodeSlug(current.slug)}`;
   const notes = (reviewPayload.items || []).map(reviewNoteHtml).join("") || '<p class="muted-line">尚无审核意见。</p>';
+  const notePagination = paginationHtml(reviewPayload.pagination || {}, "审核意见");
   const reviewerControls = canReviewContent()
-    ? `<form class="review-decision-form" id="pageReviewForm"><label>审核意见<textarea name="comment" rows="3" placeholder="说明通过理由，或明确需要补充的事实、来源和措辞。"></textarea></label><div><button class="command-button" type="submit" data-decision="approve">通过并设为稳定版</button><button class="command-button secondary" type="submit" data-decision="changes_requested">要求修改</button></div><p class="status-line" id="pageReviewStatus"></p></form>`
+    ? `<form class="review-decision-form" id="pageReviewForm"><div class="review-decision-head"><span class="system-kicker">Decision Console</span><h2>对当前版本作出决定</h2><p>通过后会冻结当前修订为稳定版本；要求修改不会改变已有稳定版。</p></div><label class="review-decision-field"><span>审核意见 <small>可写明核查范围、来源问题或待补充内容</small></span><textarea name="comment" rows="4" placeholder="说明通过理由，或明确需要补充的事实、来源和措辞。"></textarea></label><div class="review-decision-actions"><button class="review-decision-button approve" type="submit" data-decision="approve"><span>通过并设为稳定版</span><small>冻结当前修订快照</small></button><button class="review-decision-button changes" type="submit" data-decision="changes_requested"><span>要求修改</span><small>保留稳定版并提交意见</small></button></div><p class="status-line" id="pageReviewStatus"></p></form>`
     : "";
   const stableCard = stable
     ? `<article class="review-version-card stable"><span>已审阅稳定版本</span><strong>${fmtDate(review.reviewedAt)}</strong><small>${escapeHtml(review.reviewerName || "Wikist Reviewer")}</small></article>`
@@ -2047,7 +2053,7 @@ async function renderPageReview(slug) {
   const diffPanel = diff
     ? `<section class="review-panel"><div class="review-panel-head"><div><span class="system-kicker">Current vs Stable</span><h2>差异比较</h2></div><span class="review-diff-summary">+${diff.summary?.added || 0} / -${diff.summary?.removed || 0}</span></div><div class="review-diff">${reviewDiffHtml(diff.changes || [])}</div></section>`
     : '<section class="review-panel"><div class="review-panel-head"><div><span class="system-kicker">Current vs Stable</span><h2>差异比较</h2></div></div><p class="muted-line">稳定版本建立后，这里会展示当前版本与稳定快照的行级差异。</p></section>';
-  el.main.innerHTML = `${pageToolNav(current.slug, "review")}<header class="article-head"><div class="article-title-row"><h1>版本审阅</h1><span class="quality-badge">${review.pending ? "待审" : "稳定"}</span></div><p class="article-summary">${escapeHtml(current.title)} 的当前版本与已审阅稳定版本。稳定快照仅在审核通过时创建，后续编辑会自动进入待审队列。</p></header><section class="review-version-grid"><article class="review-version-card current"><span>当前版本</span><strong>${fmtDate(current.updatedAt)}</strong><small>${escapeHtml(current.author || "Wikist")}</small></article>${stableCard}</section>${diffPanel}<section class="review-panel"><div class="review-panel-head"><div><span class="system-kicker">Review Notes</span><h2>审核意见</h2></div><span>${Number(reviewPayload.pagination?.total || 0)} 条</span></div><div class="review-note-list">${notes}</div></section>${reviewerControls}`;
+  el.main.innerHTML = `${pageToolNav(current.slug, "review")}<header class="article-head"><div class="article-title-row"><h1>版本审阅</h1><span class="quality-badge">${review.pending ? "待审" : "稳定"}</span></div><p class="article-summary">${escapeHtml(current.title)} 的当前版本与已审阅稳定版本。稳定快照仅在审核通过时创建，后续编辑会自动进入待审队列。</p></header><section class="review-version-grid"><article class="review-version-card current"><span>当前版本</span><strong>${fmtDate(current.updatedAt)}</strong><small>${escapeHtml(current.author || "Wikist")}</small></article>${stableCard}</section>${diffPanel}<section class="review-panel"><div class="review-panel-head"><div><span class="system-kicker">Review Notes</span><h2>审核意见</h2></div><span>${Number(reviewPayload.pagination?.total || 0)} 条</span></div><div class="review-note-list">${notes}</div><div class="review-notes-pagination">${notePagination}</div></section>${reviewerControls}`;
   document.querySelector("#pageReviewForm")?.addEventListener("click", (event) => {
     const button = event.target.closest("button[data-decision]");
     if (button) event.currentTarget.dataset.decision = button.dataset.decision;
@@ -2066,6 +2072,30 @@ async function renderPageReview(slug) {
     } catch (error) {
       status.textContent = error.message;
     }
+  });
+  bindPagination(el.main.querySelector(".review-notes-pagination"), (nextPage) => {
+    location.hash = `#/review/${encodeSlug(current.slug)}?page=${nextPage}`;
+  });
+  document.querySelectorAll("[data-withdraw-review-note]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const accepted = await uiConfirm({
+        title: "撤回审核意见",
+        text: "撤回后意见将从审阅记录中移除；若它正是当前稳定版的通过意见，系统会自动回退稳定版本。",
+        confirmText: "撤回",
+        danger: true,
+      });
+      if (!accepted) return;
+      button.disabled = true;
+      try {
+        const result = await api(`/api/pages/${encodeSlug(current.slug)}/review/${Number(button.dataset.withdrawReviewNote)}`, { method: "DELETE" });
+        uiToast(result.stableChanged ? "意见已撤回，稳定版本已安全回退" : "审核意见已撤回");
+        const nextPage = (reviewPayload.items || []).length === 1 && notesPage > 1 ? notesPage - 1 : notesPage;
+        await renderPageReview(`${current.slug}?page=${nextPage}`);
+      } catch (error) {
+        button.disabled = false;
+        await uiAlert("撤回失败", error.message, "error");
+      }
+    });
   });
 }
 
@@ -2999,7 +3029,23 @@ async function renderEditor(slug) {
       const saved = await api(`/api/pages/${encodeSlug(payload.slug)}`, { method: "PUT", body: JSON.stringify(payload) });
       await Promise.all([refreshUser(), refreshChrome()]);
       destroyVisualEditor();
-      location.hash = `#/page/${encodeSlug(saved.slug)}`;
+      const watchRecipients = Number(saved.knowledge?.notifications || 0);
+      const followerRecipients = Number(saved.knowledge?.followerNotifications || 0);
+      const notified = watchRecipients + followerRecipients;
+      const notificationText = notified ? `已向 ${notified} 位关注者发送词条更新消息。` : "当前没有其他订阅者需要通知。";
+      const review = saved.review || {};
+      if (canReviewContent() && review.pending) {
+        const startReview = await uiConfirm({
+          title: "当前版本已保存",
+          text: `已自动建立当前修订并进入待审队列。${notificationText} 现在可审阅差异；通过后即建立稳定版本。`,
+          confirmText: "开始审阅",
+          cancelText: "查看词条",
+        });
+        location.hash = startReview ? `#/review/${encodeSlug(saved.slug)}` : `#/page/${encodeSlug(saved.slug)}`;
+      } else {
+        await uiAlert("当前版本已保存", `已自动建立当前修订并进入待审队列。${notificationText} 资深编辑或管理员审核通过后会建立稳定版本。`, "success");
+        location.hash = `#/page/${encodeSlug(saved.slug)}`;
+      }
     } catch (error) {
       status.textContent = error.message;
     }
@@ -3552,7 +3598,7 @@ function accountWatchesHtml(items = [], total = 0) {
     <section class="auth-panel compact watches-panel" id="accountWatches">
       <div class="panel-heading-row"><div><h2>我的关注</h2><p class="muted-line">词条、分类和译文语言的变化会进入消息中心。</p></div><span class="favorite-count-badge">${Number(total || 0)}</span></div>
       <div class="watch-list compact">${items.length ? items.slice(0, 6).map((item) => watchItemHtml(item, true)).join("") : '<div class="favorite-empty"><strong>还没有关注目标</strong><span>在词条标题旁点击关注，或进入关注列表管理分类与语言。</span></div>'}</div>
-      <div class="editor-actions"><a class="mini-link" href="#/watchlist">管理关注列表</a></div>
+      <div class="watchlist-manage-action"><a class="watchlist-manage-button" href="#/watchlist">管理关注列表</a></div>
     </section>`;
 }
 

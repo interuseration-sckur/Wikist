@@ -1929,7 +1929,6 @@ class PassportStore {
     const sourceUrl = "#/page/" + pageSlug.split("/").map(encodeURIComponent).join("/");
     let count = 0;
     for (const recipient of recipients) {
-      if (actorUserId && Number(recipient.user_id) === actorUserId) continue;
       this.insertMessage({
         recipientUserId: recipient.user_id,
         senderUserId: actorUserId,
@@ -2294,6 +2293,63 @@ class PassportStore {
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `).run(pageSlug, revisionId, decision, session.user.id, reviewer, comment, now);
     return this.getPageReview(pageSlug, revisionId);
+  }
+
+  withdrawPageReview(session, page, noteId) {
+    this.assertCanReview(session);
+    const pageSlug = normalizeSlug(page?.slug || "");
+    const id = Number(noteId);
+    if (!pageSlug || !Number.isInteger(id) || id <= 0) throw accessError("审核意见不存在。", 404);
+    const note = this.db.prepare("SELECT * FROM page_review_notes WHERE id = ? AND page_slug = ?").get(id, pageSlug);
+    if (!note) throw accessError("审核意见不存在或已被撤回。", 404);
+    if (Number(note.reviewer_user_id || 0) !== Number(session.user.id)) {
+      throw accessError("只能撤回自己提交的审核意见。");
+    }
+
+    const stable = this.db.prepare("SELECT * FROM page_stable_revisions WHERE page_slug = ?").get(pageSlug);
+    this.db.prepare("DELETE FROM page_review_notes WHERE id = ? AND page_slug = ?").run(id, pageSlug);
+
+    let stableChanged = false;
+    if (note.decision === "approve"
+      && stable
+      && stable.stable_revision_id === note.revision_id
+      && Number(stable.reviewer_user_id || 0) === Number(session.user.id)) {
+      const previousApproval = this.db.prepare(`
+        SELECT * FROM page_review_notes
+        WHERE page_slug = ? AND decision = 'approve'
+        ORDER BY created_at DESC, id DESC
+        LIMIT 1
+      `).get(pageSlug);
+      if (previousApproval) {
+        this.db.prepare(`
+          UPDATE page_stable_revisions
+          SET stable_revision_id = ?, reviewer_user_id = ?, reviewer_name = ?, review_comment = ?, reviewed_at = ?, updated_at = ?
+          WHERE page_slug = ?
+        `).run(
+          previousApproval.revision_id,
+          previousApproval.reviewer_user_id,
+          previousApproval.reviewer_name,
+          previousApproval.comment,
+          previousApproval.created_at,
+          nowIso(),
+          pageSlug,
+        );
+      } else {
+        this.db.prepare("DELETE FROM page_stable_revisions WHERE page_slug = ?").run(pageSlug);
+      }
+      stableChanged = true;
+    }
+
+    return {
+      withdrawn: {
+        id: note.id,
+        pageSlug,
+        revisionId: note.revision_id,
+        decision: note.decision,
+      },
+      stableChanged,
+      review: this.getPageReview(pageSlug, page?.revisionId || ""),
+    };
   }
 
   updatePagePermissions(slug, input, userId) {

@@ -69,6 +69,16 @@ try {
   } catch (_error) {
     memberBlocked = true;
   }
+  let memberCannotWithdraw = false;
+  try {
+    passport.withdrawPageReview(memberSession, current, notes[0].id);
+  } catch (_error) {
+    memberCannotWithdraw = true;
+  }
+  const withdrawnChange = passport.withdrawPageReview(adminSession, current, notes[0].id);
+  const notesAfterChangeWithdrawal = passport.listPageReviewNotes(current.slug, { limit: 10, offset: 0 });
+  const withdrawnApproval = passport.withdrawPageReview(adminSession, current, notesAfterChangeWithdrawal[0].id);
+  const reviewAfterApprovalWithdrawal = passport.getPageReview(current.slug, current.revisionId);
 
   const checks = {
     snapshotCreated: Boolean(snapshot?.revisionId) && stable?.body.includes("stable statement"),
@@ -79,6 +89,9 @@ try {
     notesRecorded: notes.length === 2 && notes[0].decision === "changes_requested" && notes[1].decision === "approve",
     diffIncludesBothSides: diff.some((item) => item.type === "remove") && diff.some((item) => item.type === "add"),
     memberCannotReview: memberBlocked,
+    memberCannotWithdraw,
+    withdrawnChangeKeepsStable: withdrawnChange.withdrawn.decision === "changes_requested" && !withdrawnChange.stableChanged && withdrawnChange.review.stableRevisionId === first.revisionId,
+    withdrawnApprovalClearsStable: withdrawnApproval.withdrawn.decision === "approve" && withdrawnApproval.stableChanged && !reviewAfterApprovalWithdrawal.hasStable,
   };
   const failed = Object.entries(checks).filter(([, ok]) => !ok).map(([name]) => name);
   assert.deepStrictEqual(failed, [], `Review checks failed: ${failed.join(", ")}`);

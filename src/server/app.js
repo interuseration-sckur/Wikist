@@ -191,8 +191,8 @@ function siteIconUrl(config) {
 function serveIndexHtml(req, res, indexPath, config) {
   const icon = siteIconUrl(config);
   const html = fs.readFileSync(indexPath, "utf8")
-    .replace(/href="\/assets\/styles\.css\?v=wikist-core-20260711-68"/g, `href="${escapeHtml(assetUrl(config, "/assets/styles.css?v=wikist-core-20260711-68"))}"`)
-    .replace(/src="\/assets\/app\.js\?v=wikist-core-20260711-68"/g, `src="${escapeHtml(assetUrl(config, "/assets/app.js?v=wikist-core-20260711-68"))}"`)
+    .replace(/href="\/assets\/styles\.css\?v=wikist-core-20260711-70"/g, `href="${escapeHtml(assetUrl(config, "/assets/styles.css?v=wikist-core-20260711-70"))}"`)
+    .replace(/src="\/assets\/app\.js\?v=wikist-core-20260711-70"/g, `src="${escapeHtml(assetUrl(config, "/assets/app.js?v=wikist-core-20260711-70"))}"`)
     .replace(/href="\/assets\/wikist-emblem\.svg"/g, `href="${escapeHtml(icon)}"`)
     .replace(/src="\/assets\/wikist-emblem\.svg"/g, `src="${escapeHtml(icon)}"`)
     .replace(/<title>Wikist<\/title>/, `<title>${escapeHtml(config.name || "Wikist")}</title>`);
@@ -2063,6 +2063,28 @@ function createWikistServer(options) {
         return;
       }
 
+      const pageReviewNoteMatch = pathname.match(/^\/api\/pages\/(.+)\/review\/(\d+)$/);
+      if (pageReviewNoteMatch && req.method === "DELETE") {
+        requireDashboard(passport, session);
+        const slug = normalizeSlug(decodePathPart(pageReviewNoteMatch[1]));
+        const current = pages.getPage(slug);
+        if (!current) {
+          sendJson(res, 404, { error: "词条不存在。", slug });
+          return;
+        }
+        const result = passport.withdrawPageReview(session, current, Number(pageReviewNoteMatch[2]));
+        recordAudit(passport, req, session, {
+          action: "page.review.withdraw",
+          targetType: "page",
+          targetId: current.slug,
+          targetLabel: current.title,
+          summary: "撤回自己的审核意见",
+          metadata: { noteId: result.withdrawn.id, revisionId: result.withdrawn.revisionId, decision: result.withdrawn.decision, stableChanged: result.stableChanged },
+        });
+        sendJson(res, 200, { ...result, page: pagePreviewPayload(current) });
+        return;
+      }
+
       const stablePageMatch = pathname.match(/^\/api\/pages\/(.+)\/stable$/);
       if (stablePageMatch && req.method === "GET") {
         const slug = slugFromNestedPath(pathname, "/api/pages/", "/stable");
@@ -2161,6 +2183,7 @@ function createWikistServer(options) {
 
         const page = pages.savePage(slug, body);
         let editEvent = null;
+        let knowledge = { links: [], notifications: 0, followerNotifications: 0 };
         if (passport) {
           const audit = passport.recordPageEdit(req, session, page, {
             action: existing ? "update" : "create",
@@ -2173,12 +2196,13 @@ function createWikistServer(options) {
           editEvent = audit.event;
           setCookieHeader(res, audit.cookie);
           if (managesAliases) passport.syncPageAliases(session, page, body.aliases, pages.listPages().map((item) => item.slug));
-          knowledgeWrite(passport, page, session, {
+          knowledge = knowledgeWrite(passport, page, session, {
             action: existing ? "update" : "create",
             senderName: body.author || "",
           });
         }
-        sendJson(res, 200, { ...page, editEvent });
+        const review = passport ? passport.getPageReview(page.slug, page.revisionId) : null;
+        sendJson(res, 200, { ...page, editEvent, knowledge, review });
         return;
       }
 

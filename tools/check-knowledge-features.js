@@ -108,6 +108,13 @@ try {
     senderName: admin.displayName,
   });
   const messages = store.listMessages(reader.id, { limit: 10, offset: 0 });
+  store.setWatch(adminSession, "page", "linear-algebra", true);
+  const selfWatchNotified = store.notifyKnowledgeWatchers(source, {
+    action: "update",
+    actorUserId: admin.id,
+    senderName: admin.displayName,
+  });
+  const selfMessages = store.listMessages(admin.id, { limit: 10, offset: 0 });
   const pageKnowledge = store.pageKnowledge("vector-space", pages.listPages(), { defaultSlug: "home" });
 
   const checks = {
@@ -122,6 +129,8 @@ try {
     pageAndCategoryNotifyOnce: notified === 1,
     languageNotify: translated === 1,
     notificationHasTarget: messages.length === 3 && messages.every((item) => item.sourceUrl === "#/page/linear-algebra"),
+    pageWatchMessageExplainsUpdate: messages.some((item) => item.kind === "watch" && /关注的词条已更新/.test(item.title || "")),
+    selfWatchReceivesUpdate: selfWatchNotified === 2 && selfMessages.some((item) => item.kind === "watch" && item.sourceUrl === "#/page/linear-algebra"),
     userFollowSaved: store.userFollowState(reader.id, admin.id).following && socialNotified === 1,
   };
 

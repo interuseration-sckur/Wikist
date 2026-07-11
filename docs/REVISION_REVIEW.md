@@ -5,12 +5,18 @@ Wikist separates the editable **current version** from the last **reviewed stabl
 ## Workflow
 
 1. Any contributor who passes the article edit policy saves the current Markdown page.
-2. A save changes the page revision ID, so the article automatically appears in the pending-review queue if it no longer matches its stable revision.
-3. A `senior_editor` or `admin` opens **Review**, compares current content with the stable snapshot, and leaves an opinion.
+2. A save changes the page revision ID, so the article automatically appears in the pending-review queue if it no longer matches its stable revision. The save response tells the contributor this explicitly and, for reviewers, offers a direct **Start review** route.
+3. A `senior_editor` or `admin` opens **Review**, compares current content with the stable snapshot, writes an opinion, and chooses either **Approve and set stable** or **Request changes**.
 4. **Approve and set stable** copies the current Markdown into `content/reviewed/<slug>/<revision-id>.md`, records the reviewer and comment, and moves the stable pointer.
 5. **Request changes** stores an auditable review note but does not change the stable pointer.
 
 Readers continue to see the current version. The reader status panel always indicates whether the current version is stable, has pending changes, or has never been reviewed. The review workspace can display the approved snapshot and a line-level current-versus-stable diff.
+
+The status panel is intentionally an entry point rather than a passive label: senior editors see **Review now** whenever the current revision is pending; other contributors can still inspect the review state and later feedback.
+
+## Withdrawing A Review Note
+
+The senior editor who created a note can withdraw that note from the paginated review history. A withdrawn request-for-changes note only removes the feedback. If the withdrawn note is the approval currently defining the stable pointer, Wikist promotes the most recent remaining approval for that article; if none exists, it clears the stable pointer. This keeps the reviewed state explainable without retaining a withdrawn decision.
 
 ## Storage
 
