@@ -123,6 +123,35 @@ npm run check
 
 该命令执行核心 JavaScript 语法检查。`tools/` 中还保留了 Markdown、搜索、评论评分、备份、收藏、数学建模、消息优先级和安全邮件等功能检查脚本；其中部分脚本会创建临时数据或需要演示内容，因此首装发布包只把 `npm run check` 作为基础验证命令。
 
+### 本地运行与调试
+
+本地开发或预览时，推荐直接在你的本地运行目录启动服务：
+
+```powershell
+cd ...你的路径...\wikist
+node server.js
+```
+
+访问：
+
+```text
+http://127.0.0.1:8899/
+http://127.0.0.1:8899/#/login
+http://127.0.0.1:8899/#/register
+```
+
+本地调试新版 UI 时，建议临时关闭 `config/site.config.json` 里的 `assets.cdnBase`，让浏览器直接加载本地 `/assets/app.js` 和 `/assets/styles.css`。如果 `assets.cdnBase` 指向 CDN，但 CDN 没有同步当前版本资源，例如 `wikist-core-20260711-49`，浏览器会继续加载旧资源或得到 404，看起来就像本地没有任何变化。
+
+本地确认命令：
+
+```powershell
+curl http://127.0.0.1:8899/
+curl http://127.0.0.1:8899/assets/app.js?v=wikist-core-20260711-49
+curl http://127.0.0.1:8899/assets/styles.css?v=wikist-core-20260711-49
+```
+
+如果修改了 `config/site.config.json`、服务端代码或资源版本号，重启本地服务后再刷新浏览器。浏览器仍不变时，使用强制刷新或清理站点缓存。
+
 ### 内容与数据模型
 
 Wikist 把代码、内容和用户数据分开：
@@ -792,6 +821,35 @@ npm run check
 ```
 
 This runs the core JavaScript syntax check. Additional feature check scripts remain under `tools/` for Markdown, search, comments and ratings, backups, favorites, mathematical modeling, message priorities, and security email features. Some of them create temporary data or expect demo content, so the first-install release treats `npm run check` as the baseline validation command.
+
+### Local Run And Preview
+
+For local development or visual verification, start Wikist from your local runtime directory:
+
+```powershell
+cd ...your-path.../wikist
+node server.js
+```
+
+Then open:
+
+```text
+http://127.0.0.1:8899/
+http://127.0.0.1:8899/#/login
+http://127.0.0.1:8899/#/register
+```
+
+When testing a new UI locally, it is usually better to keep `assets.cdnBase` empty in `config/site.config.json` so the browser loads local `/assets/app.js` and `/assets/styles.css` directly. If `assets.cdnBase` points to a CDN that does not yet contain the current build, such as `wikist-core-20260711-49`, the browser may keep showing old assets or hit 404 responses, making it look like the local code did not change.
+
+Useful local checks:
+
+```powershell
+curl http://127.0.0.1:8899/
+curl http://127.0.0.1:8899/assets/app.js?v=wikist-core-20260711-49
+curl http://127.0.0.1:8899/assets/styles.css?v=wikist-core-20260711-49
+```
+
+After changing `config/site.config.json`, server-side code, or asset version numbers, restart the local service and then hard-refresh the browser if needed.
 
 ### Content And Data Model
 
