@@ -46,8 +46,9 @@ try {
     referenceListRendered: rendered.html.includes("参考文献") && rendered.html.includes("DOI: 10.1017/cbo9780511705876"),
     missingCitationFlagged: rendered.citationStats.unresolved.includes("missing-source") && rendered.html.includes("citation-missing"),
     citationNeededTracked: rendered.citationStats.citationNeeded === 1 && rendered.html.includes("citation-needed"),
+    uncitedReferencesTracked: rendered.citationStats.cited === 2 && rendered.citationStats.uncited === 1,
     qualityFlagsIncomplete: referenceQuality(references[2]).issues.length >= 3,
-    pagePersistsReferences: page.references.length === 3 && page.citationStats.total === 3 && page.citationStats.citationNeeded === 1,
+    pagePersistsReferences: page.references.length === 3 && page.citationStats.total === 3 && page.citationStats.cited === 1 && page.citationStats.uncited === 2 && page.citationStats.citationNeeded === 1,
     exportPreservesReferences: exported.page.references.length === 3 && exported.page.references[0].doi === "10.1017/cbo9780511705876",
   };
   const failed = Object.entries(checks).filter(([, ok]) => !ok).map(([name]) => name);

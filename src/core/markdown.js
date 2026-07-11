@@ -214,6 +214,7 @@ function createRuntime(footnotes = new Map(), references = []) {
     referencesById: new Map(normalizedReferences.map((reference) => [reference.id, reference])),
     citationNumbers: new Map(),
     citationOrder: [],
+    citedReferenceIds: new Set(),
     unresolvedCitations: new Set(),
     citationNeeded: [],
   };
@@ -230,9 +231,13 @@ function footnoteRefHtml(id, runtime) {
   return `<sup id="fnref-${safeId}" class="footnote-ref"><a href="#fn-${safeId}" data-wikist-scroll="fn-${safeId}">${number}</a></sup>`;
 }
 
-function citationNumber(id, runtime) {
+function citationNumber(id, runtime, options = {}) {
+  const countAsCitation = options.countAsCitation !== false;
   if (!runtime.citationNumbers.has(id)) {
-    runtime.citationNumbers.set(id, runtime.citationOrder.length + 1);
+    runtime.citationNumbers.set(id, runtime.citationNumbers.size + 1);
+  }
+  if (countAsCitation && !runtime.citedReferenceIds.has(id)) {
+    runtime.citedReferenceIds.add(id);
     runtime.citationOrder.push(id);
   }
   return runtime.citationNumbers.get(id);
@@ -401,7 +406,7 @@ function renderReferences(runtime) {
     ...runtime.references.filter((reference) => !used.has(reference.id)),
   ];
   const items = ordered.map((reference) => {
-    const number = citationNumber(reference.id, runtime);
+    const number = citationNumber(reference.id, runtime, { countAsCitation: false });
     const quality = referenceQuality(reference);
     const issues = quality.issues.length ? `<small class="reference-issues">${escapeHtml(quality.issues.join("；"))}</small>` : "";
     const note = reference.note ? `<span class="reference-note">${escapeHtml(reference.note)}</span>` : "";
