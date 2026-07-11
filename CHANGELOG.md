@@ -1,5 +1,19 @@
 # Changelog
 
+## 2026-07-11 - Knowledge Network, Watchlists, And Aliases
+
+- Added SQLite-backed page, category, and translation-language subscriptions. Matching active users receive direct inbox notifications after article saves, imports, restores, deletes, and translation saves.
+- Added an incremental Wiki-link index with backlinks, missing-page and orphan reports, plus administrator-managed aliases and redirects.
+- Added article-level follow controls, a personal watchlist, a public knowledge-network view, and an editorial knowledge-management dashboard.
+- Added `npm run check:knowledge`; the updater now runs it after the syntax check and records package plus asset versions in its update report.
+- Bumped the framework package to `0.2.0` and the frontend asset version to `wikist-core-20260711-63`.
+
+## 2026-07-11 - Architecture And Roadmap Synchronization
+
+- Rewrote the architecture document to describe the implemented Node.js, Markdown, SQLite, Passport, collaboration, plugin, import, backup, and caching model rather than the original 0.1 prototype.
+- Replaced the obsolete roadmap with a lightweight delivery plan centered on stable revisions, source records, watchlists, link indexes, translation memory, SQLite FTS5, and permission-scoped plugins.
+- Added a bilingual README documentation map and kept the code-level upgrade changelog as the source of framework migration history.
+
 ## 2026-07-11 - Sci-Fi Cosmic Experience Plugin
 
 - Replaced the previous dashboard-style home/auth visuals with animated canvas cosmic scenes: starfields, nebula glow, spiral arms, and comet-like warp streaks.

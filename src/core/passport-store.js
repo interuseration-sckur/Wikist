@@ -1,6 +1,7 @@
 const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
+const { normalizeSlug } = require("./slug");
 
 let DatabaseSync;
 try {
@@ -39,6 +40,7 @@ const DEFAULT_PERMISSIONS = {
   commentPolicy: "guest",
   deletePolicy: "user",
 };
+const WATCH_TARGET_TYPES = ["page", "category", "language"];
 
 function nowIso() {
   return new Date().toISOString();
@@ -634,6 +636,83 @@ function listOptions(options, defaultLimit, maxLimit) {
   return { limit, offset };
 }
 
+function normalizeKnowledgeSlug(value, fieldName = "词条") {
+  if (!String(value || "").trim()) throw new Error(`${fieldName}标识不能为空。`);
+  try {
+    return normalizeSlug(String(value || ""));
+  } catch (_error) {
+    throw new Error(`${fieldName}标识无效。`);
+  }
+}
+
+function normalizeWatchTarget(type, value) {
+  const targetType = String(type || "").trim().toLowerCase();
+  if (!WATCH_TARGET_TYPES.includes(targetType)) throw new Error("关注类型无效。");
+  if (targetType === "page") return { targetType, targetKey: normalizeKnowledgeSlug(value) };
+  if (targetType === "category") {
+    const targetKey = cleanText(value, 80).replace(/\s+/g, " ");
+    if (!targetKey) throw new Error("分类不能为空。");
+    return { targetType, targetKey };
+  }
+  const targetKey = normalizeTranslationLang(value, "");
+  if (!targetKey) throw new Error("语言不能为空。");
+  return { targetType, targetKey };
+}
+
+function extractWikiLinks(markdown) {
+  const links = new Map();
+  String(markdown || "").replace(/\[\[([^\]|]+)(?:\|([^\]]*))?\]\]/g, (_match, rawTarget, rawLabel) => {
+    const reference = String(rawTarget || "").trim();
+    const target = reference.split("#")[0].trim();
+    if (!target || /^(?:file|image|category):/i.test(target) || /^(?:https?:)?\/\//i.test(target)) return _match;
+    try {
+      const targetSlug = normalizeKnowledgeSlug(target, "链接");
+      if (targetSlug) {
+        links.set(targetSlug, {
+          targetSlug,
+          targetLabel: cleanText(String(rawLabel || "").trim() || targetSlug, 160),
+        });
+      }
+    } catch (_error) {}
+    return _match;
+  });
+  return [...links.values()];
+}
+
+function watchFromRow(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    userId: row.user_id,
+    targetType: row.target_type,
+    targetKey: row.target_key,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function linkFromRow(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    sourceSlug: row.source_slug,
+    targetSlug: row.target_slug,
+    targetLabel: row.target_label || row.target_slug,
+    updatedAt: row.updated_at,
+  };
+}
+
+function aliasFromRow(row) {
+  if (!row) return null;
+  return {
+    aliasSlug: row.alias_slug,
+    targetSlug: row.target_slug,
+    createdBy: row.created_by,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
 class PassportStore {
   constructor(rootDir, options = {}) {
     requireSqlite();
@@ -933,6 +1012,42 @@ class PassportStore {
 
       CREATE INDEX IF NOT EXISTS idx_page_translations_page ON page_translations(page_slug, language);
       CREATE INDEX IF NOT EXISTS idx_page_translations_user ON page_translations(translator_user_id, updated_at);
+
+      CREATE TABLE IF NOT EXISTS watch_subscriptions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        target_type TEXT NOT NULL,
+        target_key TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE(user_id, target_type, target_key)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_watch_subscriptions_user ON watch_subscriptions(user_id, created_at);
+      CREATE INDEX IF NOT EXISTS idx_watch_subscriptions_target ON watch_subscriptions(target_type, target_key, user_id);
+
+      CREATE TABLE IF NOT EXISTS page_links (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        source_slug TEXT NOT NULL,
+        target_slug TEXT NOT NULL,
+        target_label TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE(source_slug, target_slug)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_page_links_source ON page_links(source_slug, updated_at);
+      CREATE INDEX IF NOT EXISTS idx_page_links_target ON page_links(target_slug, updated_at);
+
+      CREATE TABLE IF NOT EXISTS page_aliases (
+        alias_slug TEXT PRIMARY KEY,
+        target_slug TEXT NOT NULL,
+        created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_page_aliases_target ON page_aliases(target_slug, updated_at);
     `);
 
     this.addColumn("users", "bio", "TEXT NOT NULL DEFAULT ''");
@@ -1368,7 +1483,8 @@ class PassportStore {
     const edits = this.db.prepare("SELECT count(*) AS n FROM page_edit_events WHERE user_id = ?").get(userId).n;
     const comments = this.db.prepare("SELECT count(*) AS n FROM page_comments WHERE user_id = ? AND status = 'published'").get(userId).n;
     const favorites = this.countUserFavorites(userId);
-    return { edits, comments, favorites };
+    const watches = this.countUserWatches(userId);
+    return { edits, comments, favorites, watches };
   }
 
   countUserFavorites(userId) {
@@ -1408,6 +1524,252 @@ class PassportStore {
     }
     this.syncUserActivity(userId, nowIso());
     return this.pageFavoriteState(userId, slug);
+  }
+
+  countUserWatches(userId, type = "all") {
+    const targetType = cleanText(type, 24).toLowerCase();
+    if (WATCH_TARGET_TYPES.includes(targetType)) {
+      return Number(this.db.prepare("SELECT count(*) AS n FROM watch_subscriptions WHERE user_id = ? AND target_type = ?")
+        .get(Number(userId), targetType).n || 0);
+    }
+    return Number(this.db.prepare("SELECT count(*) AS n FROM watch_subscriptions WHERE user_id = ?").get(Number(userId)).n || 0);
+  }
+
+  listUserWatches(userId, options = {}) {
+    const { limit, offset } = listOptions(options, 20, 100);
+    const type = cleanText(options.type || "all", 24).toLowerCase();
+    const args = [Number(userId)];
+    let where = "WHERE user_id = ?";
+    if (WATCH_TARGET_TYPES.includes(type)) {
+      where += " AND target_type = ?";
+      args.push(type);
+    }
+    return this.db.prepare(`
+      SELECT * FROM watch_subscriptions
+      ${where}
+      ORDER BY updated_at DESC, id DESC
+      LIMIT ? OFFSET ?
+    `).all(...args, limit, offset).map(watchFromRow);
+  }
+
+  watchState(userId, type, value) {
+    const target = normalizeWatchTarget(type, value);
+    const watched = Boolean(userId && this.db.prepare(
+      "SELECT id FROM watch_subscriptions WHERE user_id = ? AND target_type = ? AND target_key = ?",
+    ).get(Number(userId), target.targetType, target.targetKey));
+    return { ...target, watched, count: this.countUserWatches(userId) };
+  }
+
+  setWatch(session, type, value, enabled = true) {
+    if (!session?.user) throw accessError("请先登录后管理关注列表。", 401);
+    const target = normalizeWatchTarget(type, value);
+    if (!target.targetKey) throw new Error("关注目标不能为空。");
+    const userId = Number(session.user.id);
+    const now = nowIso();
+    if (enabled) {
+      this.db.prepare(`
+        INSERT INTO watch_subscriptions (user_id, target_type, target_key, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(user_id, target_type, target_key) DO UPDATE SET updated_at = excluded.updated_at
+      `).run(userId, target.targetType, target.targetKey, now, now);
+    } else {
+      this.db.prepare(
+        "DELETE FROM watch_subscriptions WHERE user_id = ? AND target_type = ? AND target_key = ?",
+      ).run(userId, target.targetType, target.targetKey);
+    }
+    this.syncUserActivity(userId, now);
+    return this.watchState(userId, target.targetType, target.targetKey);
+  }
+
+  syncPageLinks(page) {
+    const sourceSlug = normalizeKnowledgeSlug(page?.slug);
+    const links = extractWikiLinks(page?.body || "");
+    const now = nowIso();
+    this.db.prepare("DELETE FROM page_links WHERE source_slug = ?").run(sourceSlug);
+    const insert = this.db.prepare(`
+      INSERT INTO page_links (source_slug, target_slug, target_label, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?)
+    `);
+    for (const link of links) insert.run(sourceSlug, link.targetSlug, link.targetLabel, now, now);
+    return { sourceSlug, links };
+  }
+
+  removePageLinks(slug) {
+    const sourceSlug = normalizeKnowledgeSlug(slug);
+    return this.db.prepare("DELETE FROM page_links WHERE source_slug = ?").run(sourceSlug).changes;
+  }
+
+  rebuildPageLinks(pageList = []) {
+    for (const page of pageList) this.syncPageLinks(page);
+    return { pages: pageList.length, links: Number(this.db.prepare("SELECT count(*) AS n FROM page_links").get().n || 0) };
+  }
+
+  listPageAliases(options = {}) {
+    const { limit, offset } = listOptions(options, 100, 500);
+    return this.db.prepare(`
+      SELECT * FROM page_aliases
+      ORDER BY alias_slug COLLATE NOCASE ASC
+      LIMIT ? OFFSET ?
+    `).all(limit, offset).map(aliasFromRow);
+  }
+
+  countPageAliases() {
+    return Number(this.db.prepare("SELECT count(*) AS n FROM page_aliases").get().n || 0);
+  }
+
+  resolvePageAlias(slug) {
+    const aliasSlug = normalizeKnowledgeSlug(slug);
+    return aliasFromRow(this.db.prepare("SELECT * FROM page_aliases WHERE alias_slug = ?").get(aliasSlug));
+  }
+
+  setPageAlias(session, input = {}) {
+    if (!hasRole(session, "senior_editor")) throw accessError("只有资深编辑和管理员可以管理别名。");
+    const aliasSlug = normalizeKnowledgeSlug(input.aliasSlug || input.alias || "", "别名");
+    const targetSlug = normalizeKnowledgeSlug(input.targetSlug || input.target || "", "目标词条");
+    if (aliasSlug === targetSlug) throw new Error("别名不能指向自身。");
+    const now = nowIso();
+    this.db.prepare(`
+      INSERT INTO page_aliases (alias_slug, target_slug, created_by, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(alias_slug) DO UPDATE SET
+        target_slug = excluded.target_slug,
+        created_by = excluded.created_by,
+        updated_at = excluded.updated_at
+    `).run(aliasSlug, targetSlug, session.user.id, now, now);
+    return this.resolvePageAlias(aliasSlug);
+  }
+
+  removePageAlias(session, aliasSlug) {
+    if (!hasRole(session, "senior_editor")) throw accessError("只有资深编辑和管理员可以管理别名。");
+    const normalized = normalizeKnowledgeSlug(aliasSlug, "别名");
+    const result = this.db.prepare("DELETE FROM page_aliases WHERE alias_slug = ?").run(normalized);
+    if (!result.changes) throw new Error("别名不存在。");
+    return { ok: true, aliasSlug: normalized };
+  }
+
+  knowledgeSnapshot(pageList = [], options = {}) {
+    const pages = Array.isArray(pageList) ? pageList : [];
+    const pageMap = new Map(pages.map((page) => [page.slug, page]));
+    const aliases = this.listPageAliases({ limit: 500, offset: 0 });
+    const aliasMap = new Map(aliases.map((item) => [item.aliasSlug, item.targetSlug]));
+    const links = this.db.prepare("SELECT * FROM page_links ORDER BY source_slug ASC, target_slug ASC").all().map(linkFromRow)
+      .filter((link) => pageMap.has(link.sourceSlug));
+    const incoming = new Map();
+    const missing = new Map();
+    const outgoing = new Map();
+    for (const link of links) {
+      const targetSlug = aliasMap.get(link.targetSlug) || link.targetSlug;
+      const normalized = { ...link, targetSlug };
+      if (!outgoing.has(link.sourceSlug)) outgoing.set(link.sourceSlug, []);
+      outgoing.get(link.sourceSlug).push(normalized);
+      if (pageMap.has(targetSlug)) {
+        if (!incoming.has(targetSlug)) incoming.set(targetSlug, []);
+        incoming.get(targetSlug).push(normalized);
+      } else {
+        const current = missing.get(targetSlug) || {
+          slug: targetSlug,
+          label: link.targetLabel || targetSlug,
+          sourceSlugs: [],
+          sourceCount: 0,
+        };
+        if (!current.sourceSlugs.includes(link.sourceSlug)) current.sourceSlugs.push(link.sourceSlug);
+        current.sourceCount = current.sourceSlugs.length;
+        missing.set(targetSlug, current);
+      }
+    }
+    const defaultSlug = String(options.defaultSlug || "");
+    const orphans = pages
+      .filter((page) => page.slug !== defaultSlug && !(incoming.get(page.slug) || []).length)
+      .sort((left, right) => left.title.localeCompare(right.title, "zh-CN"));
+    const categories = new Map();
+    for (const page of pages) {
+      for (const category of page.categories || []) {
+        const key = cleanText(category, 80).replace(/\s+/g, " ");
+        if (key) categories.set(key, Number(categories.get(key) || 0) + 1);
+      }
+    }
+    return {
+      stats: {
+        pages: pages.length,
+        links: links.length,
+        backlinks: incoming.size,
+        missing: missing.size,
+        orphans: orphans.length,
+        aliases: aliases.length,
+        categories: categories.size,
+      },
+      links,
+      aliases,
+      incoming,
+      outgoing,
+      missing: [...missing.values()].sort((left, right) => right.sourceCount - left.sourceCount || left.slug.localeCompare(right.slug, "zh-CN")),
+      orphans,
+      categories: [...categories.entries()].map(([name, pageCount]) => ({ name, pageCount })).sort((left, right) => right.pageCount - left.pageCount || left.name.localeCompare(right.name, "zh-CN")),
+      pageMap,
+      aliasMap,
+    };
+  }
+
+  pageKnowledge(slug, pageList = [], options = {}) {
+    const canonicalSlug = normalizeKnowledgeSlug(slug);
+    const snapshot = this.knowledgeSnapshot(pageList, options);
+    const enrich = (link, direction) => {
+      const page = direction === "outgoing" ? snapshot.pageMap.get(link.targetSlug) : snapshot.pageMap.get(link.sourceSlug);
+      return {
+        slug: direction === "outgoing" ? link.targetSlug : link.sourceSlug,
+        title: page?.title || link.targetLabel || (direction === "outgoing" ? link.targetSlug : link.sourceSlug),
+        summary: page?.summary || "",
+        exists: Boolean(page),
+        label: link.targetLabel || "",
+      };
+    };
+    return {
+      pageSlug: canonicalSlug,
+      outgoing: (snapshot.outgoing.get(canonicalSlug) || []).map((link) => enrich(link, "outgoing")),
+      backlinks: (snapshot.incoming.get(canonicalSlug) || []).map((link) => enrich(link, "backlink")),
+      aliases: snapshot.aliases.filter((item) => item.targetSlug === canonicalSlug),
+      stats: snapshot.stats,
+    };
+  }
+
+  notifyKnowledgeWatchers(page, input = {}) {
+    const pageSlug = normalizeKnowledgeSlug(page?.slug);
+    const targets = [{ targetType: "page", targetKey: pageSlug }];
+    for (const category of page?.categories || []) {
+      const targetKey = cleanText(category, 80).replace(/\s+/g, " ");
+      if (targetKey) targets.push({ targetType: "category", targetKey });
+    }
+    const language = normalizeTranslationLang(input.language, "");
+    if (language) targets.push({ targetType: "language", targetKey: language });
+    const where = targets.map(() => "(w.target_type = ? AND w.target_key = ?)").join(" OR ");
+    const args = targets.flatMap((target) => [target.targetType, target.targetKey]);
+    const recipients = this.db.prepare(`
+      SELECT DISTINCT w.user_id
+      FROM watch_subscriptions w
+      JOIN users u ON u.id = w.user_id
+      WHERE u.status = 'active' AND (${where})
+    `).all(...args);
+    const actorUserId = Number(input.actorUserId || 0) || null;
+    const senderName = cleanText(input.senderName || "Wikist", 80) || "Wikist";
+    const action = ({ create: "创建", update: "更新", delete: "归档", restore: "恢复", translation: "更新译文" })[input.action] || "更新";
+    const sourceUrl = "#/page/" + pageSlug.split("/").map(encodeURIComponent).join("/");
+    let count = 0;
+    for (const recipient of recipients) {
+      if (actorUserId && Number(recipient.user_id) === actorUserId) continue;
+      this.insertMessage({
+        recipientUserId: recipient.user_id,
+        senderUserId: actorUserId,
+        senderName,
+        title: "关注的词条已" + action,
+        body: (page.title || pageSlug) + " 已" + action + (language ? "（" + language + "）" : "") + "。",
+        kind: "watch",
+        sourceType: "knowledge",
+        sourceUrl,
+        sourceLabel: "查看词条",
+      });
+      count += 1;
+    }
+    return count;
   }
 
   actorFromRequest(req, session, fallback = {}) {

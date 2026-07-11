@@ -1,56 +1,124 @@
 # Wikist Architecture
 
-Wikist 0.1 is a dependency-free Node.js wiki kernel. The first version is intentionally small so it can be audited, modified, and deployed on modest infrastructure.
+Wikist is a Chinese-first, mathematics-oriented wiki framework built around one principle: content must remain portable, while collaboration must remain auditable. It uses a small Node.js HTTP service, Markdown article files, and SQLite for identity and community state.
 
-## Design Sources
+This document describes the implemented architecture, not an aspirational prototype.
 
-- MediaWiki: page plus revision model, community editing, stable article identity.
-- Wiki.js: modern single-page reading and editing experience.
-- Webman: lightweight runtime mindset, explicit routing, low overhead request flow.
+## Design Position
+
+- **MediaWiki**: stable article identity, revision history, page permissions, multilingual collaboration, citation discipline, and community review.
+- **Wikipedia**: encyclopedic writing standards, source traceability, discussion around an article, and public quality signals.
+- **Wiki.js**: a modern browser reading and editing experience.
+- **Webman**: explicit routing, low runtime overhead, and a small operational footprint.
+
+Wikist deliberately does not copy the full MediaWiki extension stack. A single-directory deployment with Markdown and SQLite is the default; large infrastructure is an opt-in future boundary.
 
 ## Runtime Shape
 
 ```mermaid
 flowchart LR
-  Browser["Browser UI"] --> API["HTTP API"]
-  API --> Store["PageStore"]
+  Browser["Browser SPA"] --> Installer["/install.html"]
+  Browser --> API["Node.js HTTP API"]
+  Browser --> Plugins["Trusted client plugins"]
+
+  API --> Pages["PageStore"]
+  API --> Passport["PassportStore"]
   API --> Search["SearchIndex"]
-  Store --> Pages["content/pages/*.md"]
-  Store --> Revisions["content/revisions/*"]
+  API --> Import["Import / export"]
+  API --> Backup["Backup / restore"]
+
+  Pages --> Markdown["content/pages/*.md"]
+  Pages --> Revisions["content/revisions/*"]
+  Pages --> Archives["content/deleted/*"]
+  Passport --> SQLite["data/wikist.sqlite"]
+  API --> Config["config/site.config.json"]
+  Plugins --> Static["plugins/* and public/assets/*"]
 ```
 
-## Core Modules
+The frontend is a native JavaScript single-page application. It renders the reading, editing, translation, comment, account, search, import/export, and administration routes. It defers MathJax, plotting libraries, language conversion, and trusted client plugins until the active route needs them.
 
-- `src/server/app.js`: HTTP router and API surface.
-- `src/core/page-store.js`: Markdown page loading, saving, revision snapshots.
-- `src/core/search-index.js`: Chinese and English token search.
-- `src/core/markdown.js`: safe Markdown subset with math-aware blocks.
-- `config/site.config.json`: site name, navigation, license, editing policy.
+## Storage Boundaries
 
-## Storage Model
+| Data | Primary store | Reason |
+| :--- | :--- | :--- |
+| Article body and front matter | `content/pages/` Markdown | Human-readable, Git-friendly, easy to copy and review |
+| Revision snapshots | `content/revisions/` | Keeps page history independent from database migration |
+| Deleted-page archives | `content/deleted/` | Recoverable deletion without exposing archived content as a live page |
+| Accounts and sessions | SQLite | Transactional identity state and HttpOnly sessions |
+| Permissions, edits, comments, ratings, favorites, watch subscriptions, messages, translations, audit logs, page links, aliases | SQLite | Queryable collaboration and knowledge-graph state with indexes |
+| Site configuration | `config/site.config.json` | Per-site settings kept outside the public release package |
+| Plugin manifests and trusted modules | `plugins/` | Explicit local installation and review boundary |
 
-Each article is a Markdown file with front matter:
+The public framework repository excludes local content, database files, upload files, logs, generated configuration, and upstream vendor caches. A deployed site can therefore publish its framework code without publishing its contributors or its private editorial history.
 
-```markdown
----
-title: 群
-summary: ...
-categories: [代数学, 群论]
-quality: A
----
+## Request And Collaboration Flow
 
-# 群
+1. A first-run server exposes only the installer until `config/site.config.json` is written.
+2. Normal requests pass through the HTTP router in `src/server/app.js`.
+3. Page reads come from `PageStore`; page writes produce Markdown plus a revision snapshot.
+4. When Passport is enabled, the router authenticates the HttpOnly session before applying page, role, or dashboard permissions.
+5. Logged-in edits are attributed to a user. Guest edits and comments require nickname and email, then receive a stable guest cookie and an audit profile.
+6. Page saves, imports, restores, deletes, and translation saves update the link index. Matching page, category, and language subscribers receive a direct inbox message.
+7. The browser performs one post-render idle task for formula typesetting, plotting, plugin hydration, link previews, and language conversion.
+
+## Identity, Roles, And Permissions
+
+Passport provides local registration, CAPTCHA, optional email verification, password recovery, TOTP two-factor authentication, profile Markdown, avatars, external links, and public contribution profiles.
+
+The built-in role order is:
+
+```text
+member < creator < editor < senior_editor < admin
 ```
 
-When a page is saved, the previous version is copied into `content/revisions/<slug>/`.
+- `senior_editor` and `admin` can access the editorial dashboard and manage page permissions.
+- `admin` alone manages users and global administrative settings.
+- Each page independently defines `editPolicy`, `commentPolicy`, and `deletePolicy` as `guest`, `user`, or `locked`.
+- Administrators can moderate or delete comments; authors can remove their own comments.
 
-## Editing Policy
+Comments are intentionally capped at two stored levels. A reply to a reply is folded into the root thread and converted to an `@user` mention, which keeps paginated discussion queries and mobile rendering predictable.
 
-Open editing is enabled by default. In production, set `WIKIST_EDIT_TOKEN` and keep `editing.requireTokenEnv` as `WIKIST_EDIT_TOKEN`. The API then requires `Authorization: Bearer <token>` for writes.
+## Rendering And Mathematical Content
 
-## Future Extension Points
+`src/core/markdown.js` renders a safe Markdown subset with front matter, headings, tables, footnotes, definition lists, task lists, theorem-style containers, TeX, wiki links, and MediaWiki-style image layout options.
 
-- Pluggable renderer: replace `src/core/markdown.js` with a full Markdown/LaTeX pipeline.
-- Database store: implement a store with the same methods as `PageStore`.
-- Review workflow: add pending revisions and reviewer approval before publishing.
-- Permission provider: replace the simple token check with user accounts or SSO.
+`src/core/plugin-registry.js` applies enabled parser and render plugins before final Markdown output:
+
+- magic words and simple parser functions;
+- `function-plot` blocks with optional math.js special functions and implicit curves;
+- JSXGraph interactive geometry boards;
+- Chart.js numerical and statistical charts;
+- OpenCC Simplified/Traditional Chinese display conversion;
+- curated Markdown compatibility manifests.
+
+Plugin manifests are metadata first. Only trusted core plugins and reviewed `clientModule` entries execute. Third-party repositories can be cloned to `plugins/vendor/` for inspection, but are not automatically executed.
+
+## Search, Translation, And Import
+
+The default search engine is an in-memory, field-weighted index over page metadata and Markdown text. It supports Chinese token heuristics, prefix and fuzzy matching, quoted phrases, category/quality/difficulty filters, facets, and pagination.
+
+Translation data stays in SQLite while the canonical source article stays in Markdown. Readers can select an existing translation directly; translators use a separate side-by-side workbench with progress, language membership, and draft assistance.
+
+Wikipedia import/export preserves source attribution and attempts to map headings, links, images, tables, mathematical notation, and common wikitext structures into Wikist Markdown. It is intentionally a converter with visible fallbacks, not a promise of lossless MediaWiki template execution.
+
+## Operations And Safety
+
+- The installer validates site identity, in-project SQLite paths, editing policy, CDN settings, and optional SMTP.
+- Backup packages contain content, configuration, plugin manifests, and optionally SQLite/WAL user data. Restore applies a path allowlist and writes a safety backup first.
+- Static assets support ETag, Last-Modified, 304 responses, Brotli/gzip, and versioned cache URLs.
+- `tools/update.js` protects local content, configuration, databases, uploads, and vendor caches while updating framework code.
+- File serving uses allowlisted roots and extensions; plugin manifests sanitize module paths and GitHub repository URLs.
+
+## Deliberate Extension Boundaries
+
+The following are planned as additive layers rather than implicit requirements:
+
+- review states and stable article releases;
+- citation metadata and source validation;
+- a persistent optional SQLite FTS index;
+- category landing pages, rename repair, and richer link-graph reports;
+- translation memory and terminology glossaries;
+- an event/hook API with permission declarations for plugins;
+- an alternate Passport store backed by PostgreSQL or MySQL.
+
+Redis, Elasticsearch, a graph database, and arbitrary server-side plugin execution are not baseline dependencies. They become appropriate only when a site has demonstrated scale requirements that SQLite and the file-backed article model cannot meet.

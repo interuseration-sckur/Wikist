@@ -1,6 +1,6 @@
 const THEME_KEY = "wikist-theme";
 const LANG_KEY = "wikist-language";
-const CORE_ASSET_VERSION = "wikist-core-20260711-62";
+const CORE_ASSET_VERSION = "wikist-core-20260711-63";
 const VDITOR_VERSION = "3.11.2";
 const VDITOR_CDN = `https://cdn.jsdelivr.net/npm/vditor@${VDITOR_VERSION}`;
 const SWEETALERT_VERSION = "11.26.25";
@@ -1318,6 +1318,7 @@ function renderTopQuickNav() {
     label: item.label,
     href: item.href || `#/page/${encodeSlug(item.slug)}`,
   }));
+  links.push({ label: "知识网络", href: "#/knowledge" });
   links.push({ label: "导入导出", href: "#/import-export" });
   if (canAccessAdmin()) links.push({ label: "后台", href: "#/admin/overview" });
   const seen = new Set();
@@ -1650,6 +1651,76 @@ async function loadPageFavorite(slug) {
   });
 }
 
+function pageWatchButtonHtml(page) {
+  if (!page?.slug) return "";
+  return `
+    <button class="article-watch-button" id="pageWatchButton" type="button" data-page-watch="${escapeHtml(page.slug)}" aria-pressed="false">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4.5a7.5 7.5 0 0 1 7.5 7.5c0 2.1-.88 4-2.3 5.36L18.5 21H5.5l1.3-3.64A7.46 7.46 0 0 1 4.5 12 7.5 7.5 0 0 1 12 4.5Zm0 3a4.5 4.5 0 0 0-4.5 4.5c0 1.36.6 2.58 1.55 3.4l.44.38-.58 1.62h6.18l-.58-1.62.44-.38A4.47 4.47 0 0 0 16.5 12 4.5 4.5 0 0 0 12 7.5Z"/></svg>
+      <span data-watch-label>关注</span>
+    </button>`;
+}
+
+function updatePageWatchButton(button, watch = {}) {
+  if (!button) return;
+  const active = Boolean(watch.watched);
+  button.classList.toggle("active", active);
+  button.setAttribute("aria-pressed", String(active));
+  button.title = active ? "取消关注词条" : "关注词条更新";
+  const label = button.querySelector("[data-watch-label]");
+  if (label) label.textContent = active ? "已关注" : "关注";
+}
+
+async function loadPageWatch(slug) {
+  const button = document.querySelector("#pageWatchButton");
+  if (!button) return;
+  const payload = await api(`/api/pages/${encodeSlug(slug)}/watch`).catch(() => ({ watch: { watched: false } }));
+  updatePageWatchButton(button, payload.watch);
+  button.addEventListener("click", async () => {
+    if (!state.user) {
+      const goLogin = await uiConfirm({ title: "登录后关注词条", text: "关注后，词条、分类和译文更新会进入你的消息中心。", confirmText: "去登录" });
+      if (goLogin) location.hash = "#/login";
+      return;
+    }
+    button.disabled = true;
+    try {
+      const enabled = button.getAttribute("aria-pressed") !== "true";
+      const result = await api(`/api/pages/${encodeSlug(slug)}/watch`, { method: "PUT", body: JSON.stringify({ enabled }) });
+      updatePageWatchButton(button, result.watch);
+      await refreshUser();
+      uiToast(result.watch.watched ? "已关注词条更新" : "已取消关注");
+    } catch (error) {
+      await uiAlert("关注失败", error.message, "error");
+    } finally {
+      button.disabled = false;
+    }
+  });
+}
+
+function knowledgeLinkRow(item, label) {
+  const title = item.title || item.slug;
+  if (!item.exists) return `<div class="knowledge-list-item is-missing"><span>${escapeHtml(label)}</span><strong>${escapeHtml(title)}</strong><small>词条尚未创建</small></div>`;
+  return `<a class="knowledge-list-item" href="#/page/${encodeSlug(item.slug)}"><span>${escapeHtml(label)}</span><strong>${escapeHtml(title)}</strong><small>${escapeHtml(item.summary || item.slug)}</small></a>`;
+}
+
+async function loadPageKnowledge(slug) {
+  const target = document.querySelector("#pageKnowledgePanel");
+  if (!target) return;
+  const payload = await api(`/api/pages/${encodeSlug(slug)}/links`).catch(() => null);
+  if (!payload) return;
+  const aliases = (payload.aliases || []).map((item) => `<span class="chip">别名 ${escapeHtml(item.aliasSlug)}</span>`).join("");
+  const backlinks = payload.backlinks || [];
+  const outgoing = payload.outgoing || [];
+  target.innerHTML = `
+    <section class="knowledge-panel">
+      <div class="section-title-row"><div><h2>知识链接</h2><p class="muted-line">由词条中的 Wiki 链接自动建立，保存后即时更新。</p></div><a class="mini-link" href="#/knowledge">浏览知识网络</a></div>
+      ${aliases ? `<div class="chip-row knowledge-aliases">${aliases}</div>` : ""}
+      <div class="knowledge-grid compact">
+        <div><h3>反向链接 <span>${backlinks.length}</span></h3>${backlinks.length ? backlinks.slice(0, 8).map((item) => knowledgeLinkRow(item, "来自")).join("") : '<p class="muted-line">暂无其他词条链接到这里。</p>'}</div>
+        <div><h3>正文链接 <span>${outgoing.length}</span></h3>${outgoing.length ? outgoing.slice(0, 8).map((item) => knowledgeLinkRow(item, "指向")).join("") : '<p class="muted-line">正文中尚未建立 Wiki 链接。</p>'}</div>
+      </div>
+    </section>`;
+}
+
 function articleHeader(page) {
   const categories = page.categories?.length ? page.categories.map((item) => `<span class="chip">${escapeHtml(item)}</span>`).join("") : '<span class="chip">未分类</span>';
   const hero = page.heroImage ? `<figure class="article-hero-image"><img src="${escapeHtml(page.heroImage)}" alt="" loading="lazy" /></figure>` : "";
@@ -1661,7 +1732,7 @@ function articleHeader(page) {
       ${hero}
       <div class="article-title-row">
         <h1>${escapeHtml(page.title)}</h1>
-        <div class="article-title-actions"><span class="quality-badge">质量 ${escapeHtml(page.quality || "C")}</span>${favoriteButtonHtml(page)}</div>
+        <div class="article-title-actions"><span class="quality-badge">质量 ${escapeHtml(page.quality || "C")}</span>${favoriteButtonHtml(page)}${pageWatchButtonHtml(page)}</div>
       </div>
       <p class="article-summary">${escapeHtml(page.summary || "")}</p>
       <div class="meta-row">
@@ -1871,6 +1942,9 @@ async function renderPage(value) {
   el.editLink.href = `#/edit/${encodeSlug(state.currentSlug)}`;
   try {
     const page = await api(`/api/pages/${encodeSlug(state.currentSlug)}`);
+    state.currentSlug = page.slug;
+    el.editLink.href = `#/edit/${encodeSlug(page.slug)}`;
+    renderNav();
     if (page.slug === (state.site.defaultPage || "home")) {
       renderHomePortal(page);
       typesetMath();
@@ -1903,8 +1977,9 @@ async function renderPage(value) {
     }
     setChromeTitle(displayPage.title);
     renderToc(displayPage.toc);
-    el.main.innerHTML = `${pageToolNav(page.slug, "page")}${articleHeader(displayPage)}${translationNotice}<section class="page-translation-panel" id="pageTranslationPanel"></section><article class="article-body">${displayPage.html}</article><section class="page-rating-panel" id="pageRatingPanel"></section><section class="edit-timeline-section"><div class="section-title-row"><h2>最近编辑</h2><a class="mini-link" href="#/history/${encodeSlug(page.slug)}">查看全部</a></div><div class="edit-timeline" id="pageEditTimeline"></div></section>`;
-    await Promise.all([loadPageTranslations(page.slug, activeLang), loadPageFavorite(page.slug), loadPageRating(page.slug), loadPageEdits(page.slug, "pageEditTimeline", { limit: 6, page: 1 })]);
+    const aliasNotice = page.redirectedFrom ? `<aside class="knowledge-alias-notice"><strong>已通过别名跳转</strong><span>${escapeHtml(page.redirectedFrom)} → ${escapeHtml(page.slug)}</span></aside>` : "";
+    el.main.innerHTML = `${pageToolNav(page.slug, "page")}${aliasNotice}${articleHeader(displayPage)}${translationNotice}<section class="page-translation-panel" id="pageTranslationPanel"></section><article class="article-body">${displayPage.html}</article><section id="pageKnowledgePanel"></section><section class="page-rating-panel" id="pageRatingPanel"></section><section class="edit-timeline-section"><div class="section-title-row"><h2>最近编辑</h2><a class="mini-link" href="#/history/${encodeSlug(page.slug)}">查看全部</a></div><div class="edit-timeline" id="pageEditTimeline"></div></section>`;
+    await Promise.all([loadPageTranslations(page.slug, activeLang), loadPageFavorite(page.slug), loadPageWatch(page.slug), loadPageKnowledge(page.slug), loadPageRating(page.slug), loadPageEdits(page.slug, "pageEditTimeline", { limit: 6, page: 1 })]);
     typesetMath();
   } catch (_error) {
     if (state.currentSlug === (state.site.defaultPage || "home")) {
@@ -3022,6 +3097,123 @@ async function renderFavorites(value = "") {
   bindPagination(el.main, (nextPage) => { location.hash = `#/favorites/${nextPage}`; });
 }
 
+function watchTargetLabel(watch) {
+  if (watch.targetType === "category") return `分类 · ${watch.targetKey}`;
+  if (watch.targetType === "language") return `语言 · ${languageLabel(watch.targetKey)}`;
+  return watch.page?.title || watch.targetKey;
+}
+
+function watchItemHtml(watch, compact = false) {
+  const title = watchTargetLabel(watch);
+  const meta = watch.targetType === "page"
+    ? (watch.page?.summary || (watch.exists ? watch.targetKey : "该词条已归档或尚未创建。"))
+    : watch.targetType === "category"
+      ? "该分类下的词条创建、保存、归档会通知你。"
+      : "该语言的译文保存会通知你。";
+  const target = watch.targetType === "page" && watch.exists
+    ? `<a href="#/page/${encodeSlug(watch.targetKey)}"><strong>${escapeHtml(title)}</strong><small>${escapeHtml(meta)}</small></a>`
+    : `<div><strong>${escapeHtml(title)}</strong><small>${escapeHtml(meta)}</small></div>`;
+  return `<article class="watch-list-item ${compact ? "compact" : ""}">${target}<span class="chip">${escapeHtml(watch.targetType === "page" ? "词条" : watch.targetType === "category" ? "分类" : "语言")}</span><button class="icon-button favorite-result-remove" type="button" data-remove-watch-type="${escapeHtml(watch.targetType)}" data-remove-watch-key="${escapeHtml(watch.targetKey)}" title="取消关注" aria-label="取消关注 ${escapeHtml(title)}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 14h10l1-14M9 7V4h6v3"/></svg></button></article>`;
+}
+
+async function saveWatch(targetType, targetKey, enabled) {
+  return api("/api/passport/watches", {
+    method: "PUT",
+    body: JSON.stringify({ targetType, targetKey, enabled }),
+  });
+}
+
+async function renderWatchlist(value = "") {
+  const page = Math.max(1, Number(String(value || "").split("/")[0]) || 1);
+  await refreshUser();
+  if (!state.user) { location.hash = "#/login"; return; }
+  setChromeTitle("关注列表");
+  renderToc([]);
+  el.editLink.href = "#/new";
+  const [payload, knowledge] = await Promise.all([
+    api(`/api/passport/watches?page=${page}&limit=12`),
+    api("/api/knowledge").catch(() => ({ categories: [] })),
+  ]);
+  const { items, pagination } = normalizedPaged(payload, page, 12);
+  const categories = knowledge.categories || [];
+  const languages = uniqueLanguages(state.site?.languages || ["zh-CN", "zh-TW", "en"]);
+  el.main.innerHTML = `
+    <header class="article-head favorites-page-head">
+      <div class="article-title-row"><h1>关注列表</h1><span class="quality-badge">${Number(pagination.total || 0)} 项</span></div>
+      <p class="article-summary">词条、分类和译文语言的更新会进入消息中心。关注只保存订阅关系，不复制词条内容。</p>
+      <div class="editor-actions"><a class="command-button secondary" href="#/account">返回账户中心</a></div>
+    </header>
+    <section class="watchlist-controls">
+      <form data-watch-form="page"><label>关注词条<input name="targetKey" placeholder="词条 slug，例如 abstract-algebra" required /></label><button class="command-button" type="submit">添加</button></form>
+      <form data-watch-form="category"><label>关注分类<select name="targetKey">${categories.map((item) => `<option value="${escapeHtml(item.name)}">${escapeHtml(item.name)} · ${item.pageCount}</option>`).join("") || '<option value="">暂无分类</option>'}</select></label><button class="command-button secondary" type="submit">添加</button></form>
+      <form data-watch-form="language"><label>关注译文语言<select name="targetKey">${languages.map((language) => `<option value="${escapeHtml(language)}">${escapeHtml(languageLabel(language))}</option>`).join("")}</select></label><button class="command-button secondary" type="submit">添加</button></form>
+    </section>
+    <section class="watch-list refined-search-results">${items.length ? items.map((item) => watchItemHtml(item)).join("") : '<div class="empty-state"><h2>尚未关注任何目标</h2><p class="muted-line">可以在词条标题旁关注，也可以在这里关注分类和译文语言。</p></div>'}</section>
+    ${paginationHtml(pagination, "关注目标")}`;
+  el.main.querySelectorAll("[data-watch-form]").forEach((form) => {
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const targetType = form.dataset.watchForm;
+      const targetKey = new FormData(form).get("targetKey");
+      const button = form.querySelector("button");
+      button.disabled = true;
+      try {
+        await saveWatch(targetType, targetKey, true);
+        await refreshUser();
+        uiToast("已加入关注列表");
+        await renderWatchlist(String(page));
+      } catch (error) {
+        await uiAlert("关注失败", error.message, "error");
+        button.disabled = false;
+      }
+    });
+  });
+  el.main.querySelectorAll("[data-remove-watch-type]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      button.disabled = true;
+      try {
+        await saveWatch(button.dataset.removeWatchType, button.dataset.removeWatchKey, false);
+        await refreshUser();
+        uiToast("已取消关注");
+        await renderWatchlist(String(page));
+      } catch (error) {
+        button.disabled = false;
+        await uiAlert("操作失败", error.message, "error");
+      }
+    });
+  });
+  bindPagination(el.main, (nextPage) => { location.hash = `#/watchlist/${nextPage}`; });
+}
+
+async function renderKnowledge() {
+  setChromeTitle("知识网络");
+  renderToc([]);
+  el.editLink.href = "#/new";
+  const payload = await api("/api/knowledge");
+  const stats = payload.stats || {};
+  el.main.innerHTML = `
+    <header class="article-head">
+      <div class="article-title-row"><h1>知识网络</h1><span class="quality-badge">索引</span></div>
+      <p class="article-summary">由 Wiki 链接、词条元数据与别名构成的可维护知识网络。红色链接代表当前尚未创建的概念。</p>
+    </header>
+    <section class="knowledge-metrics">
+      ${[["词条", stats.pages], ["链接", stats.links], ["反向链接", stats.backlinks], ["缺失词条", stats.missing], ["孤立词条", stats.orphans], ["别名", stats.aliases]].map(([label, value]) => `<div><span>${label}</span><strong>${Number(value || 0)}</strong></div>`).join("")}
+    </section>
+    <section class="knowledge-grid">
+      <div class="knowledge-panel"><div class="section-title-row"><h2>缺失词条</h2><a class="mini-link" href="#/search/missing">搜索创建方向</a></div>${(payload.missing || []).length ? payload.missing.map((item) => `<a class="knowledge-list-item is-missing" href="#/edit/${encodeSlug(item.slug)}"><span>被 ${item.sourceCount} 个词条引用</span><strong>${escapeHtml(item.label || item.slug)}</strong><small>${escapeHtml(item.slug)}</small></a>`).join("") : '<p class="muted-line">没有缺失词条。</p>'}</div>
+      <div class="knowledge-panel"><div class="section-title-row"><h2>孤立词条</h2><span class="muted-line">尚无反向链接</span></div>${(payload.orphans || []).length ? payload.orphans.map((item) => knowledgeLinkRow(item, "待关联")).join("") : '<p class="muted-line">没有孤立词条。</p>'}</div>
+    </section>`;
+}
+
+function accountWatchesHtml(items = [], total = 0) {
+  return `
+    <section class="auth-panel compact watches-panel" id="accountWatches">
+      <div class="panel-heading-row"><div><h2>我的关注</h2><p class="muted-line">词条、分类和译文语言的变化会进入消息中心。</p></div><span class="favorite-count-badge">${Number(total || 0)}</span></div>
+      <div class="watch-list compact">${items.length ? items.slice(0, 6).map((item) => watchItemHtml(item, true)).join("") : '<div class="favorite-empty"><strong>还没有关注目标</strong><span>在词条标题旁点击关注，或进入关注列表管理分类与语言。</span></div>'}</div>
+      <div class="editor-actions"><a class="mini-link" href="#/watchlist">管理关注列表</a></div>
+    </section>`;
+}
+
 function accountSecurityHtml(user = {}) {
   const emailState = user.emailVerified ? "已验证" : "未验证";
   const twoFactorState = user.twoFactorEnabled ? "已开启" : "未开启";
@@ -3048,6 +3240,8 @@ async function renderAccount() {
   renderToc([]);
   el.editLink.href = "#/new";
   if (!state.user) { location.hash = "#/login"; return; }
+  const watchPayload = await api("/api/passport/watches?limit=8").catch(() => ({ items: [] }));
+  const accountWatches = watchPayload.items || [];
   el.main.innerHTML = `
     <header class="article-head">
       <div class="article-title-row"><h1>Wikist 通行证</h1><span class="quality-badge">${escapeHtml(state.user.role)}</span></div>
@@ -3064,6 +3258,7 @@ async function renderAccount() {
           <span class="chip">编辑 ${state.user.stats?.edits || 0}</span>
           <span class="chip">评论 ${state.user.stats?.comments || 0}</span>
           <span class="chip">收藏 ${state.user.stats?.favorites || 0}</span>
+          <span class="chip">关注 ${state.user.stats?.watches || 0}</span>
           <span class="chip">同步 ${fmtDate(state.user.lastSyncAt)}</span>
         </div>
         <div class="identity-social-summary"><span>外部资料</span>${socialLinksHtml(state.user.socialLinks, "card")}</div>
@@ -3082,6 +3277,7 @@ async function renderAccount() {
         <div class="status-line" id="translatorJoinStatus"></div>
       </form>
       ${accountFavoritesHtml(state.user.favorites || [], Number(state.user.stats?.favorites || 0))}
+      ${accountWatchesHtml(accountWatches, Number(state.user.stats?.watches || 0))}
       <form class="auth-panel compact profile-panel" id="profileForm">
         <h2>公开资料</h2>
         <label>显示名称<input name="displayName" value="${escapeHtml(state.user.displayName || "")}" required /></label>
@@ -3117,6 +3313,20 @@ async function renderAccount() {
       await api(`/api/pages/${encodeSlug(slug)}/favorite`, { method: "PUT", body: JSON.stringify({ favorited: false }) });
       await refreshUser();
       uiToast("已取消收藏");
+      await renderAccount();
+    } catch (error) {
+      button.disabled = false;
+      await uiAlert("操作失败", error.message, "error");
+    }
+  });
+  document.querySelector("#accountWatches")?.addEventListener("click", async (event) => {
+    const button = event.target.closest("[data-remove-watch-type]");
+    if (!button) return;
+    button.disabled = true;
+    try {
+      await saveWatch(button.dataset.removeWatchType, button.dataset.removeWatchKey, false);
+      await refreshUser();
+      uiToast("已取消关注");
       await renderAccount();
     } catch (error) {
       button.disabled = false;
@@ -3334,8 +3544,78 @@ async function renderUserPage(username) {
   }
 }
 
+async function renderAdminKnowledge() {
+  const payload = await api("/api/admin/knowledge");
+  const stats = payload.stats || {};
+  const missingRows = (payload.missing || []).map((item) => `<tr><td><strong>${escapeHtml(item.label || item.slug)}</strong><small>${escapeHtml(item.slug)}</small></td><td>${Number(item.sourceCount || 0)}</td><td>${(item.sourceSlugs || []).slice(0, 4).map((slug) => `<a class="mini-link" href="#/page/${encodeSlug(slug)}">${escapeHtml(slug)}</a>`).join(" ")}</td><td><a class="mini-button" href="#/edit/${encodeSlug(item.slug)}">创建词条</a></td></tr>`).join("");
+  const orphanRows = (payload.orphans || []).map((page) => `<tr><td><strong>${escapeHtml(page.title)}</strong><small>${escapeHtml(page.slug)}</small></td><td>${escapeHtml(page.summary || "")}</td><td><a class="mini-link" href="#/page/${encodeSlug(page.slug)}">查看</a> <a class="mini-link" href="#/edit/${encodeSlug(page.slug)}">编辑</a></td></tr>`).join("");
+  const aliasRows = (payload.aliases || []).map((alias) => `<tr><td><strong>${escapeHtml(alias.aliasSlug)}</strong></td><td><a class="mini-link" href="#/page/${encodeSlug(alias.targetSlug)}">${escapeHtml(alias.targetSlug)}</a></td><td><button class="mini-button danger" type="button" data-delete-alias="${escapeHtml(alias.aliasSlug)}">删除</button></td></tr>`).join("");
+  el.main.innerHTML = adminShell("knowledge", `
+    ${adminHeader("知识网络", "链接索引在保存、导入、恢复和删除时增量维护。这里集中处理缺失概念、孤立词条与可审计的别名重定向。")}
+    <section class="admin-metrics knowledge-admin-metrics">
+      ${[["词条", stats.pages], ["链接", stats.links], ["反向链接", stats.backlinks], ["缺失", stats.missing], ["孤立", stats.orphans], ["别名", stats.aliases]].map(([label, value]) => `<div class="admin-metric"><span>${label}</span><strong>${Number(value || 0)}</strong></div>`).join("")}
+    </section>
+    <section class="admin-grid knowledge-admin-grid">
+      <form class="admin-settings-panel" id="aliasForm">
+        <div class="panel-heading-row"><div><h2>别名与重定向</h2><p class="muted-line">别名只指向现有正式词条；访问旧 slug 时自动进入目标词条。</p></div></div>
+        <label>别名 slug<input name="aliasSlug" placeholder="例如 group-theory" required /></label>
+        <label>目标词条 slug<input name="targetSlug" placeholder="例如 abstract-algebra/group" required /></label>
+        <div class="editor-actions"><button class="command-button" type="submit">保存别名</button><button class="command-button secondary" type="button" id="rebuildKnowledgeIndex">重建索引</button></div>
+        <div class="status-line" id="knowledgeAdminStatus"></div>
+      </form>
+      <section class="admin-note"><strong>分类覆盖</strong><div class="chip-row knowledge-category-chips">${(payload.categories || []).slice(0, 24).map((item) => `<span class="chip">${escapeHtml(item.name)} · ${item.pageCount}</span>`).join("") || '<span class="muted-line">暂无分类数据。</span>'}</div></section>
+    </section>
+    <section class="admin-table-wrap"><table class="admin-table"><thead><tr><th>缺失概念</th><th>引用数</th><th>来源词条</th><th>操作</th></tr></thead><tbody>${missingRows || '<tr><td colspan="4">没有缺失词条。</td></tr>'}</tbody></table></section>
+    <section class="admin-table-wrap"><table class="admin-table"><thead><tr><th>孤立词条</th><th>摘要</th><th>操作</th></tr></thead><tbody>${orphanRows || '<tr><td colspan="3">没有孤立词条。</td></tr>'}</tbody></table></section>
+    <section class="admin-table-wrap"><table class="admin-table"><thead><tr><th>别名</th><th>目标词条</th><th>操作</th></tr></thead><tbody>${aliasRows || '<tr><td colspan="3">尚未配置别名。</td></tr>'}</tbody></table></section>
+  `);
+  const status = document.querySelector("#knowledgeAdminStatus");
+  document.querySelector("#aliasForm")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const button = event.currentTarget.querySelector("button[type=submit]");
+    button.disabled = true;
+    status.textContent = "正在保存别名...";
+    try {
+      await api("/api/admin/aliases", { method: "POST", body: JSON.stringify(Object.fromEntries(new FormData(event.currentTarget).entries())) });
+      status.textContent = "别名已保存。";
+      await renderAdminKnowledge();
+    } catch (error) {
+      status.textContent = error.message;
+      button.disabled = false;
+    }
+  });
+  document.querySelector("#rebuildKnowledgeIndex")?.addEventListener("click", async (event) => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    status.textContent = "正在重建链接索引...";
+    try {
+      const result = await api("/api/admin/knowledge/rebuild", { method: "POST", body: "{}" });
+      status.textContent = `已重建 ${result.result?.pages || 0} 个词条的链接索引。`;
+      await renderAdminKnowledge();
+    } catch (error) {
+      status.textContent = error.message;
+      button.disabled = false;
+    }
+  });
+  document.querySelectorAll("[data-delete-alias]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const accepted = await uiConfirm({ title: "删除词条别名", text: `确定删除 ${button.dataset.deleteAlias} 吗？`, confirmText: "删除", icon: "warning" });
+      if (!accepted) return;
+      button.disabled = true;
+      try {
+        await api(`/api/admin/aliases/${encodeSlug(button.dataset.deleteAlias)}`, { method: "DELETE", body: "{}" });
+        uiToast("别名已删除");
+        await renderAdminKnowledge();
+      } catch (error) {
+        button.disabled = false;
+        await uiAlert("删除失败", error.message, "error");
+      }
+    });
+  });
+}
+
 function adminSectionTitle(section) {
-  return ({ overview: "概览", users: "用户管理", pages: "词条管理", comments: "评论管理", "comment-replies": "二级评论", messages: "消息管理", logs: "更新日志", archives: "归档页面", backups: "全站备份", settings: "站点设置", imports: "导入导出", plugins: "插件管理" })[section] || "概览";
+  return ({ overview: "概览", users: "用户管理", pages: "词条管理", knowledge: "知识网络", comments: "评论管理", "comment-replies": "二级评论", messages: "消息管理", logs: "更新日志", archives: "归档页面", backups: "全站备份", settings: "站点设置", imports: "导入导出", plugins: "插件管理" })[section] || "概览";
 }
 
 function adminShell(active, body) {
@@ -3343,6 +3623,7 @@ function adminShell(active, body) {
     ["overview", "概览"],
     ...(canManageUsers() ? [["users", "用户管理"]] : []),
     ["pages", "词条管理"],
+    ["knowledge", "知识网络"],
     ["comments", "评论管理"],
     ["messages", "消息管理"],
     ["logs", "更新日志"],
@@ -4523,7 +4804,7 @@ async function renderAdmin(section = "overview") {
   }
   const parts = String(section || "overview").split("/");
   const requested = parts[0];
-  const active = ["overview", "users", "pages", "comments", "comment-replies", "messages", "logs", "archives", "backups", "imports", "settings", "plugins"].includes(requested) ? requested : "overview";
+  const active = ["overview", "users", "pages", "knowledge", "comments", "comment-replies", "messages", "logs", "archives", "backups", "imports", "settings", "plugins"].includes(requested) ? requested : "overview";
   setChromeTitle(`后台 - ${adminSectionTitle(active === "comment-replies" ? "comment-replies" : active)}`);
   renderToc([]);
   el.editLink.href = "#/new";
@@ -4532,6 +4813,7 @@ async function renderAdmin(section = "overview") {
     await renderAdminUsers();
   }
   else if (active === "pages") await renderAdminPages();
+  else if (active === "knowledge") await renderAdminKnowledge();
   else if (active === "comments") await renderAdminComments();
   else if (active === "comment-replies") await renderAdminCommentReplies(Number(parts[1]) || 0);
   else if (active === "messages") await renderAdminMessages();
@@ -4577,7 +4859,9 @@ async function route() {
     else if (name === "verify-email") await renderVerifyEmail(value);
     else if (name === "account") await renderAccount();
     else if (name === "favorites") await renderFavorites(value);
+    else if (name === "watchlist") await renderWatchlist(value);
     else if (name === "messages") await renderMessages();
+    else if (name === "knowledge") await renderKnowledge();
     else if (name === "news") await renderNews();
     else if (name === "import-export" || name === "imports") await renderImportExport();
     else if (name === "archive") await renderArchive(value);

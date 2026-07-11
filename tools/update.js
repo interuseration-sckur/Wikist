@@ -143,6 +143,21 @@ function ensureProjectRoot(dir) {
   if (pkg.name !== "wikist") throw new Error(`${dir} package.json is not Wikist.`);
 }
 
+function versionInfo(dir = rootDir) {
+  const packagePath = path.join(dir, "package.json");
+  const appPath = path.join(dir, "public", "assets", "app.js");
+  let packageVersion = "";
+  let assetVersion = "";
+  try {
+    packageVersion = String(JSON.parse(fs.readFileSync(packagePath, "utf8")).version || "");
+  } catch (_error) {}
+  try {
+    const source = fs.readFileSync(appPath, "utf8");
+    assetVersion = source.match(/CORE_ASSET_VERSION\s*=\s*["']([^"']+)["']/)?.[1] || "";
+  } catch (_error) {}
+  return { packageVersion, assetVersion };
+}
+
 function writeReport(report) {
   fs.mkdirSync(reportDir, { recursive: true });
   const filePath = path.join(reportDir, `update-${stamp}.json`);
@@ -276,6 +291,7 @@ function installDependencies(options) {
 function runChecks(options) {
   if (!options.check) return;
   run(bin("npm"), ["run", "check"], options);
+  run(bin("npm"), ["run", "check:knowledge"], options);
 }
 
 function assertConfirmation(options) {
@@ -307,6 +323,8 @@ function main() {
     dirtyFiles: [],
     stash: null,
     protectedPaths: PROTECTED_PATHS,
+    versionBefore: versionInfo(),
+    versionAfter: null,
   };
 
   let stopped = false;
@@ -319,6 +337,7 @@ function main() {
     report.result = options.strategy === "git" ? updateFromGit(options, report) : updateFromLocal(options);
     installDependencies(options);
     runChecks(options);
+    report.versionAfter = versionInfo();
 
     report.status = "ok";
     report.finishedAt = new Date().toISOString();

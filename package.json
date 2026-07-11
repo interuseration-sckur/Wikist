@@ -1,6 +1,6 @@
 {
   "name": "wikist",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "A fast, open, math-first wiki framework.",
   "main": "server.js",
@@ -18,7 +18,8 @@
     "check:favorites": "node tools/check-favorite-features.js",
     "check:models": "node tools/check-math-modeling-features.js",
     "check:messages": "node tools/check-message-priority-features.js",
-    "check:security": "node tools/check-security-email-features.js"
+    "check:security": "node tools/check-security-email-features.js",
+    "check:knowledge": "node tools/check-knowledge-features.js"
   },
   "engines": {
     "node": ">=18"
