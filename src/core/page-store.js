@@ -8,6 +8,32 @@ function ensureDir(dir) {
   fs.mkdirSync(dir, { recursive: true });
 }
 
+function toStringList(value) {
+  if (Array.isArray(value)) return value.map((item) => String(item || "").trim()).filter(Boolean);
+  return String(value || "").split(/[\n,]/).map((item) => item.trim()).filter(Boolean);
+}
+
+function normalizeDisambiguationTargets(value) {
+  const seen = new Set();
+  const targets = [];
+  for (const rawItem of toStringList(value)) {
+    const [rawSlug, rawLabel = "", rawSummary = ""] = rawItem.split("|");
+    const slug = String(rawSlug || "").trim();
+    if (!slug || seen.has(slug)) continue;
+    seen.add(slug);
+    targets.push({
+      slug,
+      label: String(rawLabel || "").trim() || slug,
+      summary: String(rawSummary || "").trim(),
+    });
+  }
+  return targets.slice(0, 24);
+}
+
+function disambiguationTargetStorage(value) {
+  return normalizeDisambiguationTargets(value).map((target) => `${target.slug}|${target.label}|${target.summary}`);
+}
+
 function walkMarkdownFiles(rootDir, currentDir = rootDir, results = []) {
   if (!fs.existsSync(currentDir)) return results;
 
@@ -95,6 +121,10 @@ class PageStore {
       importUrl: parsed.data.importUrl || "",
       importFetchedAt: parsed.data.importFetchedAt || "",
       importLicense: parsed.data.importLicense || "",
+      aliases: toStringList(parsed.data.aliases),
+      redirectTarget: parsed.data.redirectTarget || parsed.data.redirect_to || "",
+      isDisambiguation: parsed.data.disambiguation === true || parsed.data.disambiguation === "true",
+      disambiguationTargets: normalizeDisambiguationTargets(parsed.data.disambiguationTargets || parsed.data.disambiguation_targets),
       createdAt: parsed.data.createdAt || stat.birthtime.toISOString(),
       updatedAt: parsed.data.updatedAt || stat.mtime.toISOString(),
       body: parsed.body,
@@ -243,6 +273,10 @@ class PageStore {
         importUrl: page.importUrl,
         importFetchedAt: page.importFetchedAt,
         importLicense: page.importLicense,
+        aliases: page.aliases,
+        redirectTarget: page.redirectTarget,
+        disambiguation: page.isDisambiguation,
+        disambiguationTargets: page.disambiguationTargets,
         createdAt: page.createdAt,
         updatedAt: page.updatedAt,
         body: page.body,
@@ -336,6 +370,12 @@ class PageStore {
       importUrl: input.importUrl ?? existing?.importUrl ?? "",
       importFetchedAt: input.importFetchedAt ?? existing?.importFetchedAt ?? "",
       importLicense: input.importLicense ?? existing?.importLicense ?? "",
+      aliases: toStringList(input.aliases ?? existing?.aliases ?? []),
+      redirectTarget: String(input.redirectTarget ?? input.redirect_to ?? existing?.redirectTarget ?? "").trim(),
+      disambiguation: input.disambiguation === undefined
+        ? Boolean(existing?.isDisambiguation)
+        : input.disambiguation === true || input.disambiguation === "true",
+      disambiguationTargets: disambiguationTargetStorage(input.disambiguationTargets ?? input.disambiguation_targets ?? existing?.disambiguationTargets ?? []),
       createdAt: existing?.createdAt || now,
       updatedAt: now,
     };

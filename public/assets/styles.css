@@ -7024,6 +7024,96 @@ body.admin-mode .plugin-json.compact {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 16px;
+  align-items: start;
+}
+
+.knowledge-grid > .knowledge-panel {
+  align-self: start;
+  min-height: 0;
+}
+
+.knowledge-pager {
+  justify-content: space-between;
+  margin-top: auto;
+  padding-top: 10px;
+}
+
+.pager a {
+  display: inline-flex;
+  min-height: 34px;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 0 12px;
+  color: var(--text);
+  background: rgba(8, 13, 12, .74);
+}
+
+.pager a:hover { border-color: rgba(56, 232, 255, .42); color: var(--cyan); }
+.pager a.disabled { opacity: .4; pointer-events: none; }
+
+.editor-knowledge-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 14px;
+  background: rgba(10, 18, 16, .38);
+}
+
+.editor-knowledge-fields > label { min-width: 0; }
+.editor-knowledge-fields > label:last-child { grid-column: 1 / -1; }
+.editor-knowledge-fields textarea { min-height: 104px; }
+.editor-knowledge-head { grid-column: 1 / -1; display: grid; gap: 3px; }
+.editor-knowledge-head strong { color: var(--text); }
+.editor-knowledge-head small { color: var(--muted); }
+.editor-toggle { display: inline-flex !important; grid-template-columns: auto 1fr; align-items: center; gap: 9px !important; }
+.editor-toggle input { width: 18px !important; height: 18px !important; padding: 0 !important; accent-color: var(--cyan); }
+
+.disambiguation-panel {
+  display: grid;
+  grid-template-columns: minmax(180px, .7fr) minmax(0, 1.3fr);
+  gap: 18px;
+  margin: 18px 0;
+  border: 1px solid rgba(56, 232, 255, .28);
+  border-radius: var(--radius);
+  padding: 16px;
+  background: linear-gradient(135deg, rgba(56, 232, 255, .08), rgba(124, 255, 180, .04));
+}
+
+.disambiguation-panel h2 { margin: 5px 0; font-size: 1.08rem; }
+.disambiguation-panel p { margin: 0; color: var(--muted); }
+.disambiguation-targets { display: grid; gap: 8px; }
+.disambiguation-targets a { display: grid; gap: 3px; border-left: 2px solid rgba(124, 255, 180, .48); padding: 5px 10px; color: var(--text); background: rgba(5, 10, 9, .26); }
+.disambiguation-targets a:hover { border-left-color: var(--cyan); color: var(--cyan); }
+.disambiguation-targets span { color: var(--muted); font-size: .84rem; }
+
+.user-follow-button.active { border-color: rgba(124, 255, 180, .52); color: var(--green); background: rgba(124, 255, 180, .1); }
+.profile-follow-stat { text-decoration: none; }
+.following-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+.following-tabs a { border: 1px solid var(--line); border-radius: var(--radius); padding: 8px 12px; color: var(--muted); }
+.following-tabs a.active { border-color: rgba(56, 232, 255, .44); color: var(--cyan); background: rgba(56, 232, 255, .08); }
+.follow-user-list { display: grid; gap: 10px; }
+.follow-user-card { display: flex; align-items: center; justify-content: space-between; gap: 12px; border-top: 1px solid var(--line); padding: 12px 0; }
+.follow-user-card > a { display: grid; grid-template-columns: 38px minmax(0, 1fr); align-items: center; gap: 10px; min-width: 0; color: var(--text); }
+.follow-user-card a > div { display: grid; gap: 2px; min-width: 0; }
+.follow-user-card strong, .follow-user-card span, .follow-user-card small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.follow-user-card span, .follow-user-card small { color: var(--muted); font-size: .8rem; }
+.follow-user-card > span { flex: 0 0 auto; }
+
+:root[data-theme="light"] .pager a,
+:root[data-theme="light"] .editor-knowledge-fields,
+:root[data-theme="light"] .disambiguation-panel,
+:root[data-theme="light"] .disambiguation-targets a { background: rgba(255, 255, 255, .9); }
+
+@media (max-width: 680px) {
+  .knowledge-pager { justify-content: center; }
+  .editor-knowledge-fields,
+  .disambiguation-panel { grid-template-columns: 1fr; }
+  .editor-knowledge-fields > label:last-child { grid-column: auto; }
+  .follow-user-card { align-items: flex-start; flex-direction: column; }
+  .follow-user-card > span { padding-left: 48px; }
 }
 
 .knowledge-grid.compact > div {

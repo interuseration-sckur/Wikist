@@ -40,6 +40,10 @@ Users can already follow a page, category, or translation language, following th
 
 The next refinement is configurable digest delivery and review/comment-specific subscriptions.
 
+### Delivered: Author Following And Portable Disambiguation
+
+Readers can now follow contributors from public profiles, see mutual-follow state, and browse paginated following/follower lists. Followed-author article and translation updates reuse the existing inbox. Articles can also carry portable aliases, redirects, and disambiguation targets in Markdown front matter; the next refinement is rename repair and a guided disambiguation editor for larger encyclopedias.
+
 ## P1: Knowledge Navigation
 
 ### Delivered Foundation: Backlinks, Missing Pages, Redirects, And Aliases

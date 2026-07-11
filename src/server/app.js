@@ -157,8 +157,8 @@ function siteIconUrl(config) {
 function serveIndexHtml(req, res, indexPath, config) {
   const icon = siteIconUrl(config);
   const html = fs.readFileSync(indexPath, "utf8")
-    .replace(/href="\/assets\/styles\.css\?v=wikist-core-20260711-63"/g, `href="${escapeHtml(assetUrl(config, "/assets/styles.css?v=wikist-core-20260711-63"))}"`)
-    .replace(/src="\/assets\/app\.js\?v=wikist-core-20260711-63"/g, `src="${escapeHtml(assetUrl(config, "/assets/app.js?v=wikist-core-20260711-63"))}"`)
+    .replace(/href="\/assets\/styles\.css\?v=wikist-core-20260711-64"/g, `href="${escapeHtml(assetUrl(config, "/assets/styles.css?v=wikist-core-20260711-64"))}"`)
+    .replace(/src="\/assets\/app\.js\?v=wikist-core-20260711-64"/g, `src="${escapeHtml(assetUrl(config, "/assets/app.js?v=wikist-core-20260711-64"))}"`)
     .replace(/href="\/assets\/wikist-emblem\.svg"/g, `href="${escapeHtml(icon)}"`)
     .replace(/src="\/assets\/wikist-emblem\.svg"/g, `src="${escapeHtml(icon)}"`)
     .replace(/<title>Wikist<\/title>/, `<title>${escapeHtml(config.name || "Wikist")}</title>`);
@@ -181,6 +181,10 @@ function pagePreviewPayload(page) {
     summary: page.summary,
     heroImage: page.heroImage || "",
     categories: page.categories || [],
+    aliases: page.aliases || [],
+    redirectTarget: page.redirectTarget || "",
+    isDisambiguation: Boolean(page.isDisambiguation),
+    disambiguationTargets: page.disambiguationTargets || [],
     quality: page.quality || "C",
     status: page.status || "draft",
     updatedAt: page.updatedAt,
@@ -488,10 +492,20 @@ function assertImportOverwriteAllowed(pages, slug, overwrite) {
 function resolveLivePage(pages, passport, slug) {
   const requestedSlug = normalizeSlug(slug);
   const direct = pages.getPage(requestedSlug);
+  if (direct?.redirectTarget) {
+    const targetSlug = normalizeSlug(direct.redirectTarget);
+    const target = targetSlug !== requestedSlug ? pages.getPage(targetSlug) : null;
+    if (target) return { page: target, requestedSlug, alias: { aliasSlug: requestedSlug, targetSlug, sourcePageSlug: requestedSlug, kind: "redirect" } };
+  }
   if (direct) return { page: direct, requestedSlug, alias: null };
   const alias = passport?.resolvePageAlias(requestedSlug);
   if (!alias) return { page: null, requestedSlug, alias: null };
   const page = pages.getPage(alias.targetSlug);
+  if (page?.redirectTarget) {
+    const targetSlug = normalizeSlug(page.redirectTarget);
+    const target = targetSlug !== page.slug ? pages.getPage(targetSlug) : null;
+    if (target) return { page: target, requestedSlug, alias: { ...alias, targetSlug, kind: "redirect" } };
+  }
   return { page, requestedSlug, alias: page ? alias : null };
 }
 
@@ -509,13 +523,15 @@ function knowledgeSnapshot(passport, pages, config) {
 function knowledgeWrite(passport, page, session, options = {}) {
   if (!passport || !page) return { links: [], notifications: 0 };
   const linkSync = passport.syncPageLinks(page);
-  const notifications = passport.notifyKnowledgeWatchers(page, {
+  const input = {
     action: options.action || "update",
     language: options.language || "",
     actorUserId: session?.user?.id || null,
     senderName: session?.user?.displayName || session?.user?.username || options.senderName || "Wikist",
-  });
-  return { links: linkSync.links, notifications };
+  };
+  const notifications = passport.notifyKnowledgeWatchers(page, input);
+  const followerNotifications = passport.notifyUserFollowers(page, input);
+  return { links: linkSync.links, notifications, followerNotifications };
 }
 
 function createWikistServer(options) {
@@ -802,6 +818,19 @@ function createWikistServer(options) {
         const body = await readJsonBody(req);
         const watch = passport.setWatch(session, body.targetType || body.type, body.targetKey || body.key || body.value, body.enabled !== false);
         sendJson(res, 200, { watch });
+        return;
+      }
+
+      if (pathname === "/api/passport/follows" && req.method === "GET") {
+        if (!passport || !session?.user) {
+          sendJson(res, 401, { error: "请先登录后查看社交关系。" });
+          return;
+        }
+        const pagination = readPagination(url, 12, 60);
+        const direction = url.searchParams.get("direction") === "followers" ? "followers" : "following";
+        const items = passport.listUserFollows(session.user.id, direction, { limit: pagination.limit, offset: pagination.offset });
+        const total = passport.countUserFollows(session.user.id, direction);
+        sendJson(res, 200, { direction, ...paginationPayload(items, total, pagination) });
         return;
       }
 
@@ -1431,6 +1460,34 @@ function createWikistServer(options) {
         sendJson(res, 200, archive);
         return;
       }
+      const userFollowMatch = pathname.match(/^\/api\/users\/([^/]+)\/follow$/);
+      if (userFollowMatch && req.method === "GET") {
+        if (!passport) {
+          sendJson(res, 404, { error: "Wikist Passport is not enabled." });
+          return;
+        }
+        const username = decodePathPart(userFollowMatch[1]);
+        const target = passport.getPublicUser(username);
+        if (!target) {
+          sendJson(res, 404, { error: "User not found." });
+          return;
+        }
+        sendJson(res, 200, { follow: passport.userFollowState(session?.user?.id, target.id) });
+        return;
+      }
+
+      if (userFollowMatch && req.method === "PUT") {
+        if (!passport || !session?.user) {
+          sendJson(res, 401, { error: "Please sign in before following users." });
+          return;
+        }
+        const body = await readJsonBody(req);
+        const username = decodePathPart(userFollowMatch[1]);
+        const follow = passport.setUserFollow(session, username, body.enabled !== false);
+        sendJson(res, 200, { follow });
+        return;
+      }
+
       if (pathname.startsWith("/api/users/") && req.method === "GET") {
         if (!passport) {
           sendJson(res, 404, { error: "Wikist 通行证未启用。" });
@@ -1442,7 +1499,9 @@ function createWikistServer(options) {
           sendJson(res, 404, { error: "用户不存在。" });
           return;
         }
-        sendJson(res, 200, { user: userPayloadWithHtml(profile, config) });
+        const user = userPayloadWithHtml(profile, config);
+        user.follow = passport.userFollowState(session?.user?.id, profile.id);
+        sendJson(res, 200, { user });
         return;
       }
 
@@ -1666,10 +1725,9 @@ function createWikistServer(options) {
         }
         const translation = passport.saveTranslation(session, slug, page, await readJsonBody(req, 2 * 1024 * 1024));
         recordAudit(passport, req, session, { action: "translation.save", targetType: "page", targetId: slug, targetLabel: page.title, summary: `保存 ${translation.language} 译文`, metadata: { language: translation.language, progress: translation.progress, status: translation.status } });
-        passport.notifyKnowledgeWatchers(page, {
+        knowledgeWrite(passport, page, session, {
           action: "translation",
           language: translation.language,
-          actorUserId: session.user.id,
           senderName: session.user.displayName || session.user.username || "Wikist",
         });
         const renderedTranslation = renderMarkdown(translation.translatedMd || "");
@@ -1791,11 +1849,14 @@ function createWikistServer(options) {
         }
         const audit = passport.recordPageEdit(req, session, deleted, { action: "delete" });
         passport.removePageLinks(deleted.slug);
-        passport.notifyKnowledgeWatchers(deleted, {
+        passport.removePageAliasesForPage(deleted.slug);
+        const notice = {
           action: "delete",
           actorUserId: session.user.id,
           senderName: session.user.displayName || session.user.username || "Wikist",
-        });
+        };
+        passport.notifyKnowledgeWatchers(deleted, notice);
+        passport.notifyUserFollowers(deleted, notice);
         setCookieHeader(res, audit.cookie);
         sendJson(res, 200, { ok: true, deleted: { slug: deleted.slug, title: deleted.title, archiveId: deleted.archiveId, deletedAt: deleted.deletedAt }, editEvent: audit.event });
         return;
@@ -1828,6 +1889,43 @@ function createWikistServer(options) {
           return;
         }
         const body = await readJsonBody(req);
+        const managesAliases = Object.prototype.hasOwnProperty.call(body, "aliases") || Object.prototype.hasOwnProperty.call(body, "redirectTarget");
+        if (managesAliases) {
+          if (!passport?.userFollowState || !session?.user || !["creator", "editor", "senior_editor", "admin"].includes(session.user.role)) {
+            sendJson(res, 403, { error: "只有创作组、资深编辑和管理员可以设置别名或重定向。" });
+            return;
+          }
+          const aliases = Array.isArray(body.aliases)
+            ? body.aliases
+            : String(body.aliases || "").split(/[\n,]/);
+          try {
+            body.aliases = [...new Set(aliases.map((value) => normalizeSlug(String(value || "").trim())).filter(Boolean))];
+          } catch (_error) {
+            sendJson(res, 400, { error: "别名 slug 格式无效。" });
+            return;
+          }
+          for (const aliasSlug of body.aliases) {
+            if (aliasSlug !== slug && pages.getPage(aliasSlug)) {
+              sendJson(res, 409, { error: `别名 ${aliasSlug} 与现有词条冲突。` });
+              return;
+            }
+          }
+          const redirectValue = String(body.redirectTarget || "").trim();
+          if (redirectValue) {
+            let redirectTarget;
+            try { redirectTarget = normalizeSlug(redirectValue); } catch (_error) {
+              sendJson(res, 400, { error: "重定向目标 slug 格式无效。" });
+              return;
+            }
+            if (redirectTarget === slug || !pages.getPage(redirectTarget)) {
+              sendJson(res, 409, { error: "重定向目标必须是另一个已存在的词条。" });
+              return;
+            }
+            body.redirectTarget = redirectTarget;
+          } else {
+            body.redirectTarget = "";
+          }
+        }
         if (session?.user && !body.author) {
           const profile = passport?.getUserProfile(session.user.id);
           body.author = profile?.displayName || session.user.displayName || session.user.username;
@@ -1848,6 +1946,7 @@ function createWikistServer(options) {
           });
           editEvent = audit.event;
           setCookieHeader(res, audit.cookie);
+          if (managesAliases) passport.syncPageAliases(session, page, body.aliases, pages.listPages().map((item) => item.slug));
           knowledgeWrite(passport, page, session, {
             action: existing ? "update" : "create",
             senderName: body.author || "",

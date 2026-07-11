@@ -1,5 +1,12 @@
 # Wikist 站点升级日志
 
+## 2026-07-11 - 词条重定向、消歧与用户关注
+
+- SQLite 自动新增 `user_follows`，并给现有 `page_aliases` 增加 `source_page_slug`。启动时迁移是幂等的，不会重建或清空现有账号、词条和订阅数据。
+- 词条 Markdown front matter 新增可选字段：`aliases`、`redirectTarget`、`disambiguation` 与 `disambiguationTargets`。它们会随内容导出、备份和迁移。
+- 用户关注仅保存关系和时间戳；词条保存、恢复、归档及译文保存时，才向关注作者的活跃用户写入一条站内信。
+- 框架版本升级为 `0.3.0`，前端资源版本升级为 `wikist-core-20260711-64`。使用 CDN 时请同步 `/assets/app.js`、`/assets/styles.css`、安装器资源并清理旧缓存。
+
 本日志记录代码层面的框架升级、数据结构调整与运维注意事项；用户编辑、评论、评分等内容行为仍记录在后台“更新日志”中。
 
 ## 2026-07-11 - 知识网络、关注列表与别名

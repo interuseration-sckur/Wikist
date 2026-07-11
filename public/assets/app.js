@@ -1747,6 +1747,16 @@ function articleHeader(page) {
     </header>
   `;
 }
+
+function disambiguationPanelHtml(page) {
+  if (!page?.isDisambiguation) return "";
+  const targets = page.disambiguationTargets || [];
+  return `
+    <section class="disambiguation-panel" aria-label="词条消歧">
+      <div><span class="system-kicker">Wikist Disambiguation</span><h2>这个名称可能指向多个概念</h2><p>请选择与当前阅读意图对应的词条。</p></div>
+      <div class="disambiguation-targets">${targets.length ? targets.map((target) => `<a href="#/page/${encodeSlug(target.slug)}"><strong>${escapeHtml(target.label || target.slug)}</strong><span>${escapeHtml(target.summary || target.slug)}</span></a>`).join("") : '<p class="muted-line">尚未添加消歧指向。</p>'}</div>
+    </section>`;
+}
 function ratingPanelHtml(rating = {}) {
   const count = Number(rating.count || 0);
   const average = Number(rating.average || 0);
@@ -1978,7 +1988,7 @@ async function renderPage(value) {
     setChromeTitle(displayPage.title);
     renderToc(displayPage.toc);
     const aliasNotice = page.redirectedFrom ? `<aside class="knowledge-alias-notice"><strong>已通过别名跳转</strong><span>${escapeHtml(page.redirectedFrom)} → ${escapeHtml(page.slug)}</span></aside>` : "";
-    el.main.innerHTML = `${pageToolNav(page.slug, "page")}${aliasNotice}${articleHeader(displayPage)}${translationNotice}<section class="page-translation-panel" id="pageTranslationPanel"></section><article class="article-body">${displayPage.html}</article><section id="pageKnowledgePanel"></section><section class="page-rating-panel" id="pageRatingPanel"></section><section class="edit-timeline-section"><div class="section-title-row"><h2>最近编辑</h2><a class="mini-link" href="#/history/${encodeSlug(page.slug)}">查看全部</a></div><div class="edit-timeline" id="pageEditTimeline"></div></section>`;
+    el.main.innerHTML = `${pageToolNav(page.slug, "page")}${aliasNotice}${articleHeader(displayPage)}${disambiguationPanelHtml(page)}${translationNotice}<section class="page-translation-panel" id="pageTranslationPanel"></section><article class="article-body">${displayPage.html}</article><section id="pageKnowledgePanel"></section><section class="page-rating-panel" id="pageRatingPanel"></section><section class="edit-timeline-section"><div class="section-title-row"><h2>最近编辑</h2><a class="mini-link" href="#/history/${encodeSlug(page.slug)}">查看全部</a></div><div class="edit-timeline" id="pageEditTimeline"></div></section>`;
     await Promise.all([loadPageTranslations(page.slug, activeLang), loadPageFavorite(page.slug), loadPageWatch(page.slug), loadPageKnowledge(page.slug), loadPageRating(page.slug), loadPageEdits(page.slug, "pageEditTimeline", { limit: 6, page: 1 })]);
     typesetMath();
   } catch (_error) {
@@ -2620,6 +2630,30 @@ async function renderSearch(value) {
     location.hash = searchHash({ ...searchState, page: nextPage });
   });
 }
+function canManageEditorAliases() {
+  return ["creator", "editor", "senior_editor", "admin"].includes(String(state.user?.role || ""));
+}
+
+function disambiguationTargetsText(targets = []) {
+  return (targets || []).map((target) => [target.slug, target.label || target.slug, target.summary || ""].join(" | ")).join("\n");
+}
+
+function editorKnowledgeFields(page = {}) {
+  const aliasFields = canManageEditorAliases() ? `
+    <section class="editor-knowledge-fields wide">
+      <div class="editor-knowledge-head"><strong>别名与重定向</strong><small>别名以逗号分隔；重定向页会自动进入目标词条。</small></div>
+      <label>别名 / 可访问入口<input name="aliases" value="${escapeHtml((page.aliases || []).join(", "))}" placeholder="例如：group-theory, groups" /></label>
+      <label>重定向目标 slug<input name="redirectTarget" value="${escapeHtml(page.redirectTarget || "")}" placeholder="例如：abstract-algebra/group" /></label>
+    </section>` : "";
+  return `
+    ${aliasFields}
+    <section class="editor-knowledge-fields wide">
+      <div class="editor-knowledge-head"><strong>多义词与消歧</strong><small>一个标题对应多个概念时，读者会看到明确的指向列表。</small></div>
+      <label class="editor-toggle"><input type="checkbox" name="disambiguation" ${page.isDisambiguation ? "checked" : ""} /><span>这是一个消歧页</span></label>
+      <label>消歧指向<textarea name="disambiguationTargets" rows="4" placeholder="slug | 显示名称 | 简短说明">${escapeHtml(disambiguationTargetsText(page.disambiguationTargets))}</textarea></label>
+    </section>`;
+}
+
 function editorFields(page = {}) {
   return `
     <form class="editor-form" id="editorForm">
@@ -2631,6 +2665,7 @@ function editorFields(page = {}) {
       <label>难度<select name="difficulty">${["入门", "本科", "研究生", "专题", "未分级"].map((item) => `<option value="${item}" ${item === page.difficulty ? "selected" : ""}>${item}</option>`).join("")}</select></label>
       <label>质量<select name="quality">${["A", "B", "C", "Draft"].map((item) => `<option value="${item}" ${item === page.quality ? "selected" : ""}>${item}</option>`).join("")}</select></label>
       <label>状态<select name="status">${["stable", "review", "draft"].map((item) => `<option value="${item}" ${item === page.status ? "selected" : ""}>${item}</option>`).join("")}</select></label>
+      ${editorKnowledgeFields(page)}
       <div class="wide">${guestFields("编辑")}</div>
       <div class="wide visual-editor-wrap">
         <div class="visual-editor-head"><span>可视化编辑器</span><small>Vditor WYSIWYG · Markdown 源文同步 · 公式可视化</small></div>
@@ -2679,6 +2714,10 @@ async function renderEditor(slug) {
     const status = document.querySelector("#editorStatus");
     payload.body = readEditorBody(form);
     payload.categories = String(payload.categories || "").split(",").map((item) => item.trim()).filter(Boolean);
+    payload.disambiguation = Boolean(form.elements.disambiguation?.checked);
+    payload.disambiguationTargets = String(payload.disambiguationTargets || "").split("\n").map((item) => item.trim()).filter(Boolean);
+    if (form.elements.aliases) payload.aliases = String(payload.aliases || "").split(",").map((item) => item.trim()).filter(Boolean);
+    if (!form.elements.redirectTarget) delete payload.redirectTarget;
     status.textContent = "保存中...";
     try {
       const saved = await api(`/api/pages/${encodeSlug(payload.slug)}`, { method: "PUT", body: JSON.stringify(payload) });
@@ -3185,11 +3224,38 @@ async function renderWatchlist(value = "") {
   bindPagination(el.main, (nextPage) => { location.hash = `#/watchlist/${nextPage}`; });
 }
 
-async function renderKnowledge() {
+function knowledgeHash(pages = {}) {
+  const missing = Math.max(1, Number(pages.missing) || 1);
+  const orphans = Math.max(1, Number(pages.orphans) || 1);
+  return `#/knowledge?missing=${missing}&orphans=${orphans}`;
+}
+
+function knowledgePaginationHtml(pagination, label, pages, key) {
+  const total = Number(pagination?.total || 0);
+  const totalPages = Math.max(1, Number(pagination?.totalPages || 1));
+  const page = Math.min(totalPages, Math.max(1, Number(pagination?.page || 1)));
+  if (!total || totalPages <= 1) return total ? `<div class="pager pager-single"><span>共 ${total} 条</span></div>` : "";
+  const previous = { ...pages, [key]: page - 1 };
+  const next = { ...pages, [key]: page + 1 };
+  return `<nav class="pager knowledge-pager" aria-label="${escapeHtml(label)}分页"><a class="${page <= 1 ? "disabled" : ""}" href="${knowledgeHash(previous)}" ${page <= 1 ? 'aria-disabled="true"' : ""}>上一页</a><span>第 ${page} / ${totalPages} 页 · 共 ${total} 条</span><a class="${page >= totalPages ? "disabled" : ""}" href="${knowledgeHash(next)}" ${page >= totalPages ? 'aria-disabled="true"' : ""}>下一页</a></nav>`;
+}
+
+async function renderKnowledge(value = "") {
   setChromeTitle("知识网络");
   renderToc([]);
   el.editLink.href = "#/new";
-  const payload = await api("/api/knowledge");
+  const parsed = splitValueQuery(value);
+  const listPages = {
+    missing: Math.max(1, Number(parsed.params.get("missing")) || 1),
+    orphans: Math.max(1, Number(parsed.params.get("orphans")) || 1),
+  };
+  const [payload, missingPayload, orphanPayload] = await Promise.all([
+    api("/api/knowledge"),
+    api(`/api/knowledge/missing?page=${listPages.missing}&limit=12`),
+    api(`/api/knowledge/orphans?page=${listPages.orphans}&limit=12`),
+  ]);
+  const missing = normalizedPaged(missingPayload, listPages.missing, 12);
+  const orphans = normalizedPaged(orphanPayload, listPages.orphans, 12);
   const stats = payload.stats || {};
   el.main.innerHTML = `
     <header class="article-head">
@@ -3200,8 +3266,8 @@ async function renderKnowledge() {
       ${[["词条", stats.pages], ["链接", stats.links], ["反向链接", stats.backlinks], ["缺失词条", stats.missing], ["孤立词条", stats.orphans], ["别名", stats.aliases]].map(([label, value]) => `<div><span>${label}</span><strong>${Number(value || 0)}</strong></div>`).join("")}
     </section>
     <section class="knowledge-grid">
-      <div class="knowledge-panel"><div class="section-title-row"><h2>缺失词条</h2><a class="mini-link" href="#/search/missing">搜索创建方向</a></div>${(payload.missing || []).length ? payload.missing.map((item) => `<a class="knowledge-list-item is-missing" href="#/edit/${encodeSlug(item.slug)}"><span>被 ${item.sourceCount} 个词条引用</span><strong>${escapeHtml(item.label || item.slug)}</strong><small>${escapeHtml(item.slug)}</small></a>`).join("") : '<p class="muted-line">没有缺失词条。</p>'}</div>
-      <div class="knowledge-panel"><div class="section-title-row"><h2>孤立词条</h2><span class="muted-line">尚无反向链接</span></div>${(payload.orphans || []).length ? payload.orphans.map((item) => knowledgeLinkRow(item, "待关联")).join("") : '<p class="muted-line">没有孤立词条。</p>'}</div>
+      <div class="knowledge-panel"><div class="section-title-row"><h2>缺失词条</h2><a class="mini-link" href="#/search/missing">搜索创建方向</a></div>${missing.items.length ? missing.items.map((item) => `<a class="knowledge-list-item is-missing" href="#/edit/${encodeSlug(item.slug)}"><span>被 ${item.sourceCount} 个词条引用</span><strong>${escapeHtml(item.label || item.slug)}</strong><small>${escapeHtml(item.slug)}</small></a>`).join("") : '<p class="muted-line">没有缺失词条。</p>'}${knowledgePaginationHtml(missing.pagination, "缺失词条", listPages, "missing")}</div>
+      <div class="knowledge-panel"><div class="section-title-row"><h2>孤立词条</h2><span class="muted-line">尚无反向链接</span></div>${orphans.items.length ? orphans.items.map((item) => knowledgeLinkRow(item, "待关联")).join("") : '<p class="muted-line">没有孤立词条。</p>'}${knowledgePaginationHtml(orphans.pagination, "孤立词条", listPages, "orphans")}</div>
     </section>`;
 }
 
@@ -3259,11 +3325,14 @@ async function renderAccount() {
           <span class="chip">评论 ${state.user.stats?.comments || 0}</span>
           <span class="chip">收藏 ${state.user.stats?.favorites || 0}</span>
           <span class="chip">关注 ${state.user.stats?.watches || 0}</span>
+          <a class="chip profile-follow-stat" href="#/following?direction=followers">关注者 ${state.user.stats?.followers || 0}</a>
+          <a class="chip profile-follow-stat" href="#/following?direction=following">正在关注 ${state.user.stats?.following || 0}</a>
           <span class="chip">同步 ${fmtDate(state.user.lastSyncAt)}</span>
         </div>
         <div class="identity-social-summary"><span>外部资料</span>${socialLinksHtml(state.user.socialLinks, "card")}</div>
         <div class="editor-actions">
           <a class="command-button" href="#/user/${encodeURIComponent(state.user.username)}">公开主页</a>
+          <a class="command-button secondary" href="#/following?direction=following">社交关系</a>
           <a class="command-button secondary" href="#/admin/overview">后台</a>
           <button class="command-button secondary" id="logoutButton" type="button">退出登录</button>
         </div>
@@ -3509,6 +3578,75 @@ async function renderMessages(page = 1, statusFilter = "all") {
   });
   bindPagination(el.main, (nextPage) => renderMessages(nextPage, statusFilter).catch(renderError));
 }
+function userFollowButtonHtml(user, isSelf, isBanned) {
+  if (isSelf || isBanned) return "";
+  const follow = user.follow || {};
+  const label = follow.mutual ? "互相关注" : follow.following ? "已关注" : "关注";
+  return `<button class="command-button secondary user-follow-button ${follow.following ? "active" : ""}" type="button" id="userFollowButton" data-user-follow="${escapeHtml(user.username)}" aria-pressed="${Boolean(follow.following)}">${label}</button>`;
+}
+
+function updateUserFollowButton(button, follow = {}) {
+  if (!button) return;
+  button.classList.toggle("active", Boolean(follow.following));
+  button.setAttribute("aria-pressed", String(Boolean(follow.following)));
+  button.textContent = follow.mutual ? "互相关注" : follow.following ? "已关注" : "关注";
+  button.title = follow.following ? "取消关注该用户" : "关注该用户的词条更新";
+}
+
+function bindUserFollowButton(user) {
+  const button = document.querySelector("#userFollowButton");
+  if (!button) return;
+  updateUserFollowButton(button, user.follow || {});
+  button.addEventListener("click", async () => {
+    if (!state.user) {
+      const accepted = await uiConfirm({ title: "登录后关注用户", text: "关注后，对方创建、保存、恢复或更新译文时会写入站内信。", confirmText: "去登录" });
+      if (accepted) location.hash = "#/login";
+      return;
+    }
+    button.disabled = true;
+    try {
+      const enabled = button.getAttribute("aria-pressed") !== "true";
+      const result = await api(`/api/users/${encodeURIComponent(user.username)}/follow`, { method: "PUT", body: JSON.stringify({ enabled }) });
+      user.follow = result.follow;
+      updateUserFollowButton(button, result.follow);
+      await refreshUser();
+      uiToast(result.follow.following ? (result.follow.mutual ? "已互相关注" : "已关注用户") : "已取消关注");
+    } catch (error) {
+      await uiAlert("关注失败", error.message, "error");
+    } finally {
+      button.disabled = false;
+    }
+  });
+}
+
+function followUserCard(item) {
+  const user = item.user || item;
+  return `<article class="follow-user-card"><a href="#/user/${encodeURIComponent(user.username)}">${avatarHtml(user, "small")}<div><strong>${escapeHtml(user.displayName || user.username)}</strong><span>@${escapeHtml(user.username)}</span><small>编辑 ${Number(user.stats?.edits || 0)} · 关注者 ${Number(user.stats?.followers || 0)}</small></div></a><span>关注于 ${fmtDate(item.createdAt)}</span></article>`;
+}
+
+async function renderFollowing(value = "") {
+  await refreshUser();
+  if (!state.user) { location.hash = "#/login"; return; }
+  const parsed = splitValueQuery(value);
+  const direction = parsed.params.get("direction") === "followers" ? "followers" : "following";
+  const page = Math.max(1, Number(parsed.params.get("page")) || 1);
+  setChromeTitle(direction === "followers" ? "关注我的用户" : "我关注的用户");
+  renderToc([]);
+  el.editLink.href = "#/new";
+  const payload = await api(`/api/passport/follows?direction=${direction}&page=${page}&limit=12`);
+  const { items, pagination } = normalizedPaged(payload, page, 12);
+  const href = (nextDirection, nextPage = 1) => `#/following?direction=${nextDirection}&page=${nextPage}`;
+  el.main.innerHTML = `
+    <header class="article-head favorites-page-head">
+      <div class="article-title-row"><h1>社交关系</h1><span class="quality-badge">${Number(pagination.total || 0)} 人</span></div>
+      <p class="article-summary">关注知识贡献者。对方保存词条、恢复词条或更新译文后，消息中心会收到一条轻量提醒。</p>
+      <nav class="following-tabs"><a class="${direction === "following" ? "active" : ""}" href="${href("following")}">我关注的</a><a class="${direction === "followers" ? "active" : ""}" href="${href("followers")}">关注我的</a></nav>
+    </header>
+    <section class="follow-user-list">${items.length ? items.map(followUserCard).join("") : `<div class="empty-state"><h2>${direction === "following" ? "还没有关注用户" : "还没有关注者"}</h2><p class="muted-line">在任何公开用户主页点击关注即可建立关系。</p></div>`}</section>
+    ${paginationHtml(pagination, "社交关系")}`;
+  bindPagination(el.main, (nextPage) => { location.hash = href(direction, nextPage); });
+}
+
 async function renderUserPage(username) {
   setChromeTitle(`用户 ${username}`);
   renderToc([]);
@@ -3521,6 +3659,7 @@ async function renderUserPage(username) {
     const isSelf = state.user?.username && state.user.username.toLowerCase() === String(user.username || "").toLowerCase();
     const isBanned = user.status === "disabled" || user.isBanned === true;
     const editProfileButton = isSelf ? `<a class="icon-button user-profile-edit" href="#/account" title="编辑个人主页" aria-label="编辑个人主页"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5Z"/></svg></a>` : "";
+    const followButton = userFollowButtonHtml(user, isSelf, isBanned);
     const activity = user.recentEdits?.length
       ? user.recentEdits.slice(0, 10).map((event) => `<a class="edit-event" href="#/page/${encodeSlug(event.pageSlug)}"><div><strong>${escapeHtml(event.pageTitle)}</strong><span>${event.action === "create" ? "创建" : event.action === "delete" ? "删除" : "编辑"}</span></div><small>${fmtDate(event.createdAt)}</small></a>`).join("")
       : `<p class="muted-line">暂无公开活动。</p>`;
@@ -3528,9 +3667,9 @@ async function renderUserPage(username) {
       <header class="article-head user-head">
         <div class="article-title-row">
           <div class="user-title-with-avatar">${avatarHtml(user, "large")}<div><h1>${escapeHtml(user.displayName || user.username)}</h1><p class="article-summary">${escapeHtml(user.bio || "这个用户还没有填写简介。")}</p></div></div>
-          <div class="user-head-actions"><span class="quality-badge">@${escapeHtml(user.username)}</span>${editProfileButton}</div>
+          <div class="user-head-actions"><span class="quality-badge">@${escapeHtml(user.username)}</span>${followButton}${editProfileButton}</div>
         </div>
-        <div class="meta-row"><span class="chip">角色 ${escapeHtml(user.role)}</span><span class="chip">编辑 ${user.stats?.edits || 0}</span><span class="chip">评论 ${user.stats?.comments || 0}</span><span class="chip">加入 ${fmtDate(user.createdAt)}</span></div>
+        <div class="meta-row"><span class="chip">角色 ${escapeHtml(user.role)}</span><span class="chip">编辑 ${user.stats?.edits || 0}</span><span class="chip">评论 ${user.stats?.comments || 0}</span><span class="chip profile-follow-stat">关注者 ${user.stats?.followers || 0}</span><span class="chip profile-follow-stat">正在关注 ${user.stats?.following || 0}</span><span class="chip">加入 ${fmtDate(user.createdAt)}</span></div>
         ${socialLinksHtml(user.socialLinks, "public")}
       </header>
       ${isBanned ? `<section class="user-ban-notice" role="status"><div><strong>该用户已被封禁</strong><p>此账户目前无法登录，也不能进行新的编辑、评论或消息操作。为保证词条修订历史完整，既有公开资料与贡献记录仍会保留。</p></div><span>账户状态：已封禁</span></section>` : ""}
@@ -3538,6 +3677,7 @@ async function renderUserPage(username) {
         <article class="article-body user-profile-body">${user.pageHtml || ""}</article>
         <aside class="user-edit-feed"><h2>最近贡献</h2>${activity}</aside>
       </section>`;
+    bindUserFollowButton(user);
     typesetMath();
   } catch (error) {
     el.main.innerHTML = `<section class="empty-state"><h1>用户不存在</h1><p>${escapeHtml(error.message)}</p></section>`;
@@ -4828,8 +4968,10 @@ async function renderAdmin(section = "overview") {
 function parseRoute() {
   const hash = location.hash || `#/page/${state.site?.defaultPage || "home"}`;
   const clean = hash.replace(/^#\/?/, "");
-  const [name, ...rest] = clean.split("/");
-  return { name: name || "page", value: decodeURIComponent(rest.join("/") || "") };
+  const [pathValue, query = ""] = clean.split("?");
+  const [name, ...rest] = pathValue.split("/");
+  const value = `${rest.join("/")}${query ? `?${query}` : ""}`;
+  return { name: name || "page", value: decodeURIComponent(value || "") };
 }
 
 async function route() {
@@ -4860,8 +5002,9 @@ async function route() {
     else if (name === "account") await renderAccount();
     else if (name === "favorites") await renderFavorites(value);
     else if (name === "watchlist") await renderWatchlist(value);
+    else if (name === "following") await renderFollowing(value);
     else if (name === "messages") await renderMessages();
-    else if (name === "knowledge") await renderKnowledge();
+    else if (name === "knowledge") await renderKnowledge(value);
     else if (name === "news") await renderNews();
     else if (name === "import-export" || name === "imports") await renderImportExport();
     else if (name === "archive") await renderArchive(value);

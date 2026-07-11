@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-07-11 - Article Redirects, Disambiguation, And Social Following
+
+- Fixed the public knowledge-network layout so missing-page and orphan-page panels use independent, paginated lists instead of stretching each other.
+- Added portable article front matter for `aliases`, `redirectTarget`, `disambiguation`, and `disambiguationTargets`; creator roles and above can manage aliases and redirects directly while editing an article.
+- Added a Wikipedia-style disambiguation panel for one title with multiple concept targets.
+- Added `user_follows`, public profile follow controls, mutual-follow state, paginated following/follower lists, and direct inbox updates when a followed author changes an article or translation.
+- Extended `npm run check:knowledge` to verify redirects, editor-managed aliases, disambiguation metadata, user follows, and directed follow notifications.
+- Bumped the framework package to `0.3.0` and the frontend asset version to `wikist-core-20260711-64`.
+
 ## 2026-07-11 - Knowledge Network, Watchlists, And Aliases
 
 - Added SQLite-backed page, category, and translation-language subscriptions. Matching active users receive direct inbox notifications after article saves, imports, restores, deletes, and translation saves.

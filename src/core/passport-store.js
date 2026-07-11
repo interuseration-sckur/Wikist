@@ -707,9 +707,18 @@ function aliasFromRow(row) {
   return {
     aliasSlug: row.alias_slug,
     targetSlug: row.target_slug,
+    sourcePageSlug: row.source_page_slug || "",
     createdBy: row.created_by,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+  };
+}
+
+function followFromRow(row) {
+  if (!row) return null;
+  return {
+    user: publicUserFromRow(row),
+    createdAt: row.followed_at || row.created_at || "",
   };
 }
 
@@ -1042,12 +1051,24 @@ class PassportStore {
       CREATE TABLE IF NOT EXISTS page_aliases (
         alias_slug TEXT PRIMARY KEY,
         target_slug TEXT NOT NULL,
+        source_page_slug TEXT NOT NULL DEFAULT '',
         created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       );
 
       CREATE INDEX IF NOT EXISTS idx_page_aliases_target ON page_aliases(target_slug, updated_at);
+
+      CREATE TABLE IF NOT EXISTS user_follows (
+        follower_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        following_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (follower_user_id, following_user_id)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_user_follows_following ON user_follows(following_user_id, created_at);
+      CREATE INDEX IF NOT EXISTS idx_user_follows_follower ON user_follows(follower_user_id, created_at);
     `);
 
     this.addColumn("users", "bio", "TEXT NOT NULL DEFAULT ''");
@@ -1071,6 +1092,8 @@ class PassportStore {
     this.addColumn("site_messages", "priority", "TEXT NOT NULL DEFAULT 'normal'");
     this.addColumn("user_messages", "display_seconds", "INTEGER NOT NULL DEFAULT 7");
     this.addColumn("site_messages", "display_seconds", "INTEGER NOT NULL DEFAULT 7");
+    this.addColumn("page_aliases", "source_page_slug", "TEXT NOT NULL DEFAULT ''");
+    this.db.exec("CREATE INDEX IF NOT EXISTS idx_page_aliases_source ON page_aliases(source_page_slug, updated_at)");
 
     this.db.prepare("UPDATE users SET role = 'senior_editor' WHERE role = 'senior'").run();
     this.db.prepare("UPDATE users SET role = 'creator' WHERE role = 'contributor'").run();
@@ -1484,7 +1507,9 @@ class PassportStore {
     const comments = this.db.prepare("SELECT count(*) AS n FROM page_comments WHERE user_id = ? AND status = 'published'").get(userId).n;
     const favorites = this.countUserFavorites(userId);
     const watches = this.countUserWatches(userId);
-    return { edits, comments, favorites, watches };
+    const followers = this.countUserFollows(userId, "followers");
+    const following = this.countUserFollows(userId, "following");
+    return { edits, comments, favorites, watches, followers, following };
   }
 
   countUserFavorites(userId) {
@@ -1581,6 +1606,69 @@ class PassportStore {
     return this.watchState(userId, target.targetType, target.targetKey);
   }
 
+  countUserFollows(userId, direction = "following") {
+    const column = direction === "followers" ? "following_user_id" : "follower_user_id";
+    return Number(this.db.prepare(`SELECT count(*) AS n FROM user_follows WHERE ${column} = ?`).get(Number(userId)).n || 0);
+  }
+
+  userFollowState(viewerUserId, targetUserId) {
+    const viewerId = Number(viewerUserId || 0);
+    const targetId = Number(targetUserId || 0);
+    const following = Boolean(viewerId && targetId && viewerId !== targetId && this.db.prepare(
+      "SELECT 1 FROM user_follows WHERE follower_user_id = ? AND following_user_id = ?",
+    ).get(viewerId, targetId));
+    const followedBy = Boolean(viewerId && targetId && viewerId !== targetId && this.db.prepare(
+      "SELECT 1 FROM user_follows WHERE follower_user_id = ? AND following_user_id = ?",
+    ).get(targetId, viewerId));
+    return {
+      following,
+      followedBy,
+      mutual: following && followedBy,
+      followers: targetId ? this.countUserFollows(targetId, "followers") : 0,
+      followingCount: targetId ? this.countUserFollows(targetId, "following") : 0,
+    };
+  }
+
+  setUserFollow(session, username, enabled = true) {
+    if (!session?.user) throw accessError("请先登录后关注用户。", 401);
+    const target = this.findUser(username);
+    if (!target) throw new Error("用户不存在。");
+    if (target.status !== "active") throw accessError("该用户当前不可被关注。");
+    const followerId = Number(session.user.id);
+    const followingId = Number(target.id);
+    if (followerId === followingId) throw new Error("不能关注自己。");
+    const now = nowIso();
+    if (enabled) {
+      this.db.prepare(`
+        INSERT INTO user_follows (follower_user_id, following_user_id, created_at, updated_at)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(follower_user_id, following_user_id) DO UPDATE SET updated_at = excluded.updated_at
+      `).run(followerId, followingId, now, now);
+    } else {
+      this.db.prepare("DELETE FROM user_follows WHERE follower_user_id = ? AND following_user_id = ?").run(followerId, followingId);
+    }
+    this.syncUserActivity(followerId, now);
+    return this.userFollowState(followerId, followingId);
+  }
+
+  listUserFollows(userId, direction = "following", options = {}) {
+    const { limit, offset } = listOptions(options, 12, 100);
+    const following = direction !== "followers";
+    const joinColumn = following ? "f.following_user_id" : "f.follower_user_id";
+    const whereColumn = following ? "f.follower_user_id" : "f.following_user_id";
+    return this.db.prepare(`
+      SELECT u.*, f.created_at AS followed_at
+      FROM user_follows f
+      JOIN users u ON u.id = ${joinColumn}
+      WHERE ${whereColumn} = ?
+      ORDER BY f.created_at DESC, u.username COLLATE NOCASE ASC
+      LIMIT ? OFFSET ?
+    `).all(Number(userId), limit, offset).map((row) => {
+      const item = followFromRow(row);
+      return { ...item, user: { ...item.user, stats: this.userStats(item.user.id) } };
+    });
+  }
+
   syncPageLinks(page) {
     const sourceSlug = normalizeKnowledgeSlug(page?.slug);
     const links = extractWikiLinks(page?.body || "");
@@ -1637,6 +1725,40 @@ class PassportStore {
         updated_at = excluded.updated_at
     `).run(aliasSlug, targetSlug, session.user.id, now, now);
     return this.resolvePageAlias(aliasSlug);
+  }
+
+  syncPageAliases(session, page, aliases = [], existingSlugs = []) {
+    if (!hasRole(session, "creator")) throw accessError("Only creator roles and above can manage page aliases.");
+    const sourcePageSlug = normalizeKnowledgeSlug(page?.slug, "page");
+    const pageSlugs = new Set((existingSlugs || []).map((slug) => normalizeKnowledgeSlug(slug)));
+    const requested = [...new Set((Array.isArray(aliases) ? aliases : String(aliases || "").split(/[\n,]/))
+      .map((alias) => normalizeKnowledgeSlug(alias, "alias")))]
+      .filter((alias) => alias !== sourcePageSlug);
+    for (const aliasSlug of requested) {
+      if (pageSlugs.has(aliasSlug)) throw new Error(`Alias ${aliasSlug} conflicts with an existing page slug.`);
+      const current = this.resolvePageAlias(aliasSlug);
+      if (current && current.sourcePageSlug !== sourcePageSlug && current.targetSlug !== sourcePageSlug) {
+        throw new Error(`Alias ${aliasSlug} already targets ${current.targetSlug}.`);
+      }
+    }
+    this.db.prepare("DELETE FROM page_aliases WHERE source_page_slug = ?").run(sourcePageSlug);
+    const now = nowIso();
+    const insert = this.db.prepare(`
+      INSERT INTO page_aliases (alias_slug, target_slug, source_page_slug, created_by, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(alias_slug) DO UPDATE SET
+        target_slug = excluded.target_slug,
+        source_page_slug = excluded.source_page_slug,
+        created_by = excluded.created_by,
+        updated_at = excluded.updated_at
+    `);
+    for (const aliasSlug of requested) insert.run(aliasSlug, sourcePageSlug, sourcePageSlug, session.user.id, now, now);
+    return requested.map((aliasSlug) => this.resolvePageAlias(aliasSlug));
+  }
+
+  removePageAliasesForPage(slug) {
+    const normalized = normalizeKnowledgeSlug(slug, "page");
+    return this.db.prepare("DELETE FROM page_aliases WHERE source_page_slug = ? OR target_slug = ?").run(normalized, normalized).changes;
   }
 
   removePageAlias(session, aliasSlug) {
@@ -1766,6 +1888,38 @@ class PassportStore {
         sourceType: "knowledge",
         sourceUrl,
         sourceLabel: "查看词条",
+      });
+      count += 1;
+    }
+    return count;
+  }
+
+  notifyUserFollowers(page, input = {}) {
+    const actorUserId = Number(input.actorUserId || 0);
+    if (!actorUserId) return 0;
+    const recipients = this.db.prepare(`
+      SELECT f.follower_user_id
+      FROM user_follows f
+      JOIN users u ON u.id = f.follower_user_id
+      WHERE f.following_user_id = ? AND u.status = 'active'
+    `).all(actorUserId);
+    const pageSlug = normalizeKnowledgeSlug(page?.slug);
+    const senderName = cleanText(input.senderName || "Wikist", 80) || "Wikist";
+    const action = ({ create: "created", update: "updated", delete: "archived", restore: "restored", translation: "updated a translation" })[input.action] || "updated";
+    const language = normalizeTranslationLang(input.language, "");
+    const sourceUrl = "#/page/" + pageSlug.split("/").map(encodeURIComponent).join("/");
+    let count = 0;
+    for (const recipient of recipients) {
+      this.insertMessage({
+        recipientUserId: recipient.follower_user_id,
+        senderUserId: actorUserId,
+        senderName,
+        title: `${senderName} ${action} a page`,
+        body: `${page.title || pageSlug} was ${action}${language ? ` (${language})` : ""}.`,
+        kind: "follow",
+        sourceType: "user-follow",
+        sourceUrl,
+        sourceLabel: "View page",
       });
       count += 1;
     }

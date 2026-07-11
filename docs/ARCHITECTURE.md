@@ -58,12 +58,12 @@ The public framework repository excludes local content, database files, upload f
 3. Page reads come from `PageStore`; page writes produce Markdown plus a revision snapshot.
 4. When Passport is enabled, the router authenticates the HttpOnly session before applying page, role, or dashboard permissions.
 5. Logged-in edits are attributed to a user. Guest edits and comments require nickname and email, then receive a stable guest cookie and an audit profile.
-6. Page saves, imports, restores, deletes, and translation saves update the link index. Matching page, category, and language subscribers receive a direct inbox message.
+6. Page saves, imports, restores, deletes, and translation saves update the link index. Matching page, category, and language subscribers receive a direct inbox message; followers of the editing user receive one separate author-update message.
 7. The browser performs one post-render idle task for formula typesetting, plotting, plugin hydration, link previews, and language conversion.
 
 ## Identity, Roles, And Permissions
 
-Passport provides local registration, CAPTCHA, optional email verification, password recovery, TOTP two-factor authentication, profile Markdown, avatars, external links, and public contribution profiles.
+Passport provides local registration, CAPTCHA, optional email verification, password recovery, TOTP two-factor authentication, profile Markdown, avatars, external links, public contribution profiles, and a lightweight directed user-follow graph.
 
 The built-in role order is:
 
@@ -77,6 +77,12 @@ member < creator < editor < senior_editor < admin
 - Administrators can moderate or delete comments; authors can remove their own comments.
 
 Comments are intentionally capped at two stored levels. A reply to a reply is folded into the root thread and converted to an `@user` mention, which keeps paginated discussion queries and mobile rendering predictable.
+
+## Knowledge Graph And Social Signals
+
+Article source remains portable Markdown. Optional front matter fields `aliases`, `redirectTarget`, `disambiguation`, and `disambiguationTargets` travel with the file; SQLite indexes aliases and outbound Wiki links for fast resolution and reports. A redirect keeps a small physical article record, so its editorial history is still auditable while readers resolve to the canonical target.
+
+`watch_subscriptions` handles article/category/language subscriptions. `user_follows` stores only the follower and followed IDs with timestamps; it never duplicates article data. This keeps author notifications bounded to one direct inbox message per qualifying save and recipient.
 
 ## Rendering And Mathematical Content
 
