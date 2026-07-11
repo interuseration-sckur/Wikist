@@ -17,6 +17,12 @@ const urgentMessagePopupIds = new Set();
 let openccAssetsPromise = null;
 let openccConverter = null;
 let pluginModulePromises = new Map();
+let hydrationTask = null;
+let hydrationRoot = null;
+let routeGeneration = 0;
+let routePendingTimer = 0;
+let userRefreshPromise = null;
+let userLastFetchedAt = 0;
 
 const state = {
   site: null,
@@ -963,9 +969,13 @@ async function renderFunctionPlotFigure(figure, settings, index) {
   observeFunctionPlot(figure);
 }
 
-async function hydrateFunctionPlots() {
+async function hydrateFunctionPlots(root = el.main) {
   const settings = state.site?.plugins?.functionPlot || {};
-  const targets = [...document.querySelectorAll(".wikist-function-plot:not([data-rendered])")];
+  const scope = root || document;
+  const targets = [
+    ...(scope.matches?.(".wikist-function-plot:not([data-rendered])") ? [scope] : []),
+    ...scope.querySelectorAll(".wikist-function-plot:not([data-rendered])"),
+  ];
   if (!targets.length) return;
   if (settings.enabled === false) {
     targets.forEach((item) => { item.dataset.rendered = "disabled"; });
@@ -1012,7 +1022,7 @@ function pluginClientModuleUrl(plugin) {
   return `/plugins/${encodeURIComponent(directory)}/${parts.map(encodeURIComponent).join("/")}`;
 }
 
-function loadClientPluginModules() {
+function loadClientPluginModules(root = el.main) {
   const catalog = state.site?.pluginCatalog || [];
   const settings = state.site?.plugins || {};
   catalog.forEach((plugin) => {
@@ -1020,7 +1030,7 @@ function loadClientPluginModules() {
     if (!plugin.runtime?.executable || plugin.runtime?.state !== "client-active") return;
     const src = pluginClientModuleUrl(plugin);
     if (!src || pluginModulePromises.has(src)) return;
-    const context = { api, route, state, root: el.main, plugin, hydratePlugins };
+    const context = { api, route, state, root: root || el.main, plugin, hydratePlugins };
     const promise = import(src)
       .then((module) => {
         const activate = module.activate || module.default;
@@ -1032,11 +1042,12 @@ function loadClientPluginModules() {
   });
 }
 
-function hydratePlugins() {
-  hydrateFunctionPlots().catch(() => {});
-  enhanceWikiLinks(el.main);
-  loadClientPluginModules();
-  document.dispatchEvent(new CustomEvent("wikist:plugins-hydrate", { detail: { root: el.main, state } }));
+function hydratePlugins(root = el.main) {
+  const targetRoot = root || el.main;
+  hydrateFunctionPlots(targetRoot).catch(() => {});
+  enhanceWikiLinks(targetRoot);
+  loadClientPluginModules(targetRoot);
+  document.dispatchEvent(new CustomEvent("wikist:plugins-hydrate", { detail: { root: targetRoot, state } }));
 }
 function rootNeedsMath(root = el.main) {
   if (!root) return false;
@@ -1056,10 +1067,38 @@ function injectMathJax(root = el.main) {
   document.head.appendChild(script);
 }
 
-function typesetMath() {
-  injectMathJax(el.main);
-  if (window.MathJax?.typesetPromise) window.MathJax.typesetPromise([el.main]).catch(() => {});
-  hydratePlugins();
+function clearHydrationTask() {
+  if (!hydrationTask) return;
+  if (hydrationTask.type === "idle" && window.cancelIdleCallback) window.cancelIdleCallback(hydrationTask.id);
+  else window.clearTimeout(hydrationTask.id);
+  hydrationTask = null;
+}
+
+function scheduleIdleWork(callback) {
+  if (window.requestIdleCallback) return { type: "idle", id: window.requestIdleCallback(callback, { timeout: 900 }) };
+  return { type: "timeout", id: window.setTimeout(callback, 32) };
+}
+
+function runPostRenderHydration(root = el.main, generation = routeGeneration) {
+  if (generation !== routeGeneration || !root?.isConnected) return;
+  injectMathJax(root);
+  if (window.MathJax?.typesetPromise && rootNeedsMath(root)) window.MathJax.typesetPromise([root]).catch(() => {});
+  hydratePlugins(root);
+  hydrateLanguageConversion(root).catch(() => {});
+}
+
+function schedulePostRenderHydration(root = el.main) {
+  hydrationRoot = root || el.main;
+  const generation = routeGeneration;
+  clearHydrationTask();
+  hydrationTask = scheduleIdleWork(() => {
+    hydrationTask = null;
+    runPostRenderHydration(hydrationRoot || el.main, generation);
+  });
+}
+
+function typesetMath(root = el.main) {
+  schedulePostRenderHydration(root);
 }
 
 function renderTopQuickNav() {
@@ -1116,13 +1155,31 @@ async function reloadSiteChrome() {
   await refreshChrome();
 }
 
-async function refreshUser() {
-  const payload = await api("/api/passport/me").catch(() => ({ user: null }));
-  state.user = payload.user || null;
-  renderPassportLink();
-  renderTopQuickNav();
-  await refreshMessageBadge();
-  scheduleUrgentMessages();
+async function refreshUser(options = {}) {
+  const force = options.force === true;
+  const ttlMs = Number(options.ttlMs || 0);
+  if (!force && ttlMs > 0 && userLastFetchedAt && Date.now() - userLastFetchedAt < ttlMs) {
+    renderPassportLink();
+    renderTopQuickNav();
+    return state.user;
+  }
+  if (!force && userRefreshPromise) return userRefreshPromise;
+  const refreshPromise = (async () => {
+    const payload = await api("/api/passport/me").catch(() => ({ user: null }));
+    state.user = payload.user || null;
+    userLastFetchedAt = Date.now();
+    renderPassportLink();
+    renderTopQuickNav();
+    refreshMessageBadge().catch(() => {});
+    scheduleUrgentMessages();
+    return state.user;
+  })();
+  if (!force) userRefreshPromise = refreshPromise;
+  try {
+    return await refreshPromise;
+  } finally {
+    if (userRefreshPromise === refreshPromise) userRefreshPromise = null;
+  }
 }
 
 function pageToolNav(slug, active) {
@@ -1582,7 +1639,7 @@ async function renderPage(value) {
     const page = await api(`/api/pages/${encodeSlug(state.currentSlug)}`);
     if (page.slug === (state.site.defaultPage || "home")) {
       renderHomePortal(page);
-      hydratePlugins();
+      typesetMath();
       return;
     }
     let displayPage = page;
@@ -1624,7 +1681,7 @@ async function renderPage(value) {
         html: "",
         toc: [],
       });
-      hydratePlugins();
+      typesetMath();
       return;
     }
     setChromeTitle("未创建");
@@ -2058,7 +2115,6 @@ async function renderTranslation(value) {
     }
   });
   typesetMath();
-  hydratePlugins();
   bindLanguageJumpForms(el.main);
 }
 
@@ -4086,8 +4142,22 @@ function renderError(error) {
   el.main.innerHTML = `<section class="empty-state"><h1>加载失败</h1><p>${escapeHtml(error.message)}</p></section>`;
 }
 
+function beginRouteTransition() {
+  window.clearTimeout(routePendingTimer);
+  routePendingTimer = window.setTimeout(() => {
+    el.main?.classList.add("route-pending");
+  }, 120);
+}
+
+function endRouteTransition() {
+  window.clearTimeout(routePendingTimer);
+  routePendingTimer = 0;
+  el.main?.classList.remove("route-pending");
+}
+
 async function renderAdmin(section = "overview") {
-  await refreshUser();
+  if (!state.user) await refreshUser({ ttlMs: 30000 });
+  else refreshUser({ ttlMs: 30000 }).catch(() => {});
   if (!state.user) { location.hash = "#/login"; return; }
   if (!canAccessAdmin()) {
     setChromeTitle("无权访问后台");
@@ -4125,37 +4195,47 @@ function parseRoute() {
 }
 
 async function route() {
-  const { name, value } = parseRoute();
-  if (state.site?.setup?.needsAdmin && name !== "setup-admin" && name !== "reset-password" && name !== "verify-email") {
-    location.hash = "#/setup-admin";
-    return;
+  const generation = ++routeGeneration;
+  clearHydrationTask();
+  beginRouteTransition();
+  try {
+    const { name, value } = parseRoute();
+    if (state.site?.setup?.needsAdmin && name !== "setup-admin" && name !== "reset-password" && name !== "verify-email") {
+      location.hash = "#/setup-admin";
+      return;
+    }
+    document.body.classList.toggle("admin-mode", name === "admin");
+    if (name !== "edit" && name !== "new") destroyVisualEditor();
+    if (name === "search") await renderSearch(value);
+    else if (name === "edit") await renderEditor(value);
+    else if (name === "new") await renderEditor("");
+    else if (name === "translate") await renderTranslation(value);
+    else if (name === "history") await renderHistory(value);
+    else if (name === "comments") await renderComments(value);
+    else if (name === "permissions") await renderPermissions(value);
+    else if (name === "login") await renderAuth("login");
+    else if (name === "register") await renderAuth("register");
+    else if (name === "setup-admin") await renderInitialAdmin();
+    else if (name === "forgot-password") await renderForgotPassword();
+    else if (name === "reset-password") await renderResetPassword(value);
+    else if (name === "verify-email") await renderVerifyEmail(value);
+    else if (name === "account") await renderAccount();
+    else if (name === "favorites") await renderFavorites(value);
+    else if (name === "messages") await renderMessages();
+    else if (name === "news") await renderNews();
+    else if (name === "import-export" || name === "imports") await renderImportExport();
+    else if (name === "archive") await renderArchive(value);
+    else if (name === "admin") await renderAdmin(value || "overview");
+    else if (name === "user") await renderUserPage(value);
+    else await renderPage(value || state.site.defaultPage || "home");
+  } catch (error) {
+    if (generation === routeGeneration) renderError(error);
+  } finally {
+    if (generation === routeGeneration) {
+      schedulePostRenderHydration(el.main);
+      endRouteTransition();
+    }
   }
-  document.body.classList.toggle("admin-mode", name === "admin");
-  if (name !== "edit" && name !== "new") destroyVisualEditor();
-  if (name === "search") await renderSearch(value);
-  else if (name === "edit") await renderEditor(value);
-  else if (name === "new") await renderEditor("");
-  else if (name === "translate") await renderTranslation(value);
-  else if (name === "history") await renderHistory(value);
-  else if (name === "comments") await renderComments(value);
-  else if (name === "permissions") await renderPermissions(value);
-  else if (name === "login") await renderAuth("login");
-  else if (name === "register") await renderAuth("register");
-  else if (name === "setup-admin") await renderInitialAdmin();
-  else if (name === "forgot-password") await renderForgotPassword();
-  else if (name === "reset-password") await renderResetPassword(value);
-  else if (name === "verify-email") await renderVerifyEmail(value);
-  else if (name === "account") await renderAccount();
-  else if (name === "favorites") await renderFavorites(value);
-  else if (name === "messages") await renderMessages();
-  else if (name === "news") await renderNews();
-  else if (name === "import-export" || name === "imports") await renderImportExport();
-  else if (name === "archive") await renderArchive(value);
-  else if (name === "admin") await renderAdmin(value || "overview");
-  else if (name === "user") await renderUserPage(value);
-  else await renderPage(value || state.site.defaultPage || "home");
-  hydratePlugins();
-  hydrateLanguageConversion(el.main).catch(() => {});
 }
 
 function scrollToWikiAnchor(id) {

@@ -282,6 +282,12 @@ select {
   width: min(980px, calc(100% - 36px));
   margin: 0 auto;
   padding: 34px 0 70px;
+  transition: opacity .16s ease;
+}
+
+.content-surface.route-pending {
+  opacity: .72;
+  pointer-events: none;
 }
 
 .article-head {

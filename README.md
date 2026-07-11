@@ -1,4 +1,4 @@
-﻿# Wikist
+# Wikist
 
 [中文](#中文) | [English](#english)
 
@@ -9,6 +9,7 @@
 Wikist 是一个面向中文数学与科学知识共同体的轻量级 Wiki 框架。它以 Markdown 文件为核心内容格式，以 SQLite 承载账号、评论、权限、审计与协作数据，目标是在保持可迁移、可审查、可部署的基础上，提供比传统 Wiki 更适合数学表达、可视化建模和现代浏览器交互的知识平台。
 
 发布日期：2026-07-10
+最近更新：2026-07-11
 
 ### 项目定位
 
@@ -429,6 +430,8 @@ cd "$APP_DIR"
 sudo node tools/update.js --strategy=git --remote=origin --branch=main --service=wikist --yes
 ```
 
+升级到 `2026-07-11` 或更新版本后，核心前端资源版本应变为 `wikist-core-20260711-48`。如果你使用了 CDN、对象存储或浏览器强缓存，更新后建议清理 CDN 缓存，或在浏览器开发者工具 Network 面板确认 `/assets/app.js?v=wikist-core-20260711-48` 和 `/assets/styles.css?v=wikist-core-20260711-48` 已返回新内容。
+
 先预演不改文件：
 
 ```bash
@@ -577,6 +580,8 @@ sudo systemctl restart wikist
 - `index.html` 保持 `no-cache`，保证后台配置、CDN Base 和图标变更能及时生效。
 - SweetAlert2 改为首次弹窗时按需加载，不再占用首页首屏请求。
 - MathJax 改为页面检测到公式后再加载，普通首页不会被数学 CDN 拖慢。
+- 页面切换后的公式、插件、函数图和语言转换会合并到一次浏览器空闲任务中执行，避免同一次路由重复扫描 DOM。
+- 后台控制台复用短期登录态缓存，消息徽标改为后台刷新，切换后台选项时不再被用户接口阻塞。
 - `public/uploads/` 用于站点本地图标等资源，并被更新程序保护。
 
 可选方案：
@@ -590,12 +595,14 @@ sudo systemctl restart wikist
 排查方式：
 
 ```bash
-curl -I -H "Accept-Encoding: br,gzip" https://你的域名/assets/app.js?v=wikist-core-20260710-47
-curl -I https://你的CDN域名/wikist/assets/styles.css?v=wikist-core-20260710-47
+curl -I -H "Accept-Encoding: br,gzip" https://你的域名/assets/app.js?v=wikist-core-20260711-48
+curl -I https://你的CDN域名/wikist/assets/styles.css?v=wikist-core-20260711-48
 journalctl -u wikist -f
 ```
 
 重点看响应头里是否有 `cache-control`、`etag`、`content-encoding: br` 或 `content-encoding: gzip`。浏览器里可以打开开发者工具的 Network 面板，查看是否有 CDN 脚本长时间 pending、timeout 或 blocked。确认慢点来自 CDN 后，再替换 CDN 基址。
+
+如果 CSS / JS 已经很快，但“切换词条、后台切换选项”仍然卡顿，继续看 Network 里的 API 耗时：`/api/pages/...`、`/api/recent`、`/api/admin/...` 如果持续很慢，通常是云服务器 CPU/磁盘 IO、SQLite 文件权限、反向代理超时或跨区网络造成；如果 API 很快但前端仍卡，请确认浏览器拿到的是 `wikist-core-20260711-48` 之后的新版前端资源。
 
 更换站点图标：
 
@@ -671,6 +678,7 @@ sudo systemctl restart wikist
 Wikist is a lightweight wiki framework for Chinese-first mathematics and science knowledge communities. It uses Markdown files as the primary article format and SQLite for accounts, comments, permissions, audit logs, and collaboration data. The goal is to keep a wiki portable, inspectable, and easy to deploy while making mathematical writing, visual modeling, and modern browser interaction feel native.
 
 Release date: 2026-07-10
+Last updated: 2026-07-11
 
 ### Project Positioning
 
@@ -1080,6 +1088,8 @@ cd "$APP_DIR"
 sudo node tools/update.js --strategy=git --remote=origin --branch=main --service=wikist --yes
 ```
 
+After updating to the `2026-07-11` build or later, the core frontend asset version should be `wikist-core-20260711-48`. If you use a CDN, object storage, or aggressive browser caching, purge the CDN cache or verify in the browser Network panel that `/assets/app.js?v=wikist-core-20260711-48` and `/assets/styles.css?v=wikist-core-20260711-48` are serving the new files.
+
 Dry run:
 
 ```bash
@@ -1234,10 +1244,12 @@ Check `sudo systemctl status wikist`, test `curl http://127.0.0.1:8899/install.h
 Localhost hides latency. On a public server, repeated uncached transfers, missing compression, proxy header overrides, or slow external CDNs become visible. Current Wikist emits `ETag`, `Last-Modified`, versioned long-cache headers, and Brotli/gzip for static assets. Verify:
 
 ```bash
-curl -I -H "Accept-Encoding: br,gzip" https://your-domain/assets/app.js?v=wikist-core-20260710-47
+curl -I -H "Accept-Encoding: br,gzip" https://your-domain/assets/app.js?v=wikist-core-20260711-48
 ```
 
 Look for `cache-control`, `etag`, and `content-encoding`. If you set a CDN Base, mirror local assets under `/assets/...`, plugin assets under `/plugins/...`, and jsDelivr-compatible packages under `/npm/...`.
+
+For page or admin-tab switching lag, the current frontend batches math rendering, plugin hydration, function plots, and language conversion into one idle post-render task. Admin pages also reuse a short-lived user-session cache and refresh message badges in the background. If switching still feels slow after updating, inspect `/api/pages/...`, `/api/recent`, and `/api/admin/...` timings in Network; persistent API latency usually points to server CPU, disk IO, SQLite permissions, reverse-proxy timeout, or cross-region network issues.
 
 **`node:sqlite` is missing.**
 

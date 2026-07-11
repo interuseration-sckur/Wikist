@@ -1,5 +1,13 @@
 ﻿# Changelog
 
+## 2026-07-11 - Route And Admin Responsiveness
+
+- Batched post-render math rendering, function plots, plugin hydration, and language conversion into a single idle task per route change.
+- Scoped plugin hydration and function-plot scans to the current content root instead of scanning the whole document on every navigation.
+- Reused a short-lived user-session cache for admin navigation and moved message-badge refreshes into the background to reduce tab-switch latency.
+- Added a delayed route-pending visual state for slow navigations without flickering on fast page changes.
+- Bumped the core frontend asset version to `wikist-core-20260711-48` and documented cache/CDN verification after cloud updates.
+
 ## 2026-07-10 - Cloud Asset Performance And Site Icon
 
 - Added static asset `ETag`, `Last-Modified`, `304`, Brotli/gzip, and versioned cache handling to reduce slow cloud CSS / JS loads.
