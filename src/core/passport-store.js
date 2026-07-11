@@ -467,6 +467,7 @@ function userFromRow(row) {
       staff: roleRank(role) >= roleRank("senior_editor"),
       manageUsers: roleRank(role) >= roleRank("admin"),
       manageContent: roleRank(role) >= roleRank("senior_editor"),
+      reviewContent: roleRank(role) >= roleRank("senior_editor"),
       managePermissions: roleRank(role) >= roleRank("senior_editor"),
       deletePages: roleRank(role) >= roleRank("senior_editor"),
     },
@@ -497,6 +498,31 @@ function editEventFromRow(row) {
     guestEmail: row.guest_email || "",
     pageBytes: row.page_bytes,
     createdAt: row.created_at,
+  };
+}
+
+function pageReviewFromRow(row, currentRevisionId = "", latestNote = null) {
+  const stableRevisionId = String(row?.stable_revision_id || "");
+  return {
+    pageSlug: row?.page_slug || "",
+    currentRevisionId: String(currentRevisionId || ""),
+    stableRevisionId,
+    reviewedAt: row?.reviewed_at || "",
+    reviewerName: row?.reviewer_name || "",
+    reviewerUserId: row?.reviewer_user_id || null,
+    comment: row?.review_comment || "",
+    hasStable: Boolean(stableRevisionId),
+    isCurrentStable: Boolean(stableRevisionId && currentRevisionId && stableRevisionId === currentRevisionId),
+    pending: !stableRevisionId || stableRevisionId !== currentRevisionId,
+    latestNote: latestNote ? {
+      id: latestNote.id,
+      decision: latestNote.decision,
+      comment: latestNote.comment,
+      reviewerName: latestNote.reviewer_name,
+      reviewerUserId: latestNote.reviewer_user_id || null,
+      revisionId: latestNote.revision_id,
+      createdAt: latestNote.created_at,
+    } : null,
   };
 }
 
@@ -851,6 +877,32 @@ class PassportStore {
       CREATE INDEX IF NOT EXISTS idx_page_edit_events_slug ON page_edit_events(page_slug, created_at);
       CREATE INDEX IF NOT EXISTS idx_page_edit_events_user ON page_edit_events(user_id, created_at);
       CREATE INDEX IF NOT EXISTS idx_page_edit_events_guest ON page_edit_events(guest_id, created_at);
+
+      CREATE TABLE IF NOT EXISTS page_stable_revisions (
+        page_slug TEXT PRIMARY KEY,
+        stable_revision_id TEXT NOT NULL,
+        reviewer_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        reviewer_name TEXT NOT NULL DEFAULT '',
+        review_comment TEXT NOT NULL DEFAULT '',
+        reviewed_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_page_stable_revisions_reviewed ON page_stable_revisions(reviewed_at);
+
+      CREATE TABLE IF NOT EXISTS page_review_notes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        page_slug TEXT NOT NULL,
+        revision_id TEXT NOT NULL,
+        decision TEXT NOT NULL,
+        reviewer_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        reviewer_name TEXT NOT NULL DEFAULT '',
+        comment TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_page_review_notes_slug ON page_review_notes(page_slug, created_at);
+      CREATE INDEX IF NOT EXISTS idx_page_review_notes_revision ON page_review_notes(page_slug, revision_id, created_at);
 
       CREATE TABLE IF NOT EXISTS page_comments (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -2169,6 +2221,79 @@ class PassportStore {
   assertCanManagePermissions(session) {
     if (!session?.user) throw accessError("\u8bf7\u5148\u767b\u5f55\u540e\u4fee\u6539\u6743\u9650\u3002", 401);
     if (!hasRole(session, "senior_editor")) throw accessError("\u53ea\u6709\u8d44\u6df1\u7f16\u8f91\u548c\u7ba1\u7406\u5458\u53ef\u4ee5\u4fee\u6539\u8bcd\u6761\u6743\u9650\u3002");
+  }
+
+  assertCanReview(session) {
+    if (!session?.user) throw accessError("请先登录后审核词条。", 401);
+    if (!hasRole(session, "senior_editor")) throw accessError("只有资深编辑和管理员可以审核稳定版本。");
+  }
+
+  getPageReview(slug, currentRevisionId = "") {
+    const pageSlug = normalizeSlug(slug);
+    const stable = this.db.prepare("SELECT * FROM page_stable_revisions WHERE page_slug = ?").get(pageSlug);
+    const latest = this.db.prepare("SELECT * FROM page_review_notes WHERE page_slug = ? ORDER BY created_at DESC, id DESC LIMIT 1").get(pageSlug);
+    return { ...pageReviewFromRow(stable, currentRevisionId, latest), pageSlug };
+  }
+
+  getPageReviewStates(pages = []) {
+    const stableRows = this.db.prepare("SELECT * FROM page_stable_revisions").all();
+    const stableBySlug = new Map(stableRows.map((row) => [row.page_slug, row]));
+    return pages.map((page) => ({ ...pageReviewFromRow(stableBySlug.get(page.slug), page.revisionId || ""), pageSlug: page.slug }));
+  }
+
+  listPageReviewNotes(slug, options = {}) {
+    const pageSlug = normalizeSlug(slug);
+    const limit = Math.max(1, Math.min(Number(options.limit) || 12, 80));
+    const offset = Math.max(0, Number(options.offset) || 0);
+    return this.db.prepare(`
+      SELECT * FROM page_review_notes
+      WHERE page_slug = ?
+      ORDER BY created_at DESC, id DESC
+      LIMIT ? OFFSET ?
+    `).all(pageSlug, limit, offset).map((row) => ({
+      id: row.id,
+      pageSlug: row.page_slug,
+      revisionId: row.revision_id,
+      decision: row.decision,
+      reviewerUserId: row.reviewer_user_id || null,
+      reviewerName: row.reviewer_name || "",
+      comment: row.comment || "",
+      createdAt: row.created_at,
+    }));
+  }
+
+  countPageReviewNotes(slug) {
+    return Number(this.db.prepare("SELECT count(*) AS n FROM page_review_notes WHERE page_slug = ?").get(normalizeSlug(slug)).n || 0);
+  }
+
+  recordPageReview(session, page, input = {}) {
+    this.assertCanReview(session);
+    const decision = input.decision === "approve" ? "approve" : input.decision === "changes_requested" ? "changes_requested" : "";
+    if (!decision) throw accessError("审核决定无效。", 400);
+    const pageSlug = normalizeSlug(page?.slug || "");
+    const revisionId = String(page?.revisionId || "").replace(/[^0-9TZ-]/g, "");
+    if (!pageSlug || !revisionId) throw accessError("当前词条版本不可审核。", 400);
+    const comment = cleanText(input.comment, 2000);
+    const reviewer = session.user.displayName || session.user.username || "Wikist Reviewer";
+    const now = nowIso();
+    if (decision === "approve") {
+      this.db.prepare(`
+        INSERT INTO page_stable_revisions (page_slug, stable_revision_id, reviewer_user_id, reviewer_name, review_comment, reviewed_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(page_slug) DO UPDATE SET
+          stable_revision_id = excluded.stable_revision_id,
+          reviewer_user_id = excluded.reviewer_user_id,
+          reviewer_name = excluded.reviewer_name,
+          review_comment = excluded.review_comment,
+          reviewed_at = excluded.reviewed_at,
+          updated_at = excluded.updated_at
+      `).run(pageSlug, revisionId, session.user.id, reviewer, comment, now, now);
+    }
+    this.db.prepare(`
+      INSERT INTO page_review_notes (page_slug, revision_id, decision, reviewer_user_id, reviewer_name, comment, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(pageSlug, revisionId, decision, session.user.id, reviewer, comment, now);
+    return this.getPageReview(pageSlug, revisionId);
   }
 
   updatePagePermissions(slug, input, userId) {

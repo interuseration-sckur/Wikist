@@ -12,12 +12,12 @@ Wikist already has its installation flow, Markdown article store, SQLite Passpor
 
 ## P0: Editorial Quality And Review
 
-### 1. Stable Revision Workflow
+### Delivered: Lightweight Stable Revision Workflow
 
-Introduce a small review layer instead of copying MediaWiki FlaggedRevs wholesale:
+Wikist now uses a small review layer instead of copying MediaWiki FlaggedRevs wholesale:
 
-- Add a per-page current revision and optional stable revision pointer.
-- Let `senior_editor` and `admin` approve, request changes, or unpublish a revision with a short review note.
+- Each page exposes a current revision ID and optional stable revision pointer.
+- `senior_editor` and `admin` can approve or request changes with an auditable review note.
 - Show readers a compact “latest / reviewed” switch and show contributors the diff since the stable revision.
 - Add a paginated review queue filtered by category, age, contributor, and quality label.
 

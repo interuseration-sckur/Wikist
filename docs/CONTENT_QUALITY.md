@@ -25,6 +25,10 @@ The theorem is stated in a standard form [@atiyah-macdonald-1969, ch. 1].
 
 Prefer original papers, recognized monographs, official preprints, and institutional sources. DOI, arXiv, publication name, year, and the exact page or theorem location make mathematical claims substantially easier to audit. See [Structured citations](CITATIONS.md) for record fields and review rules.
 
+## Stable Review
+
+`status: stable` is an editorial label, while a **reviewed stable version** is an immutable snapshot approved by a senior editor or administrator. Before approval, compare the current Markdown with the last stable snapshot, check source-quality signals, and leave a concise review note describing the decision. A request for changes should identify the missing claim support, definition, condition, or proof gap. See [Lightweight stable revision review](REVISION_REVIEW.md) for the storage and permission model.
+
 ## Math Article Template
 
 ```markdown

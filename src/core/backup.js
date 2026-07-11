@@ -75,6 +75,7 @@ function isRestorableTextPath(relativePath) {
   if (!normalized) return false;
   if (normalized.startsWith("content/pages/")) return normalized.endsWith(".md");
   if (normalized.startsWith("content/revisions/")) return normalized.endsWith(".md") || normalized.endsWith(".json");
+  if (normalized.startsWith("content/reviewed/")) return normalized.endsWith(".md");
   if (normalized.startsWith("content/deleted/")) return normalized.endsWith(".md") || normalized.endsWith(".json");
   if (normalized.startsWith("config/")) return normalized.endsWith(".json");
   if (normalized.startsWith("plugins/")) return path.basename(normalized).toLowerCase() === "plugin.json";
@@ -120,6 +121,7 @@ function backupCounts(payload) {
   return {
     pages: files.filter((file) => normalizeBackupPath(file.path).startsWith("content/pages/")).length,
     revisions: files.filter((file) => normalizeBackupPath(file.path).startsWith("content/revisions/")).length,
+    reviewed: files.filter((file) => normalizeBackupPath(file.path).startsWith("content/reviewed/")).length,
     deleted: files.filter((file) => normalizeBackupPath(file.path).startsWith("content/deleted/")).length,
     config: files.filter((file) => normalizeBackupPath(file.path).startsWith("config/")).length,
     plugins: files.filter((file) => normalizeBackupPath(file.path).startsWith("plugins/")).length,
@@ -228,6 +230,7 @@ function createBackupPackage(rootDir, options = {}) {
   const files = [
     ...collectTextDirectory(rootDir, "content/pages"),
     ...collectTextDirectory(rootDir, "content/revisions"),
+    ...collectTextDirectory(rootDir, "content/reviewed"),
     ...collectTextDirectory(rootDir, "content/deleted"),
     ...collectTextDirectory(rootDir, "config", new Set([".json"])),
     ...collectPluginManifests(rootDir),

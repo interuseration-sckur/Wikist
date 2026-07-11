@@ -105,6 +105,8 @@ Plugin manifests are metadata first. Only trusted core plugins and reviewed `cli
 
 The dashboard source-review route reads page-level citation statistics and paginates articles with no sources, unresolved keys, explicit source-needed markers, or incomplete records.
 
+`content/reviewed/<slug>/<revision-id>.md` stores a stable snapshot only after a senior editor or administrator approves the current Markdown. SQLite stores the small stable pointer plus reviewer notes in `page_stable_revisions` and `page_review_notes`; it does not duplicate article bodies. Current-versus-stable line diffing is bounded in memory and the pending queue is derived from a current revision ID mismatch.
+
 The default search engine is an in-memory, field-weighted index over page metadata and Markdown text. It supports Chinese token heuristics, prefix and fuzzy matching, quoted phrases, category/quality/difficulty filters, facets, and pagination.
 
 Translation data stays in SQLite while the canonical source article stays in Markdown. Readers can select an existing translation directly; translators use a separate side-by-side workbench with progress, language membership, and draft assistance.
@@ -123,7 +125,6 @@ Wikipedia import/export preserves source attribution and attempts to map heading
 
 The following are planned as additive layers rather than implicit requirements:
 
-- review states and stable article releases;
 - optional DOI/arXiv metadata enrichment and citation-style selection;
 - a persistent optional SQLite FTS index;
 - category landing pages, rename repair, and richer link-graph reports;

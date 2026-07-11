@@ -31,6 +31,7 @@ const PROTECTED_PATHS = [
   "config/site.config.json",
   "content/deleted",
   "content/pages",
+  "content/reviewed",
   "content/revisions",
   "data",
   "logs",
@@ -293,6 +294,7 @@ function runChecks(options) {
   run(bin("npm"), ["run", "check"], options);
   run(bin("npm"), ["run", "check:knowledge"], options);
   run(bin("npm"), ["run", "check:citations"], options);
+  run(bin("npm"), ["run", "check:reviews"], options);
 }
 
 function assertConfirmation(options) {

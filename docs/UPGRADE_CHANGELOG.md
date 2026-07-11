@@ -1,5 +1,13 @@
 # Wikist 站点升级日志
 
+## 2026-07-11 - 轻量稳定修订与审阅工作台
+
+- 新增 `content/reviewed/<slug>/<revision-id>.md` 稳定快照目录；只有资深编辑或管理员审核通过当前版本时才会生成快照，普通编辑不会额外复制正文。
+- SQLite 自动创建 `page_stable_revisions` 与 `page_review_notes`：前者保存稳定版本指针和审核人，后者保存通过或要求修改的可追溯意见；现有词条、账号和评论数据不受影响。
+- 新增当前版本 / 已审阅稳定版本、行级差异比较、审核意见与分页待审队列。来源审阅改为紧凑响应式列表，编辑器来源记录改为默认折叠摘要。
+- 备份、回档和本地升级程序会包含并保护 `content/reviewed/`；新增 `npm run check:reviews`。
+- 框架升级为 `0.5.0`，核心前端资源升级为 `wikist-core-20260711-66`；使用 CDN 时需同步 `/assets/app.js`、`/assets/styles.css` 与安装器资源。
+
 ## 2026-07-11 - 结构化引用与来源质量
 
 - 词条 Markdown front matter 新增可移植 `references` 数组；无需新增 SQLite 表，现有词条、账号和协作数据不会被迁移破坏。

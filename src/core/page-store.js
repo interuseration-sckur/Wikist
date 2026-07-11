@@ -3,6 +3,7 @@ const path = require("path");
 const { parseFrontMatter, serializeFrontMatter } = require("./frontmatter");
 const { normalizeReferences } = require("./citations");
 const { renderMarkdown } = require("./markdown");
+const { revisionIdFromDate } = require("./revision-review");
 const { fileNameToSlug, normalizeSlug, slugToFileName } = require("./slug");
 
 function ensureDir(dir) {
@@ -55,12 +56,14 @@ class PageStore {
     this.rootDir = rootDir;
     this.pagesDir = path.join(rootDir, "content", "pages");
     this.revisionsDir = path.join(rootDir, "content", "revisions");
+    this.reviewedDir = path.join(rootDir, "content", "reviewed");
     this.deletedDir = path.join(rootDir, "content", "deleted");
     this.cache = new Map();
     this.config = options;
     this.hiddenPages = new Set((options.hiddenPages || []).map((slug) => normalizeSlug(slug)));
     ensureDir(this.pagesDir);
     ensureDir(this.revisionsDir);
+    ensureDir(this.reviewedDir);
     ensureDir(this.deletedDir);
   }
 
@@ -74,6 +77,12 @@ class PageStore {
 
   revisionDir(slug) {
     return path.join(this.revisionsDir, normalizeSlug(slug));
+  }
+
+  reviewedPath(slug, revisionId) {
+    const id = String(revisionId || "").replace(/[^0-9TZ-]/g, "");
+    if (!id) return "";
+    return path.join(this.reviewedDir, normalizeSlug(slug), `${id}.md`);
   }
 
   getPage(slug) {
@@ -132,6 +141,7 @@ class PageStore {
       citationStats: rendered.citationStats || { total: references.length, cited: 0, unresolved: [], citationNeeded: 0, completeness: 0, verifiable: 0, issues: [] },
       createdAt: parsed.data.createdAt || stat.birthtime.toISOString(),
       updatedAt: parsed.data.updatedAt || stat.mtime.toISOString(),
+      revisionId: revisionIdFromDate(parsed.data.updatedAt || stat.mtime.toISOString()),
       body: parsed.body,
       html: rendered.html,
       toc: rendered.toc,
@@ -184,6 +194,62 @@ class PageStore {
         };
       })
       .sort((a, b) => b.id.localeCompare(a.id));
+  }
+
+  currentRevisionId(page) {
+    return page?.revisionId || revisionIdFromDate(page?.updatedAt);
+  }
+
+  snapshotCurrentForReview(slug, revisionId = "") {
+    const normalized = normalizeSlug(slug);
+    const page = this.getPage(normalized);
+    if (!page) return null;
+    const id = String(revisionId || this.currentRevisionId(page)).replace(/[^0-9TZ-]/g, "");
+    if (!id) return null;
+    const target = this.reviewedPath(normalized, id);
+    ensureDir(path.dirname(target));
+    fs.copyFileSync(this.pagePath(normalized), target);
+    return { revisionId: id, path: target, page };
+  }
+
+  getReviewedSnapshot(slug, revisionId) {
+    const normalized = normalizeSlug(slug);
+    const id = String(revisionId || "").replace(/[^0-9TZ-]/g, "");
+    const filePath = this.reviewedPath(normalized, id);
+    if (!id || !filePath || !fs.existsSync(filePath)) return null;
+    const stat = fs.statSync(filePath);
+    const raw = fs.readFileSync(filePath, "utf8");
+    const parsed = parseFrontMatter(raw);
+    const references = normalizeReferences(parsed.data.references);
+    const pageMeta = {
+      slug: normalized,
+      title: parsed.data.title || normalized,
+      summary: parsed.data.summary || "",
+      references,
+    };
+    const rendered = renderMarkdown(parsed.body, { config: this.config, page: pageMeta, references });
+    return {
+      slug: normalized,
+      title: pageMeta.title,
+      summary: pageMeta.summary,
+      categories: Array.isArray(parsed.data.categories) ? parsed.data.categories : parsed.data.categories ? [parsed.data.categories] : [],
+      difficulty: parsed.data.difficulty || "未分级",
+      status: parsed.data.status || "stable",
+      quality: parsed.data.quality || "C",
+      author: parsed.data.author || "Wikist",
+      heroImage: parsed.data.heroImage || parsed.data.hero_image || "",
+      references,
+      citationStats: rendered.citationStats || { total: references.length, cited: 0, unresolved: [], citationNeeded: 0, completeness: 0, verifiable: 0, issues: [] },
+      createdAt: parsed.data.createdAt || stat.birthtime.toISOString(),
+      updatedAt: parsed.data.updatedAt || stat.mtime.toISOString(),
+      revisionId: id,
+      version: "reviewed",
+      body: parsed.body,
+      html: rendered.html,
+      toc: rendered.toc,
+      bytes: stat.size,
+      meta: parsed.data,
+    };
   }
 
   deletedPath(slug, archiveId) {

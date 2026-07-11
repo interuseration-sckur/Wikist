@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-07-11 - Lightweight Stable Revisions And Review Workbench
+
+- Added current-versus-reviewed-stable article states, immutable reviewed Markdown snapshots, review notes, a paginated pending-review queue, and bounded line-level diff comparison.
+- Limited review approval and change requests to senior editors and administrators while keeping ordinary article editing unchanged.
+- Rebuilt Admin -> Source review as a compact responsive review list and changed editor references into collapsed summary records with expand/collapse controls.
+- Included reviewed snapshots in backup, restore, and update protection; added `npm run check:reviews`.
+- Bumped the framework package to `0.5.0` and the frontend asset version to `wikist-core-20260711-66`.
+
 ## 2026-07-11 - Structured Citations And Source Quality
 
 - Added portable structured article references with authors, title, type, publication, year, volume, issue, pages, DOI, arXiv, URL, access date, language, and verification notes.

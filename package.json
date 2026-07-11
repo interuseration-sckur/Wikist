@@ -1,6 +1,6 @@
 {
   "name": "wikist",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "private": true,
   "description": "A fast, open, math-first wiki framework.",
   "main": "server.js",
@@ -9,7 +9,7 @@
     "dev": "node server.js",
     "update": "node tools/update.js",
     "plugins:sync": "node tools/sync-vendor-plugins.js",
-    "check": "node --check server.js && node --check src/server/app.js && node --check src/core/config.js && node --check src/core/http.js && node --check src/core/markdown.js && node --check src/core/citations.js && node --check src/core/plugin-registry.js && node --check src/core/page-store.js && node --check src/core/import-export.js && node --check src/core/backup.js && node --check public/assets/app.js && node --check public/assets/install.js && node --check plugins/wikist-geometry-board/geometry.mjs && node --check plugins/wikist-math-chart/chart.mjs && node --check plugins/wikist-cosmic-experience/cosmic.mjs && node --check tools/update.js",
+    "check": "node --check server.js && node --check src/server/app.js && node --check src/core/config.js && node --check src/core/http.js && node --check src/core/markdown.js && node --check src/core/citations.js && node --check src/core/revision-review.js && node --check src/core/plugin-registry.js && node --check src/core/page-store.js && node --check src/core/import-export.js && node --check src/core/backup.js && node --check public/assets/app.js && node --check public/assets/install.js && node --check plugins/wikist-geometry-board/geometry.mjs && node --check plugins/wikist-math-chart/chart.mjs && node --check plugins/wikist-cosmic-experience/cosmic.mjs && node --check tools/update.js",
     "check:markdown": "node tools/check-markdown-features.js",
     "check:comments": "node tools/check-comment-rating-features.js",
     "check:search": "node tools/check-search-features.js",
@@ -20,7 +20,8 @@
     "check:messages": "node tools/check-message-priority-features.js",
     "check:security": "node tools/check-security-email-features.js",
     "check:knowledge": "node tools/check-knowledge-features.js",
-    "check:citations": "node tools/check-citation-features.js"
+    "check:citations": "node tools/check-citation-features.js",
+    "check:reviews": "node tools/check-review-features.js"
   },
   "engines": {
     "node": ">=18"

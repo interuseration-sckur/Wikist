@@ -11,6 +11,7 @@ const { renderMarkdown } = require("../core/markdown");
 const { pluginCatalog, pluginSettings, syncVendorPlugin } = require("../core/plugin-registry");
 const { PageStore } = require("../core/page-store");
 const { PassportStore, clearSessionCookie, sessionCookie } = require("../core/passport-store");
+const { buildLineDiff } = require("../core/revision-review");
 const { SearchIndex } = require("../core/search-index");
 const { decodePathPart, normalizeSlug } = require("../core/slug");
 
@@ -190,8 +191,8 @@ function siteIconUrl(config) {
 function serveIndexHtml(req, res, indexPath, config) {
   const icon = siteIconUrl(config);
   const html = fs.readFileSync(indexPath, "utf8")
-    .replace(/href="\/assets\/styles\.css\?v=wikist-core-20260711-65"/g, `href="${escapeHtml(assetUrl(config, "/assets/styles.css?v=wikist-core-20260711-65"))}"`)
-    .replace(/src="\/assets\/app\.js\?v=wikist-core-20260711-65"/g, `src="${escapeHtml(assetUrl(config, "/assets/app.js?v=wikist-core-20260711-65"))}"`)
+    .replace(/href="\/assets\/styles\.css\?v=wikist-core-20260711-66"/g, `href="${escapeHtml(assetUrl(config, "/assets/styles.css?v=wikist-core-20260711-66"))}"`)
+    .replace(/src="\/assets\/app\.js\?v=wikist-core-20260711-66"/g, `src="${escapeHtml(assetUrl(config, "/assets/app.js?v=wikist-core-20260711-66"))}"`)
     .replace(/href="\/assets\/wikist-emblem\.svg"/g, `href="${escapeHtml(icon)}"`)
     .replace(/src="\/assets\/wikist-emblem\.svg"/g, `src="${escapeHtml(icon)}"`)
     .replace(/<title>Wikist<\/title>/, `<title>${escapeHtml(config.name || "Wikist")}</title>`);
@@ -221,6 +222,7 @@ function pagePreviewPayload(page) {
     citationStats: page.citationStats || { total: 0, cited: 0, verifiable: 0, completeness: 0, qualityScore: 0, unresolved: [], citationNeeded: 0, issues: [] },
     quality: page.quality || "C",
     status: page.status || "draft",
+    revisionId: page.revisionId || "",
     updatedAt: page.updatedAt,
   };
 }
@@ -1330,6 +1332,39 @@ function createWikistServer(options) {
         return;
       }
 
+      if (pathname === "/api/admin/reviews" && req.method === "GET") {
+        requireDashboard(passport, session);
+        const pagination = readPagination(url, 20, 100);
+        const mode = String(url.searchParams.get("mode") || "pending");
+        const query = String(url.searchParams.get("q") || "").trim().toLowerCase();
+        const allPages = pages.listPages();
+        const reviews = passport.getPageReviewStates(allPages);
+        const reviewBySlug = new Map(reviews.map((review) => [review.pageSlug, review]));
+        const all = allPages.map((page) => ({
+          ...pagePreviewPayload(page),
+          review: reviewBySlug.get(page.slug) || null,
+        }));
+        const filtered = all.filter((page) => {
+          const review = page.review || {};
+          if (mode === "pending" && !review.pending) return false;
+          if (mode === "stable" && !review.isCurrentStable) return false;
+          if (mode === "unreviewed" && review.hasStable) return false;
+          if (query && ![page.slug, page.title, page.summary, review.reviewerName, review.comment].join(" ").toLowerCase().includes(query)) return false;
+          return true;
+        });
+        const stats = all.reduce((result, page) => {
+          const review = page.review || {};
+          result.pages += 1;
+          if (review.pending) result.pending += 1;
+          if (review.isCurrentStable) result.stable += 1;
+          if (!review.hasStable) result.unreviewed += 1;
+          return result;
+        }, { pages: 0, pending: 0, stable: 0, unreviewed: 0 });
+        const items = filtered.slice(pagination.offset, pagination.offset + pagination.limit);
+        sendJson(res, 200, { mode, stats, ...paginationPayload(items, filtered.length, pagination) });
+        return;
+      }
+
       if (pathname === "/api/admin/knowledge" && req.method === "GET") {
         requireDashboard(passport, session);
         const snapshot = knowledgeSnapshot(passport, pages, config);
@@ -1942,6 +1977,111 @@ function createWikistServer(options) {
         return;
       }
 
+      const pageDiffMatch = pathname.match(/^\/api\/pages\/(.+)\/diff$/);
+      if (pageDiffMatch && req.method === "GET") {
+        const slug = slugFromNestedPath(pathname, "/api/pages/", "/diff");
+        const resolved = resolveLivePage(pages, passport, slug);
+        const current = resolved.page;
+        if (!current) {
+          sendJson(res, 404, { error: "词条不存在。", slug: resolved.requestedSlug });
+          return;
+        }
+        const review = passport ? passport.getPageReview(current.slug, current.revisionId) : null;
+        const stable = review?.stableRevisionId ? pages.getReviewedSnapshot(current.slug, review.stableRevisionId) : null;
+        if (!stable) {
+          sendJson(res, 404, { error: "该词条尚未有已审阅稳定版本。", review });
+          return;
+        }
+        const changes = buildLineDiff(stable.body, current.body);
+        const summary = changes.reduce((result, change) => {
+          if (change.type === "add") result.added += 1;
+          else if (change.type === "remove") result.removed += 1;
+          else result.unchanged += 1;
+          return result;
+        }, { added: 0, removed: 0, unchanged: 0 });
+        sendJson(res, 200, {
+          slug: current.slug,
+          review,
+          current: pagePreviewPayload(current),
+          stable: pagePreviewPayload(stable),
+          changes,
+          summary,
+        });
+        return;
+      }
+
+      const pageReviewMatch = pathname.match(/^\/api\/pages\/(.+)\/review$/);
+      if (pageReviewMatch && req.method === "GET") {
+        const slug = slugFromNestedPath(pathname, "/api/pages/", "/review");
+        const resolved = resolveLivePage(pages, passport, slug);
+        const current = resolved.page;
+        if (!current) {
+          sendJson(res, 404, { error: "词条不存在。", slug: resolved.requestedSlug });
+          return;
+        }
+        const pagination = readPagination(url, 8, 50);
+        const review = passport ? passport.getPageReview(current.slug, current.revisionId) : {
+          currentRevisionId: current.revisionId,
+          stableRevisionId: "",
+          hasStable: false,
+          isCurrentStable: false,
+          pending: true,
+          latestNote: null,
+        };
+        const notes = passport ? passport.listPageReviewNotes(current.slug, pagination) : [];
+        const total = passport ? passport.countPageReviewNotes(current.slug) : 0;
+        sendJson(res, 200, { slug: current.slug, review, ...paginationPayload(notes, total, pagination) });
+        return;
+      }
+
+      if (pageReviewMatch && req.method === "POST") {
+        requireDashboard(passport, session);
+        const slug = slugFromNestedPath(pathname, "/api/pages/", "/review");
+        const current = pages.getPage(slug);
+        if (!current) {
+          sendJson(res, 404, { error: "词条不存在。", slug });
+          return;
+        }
+        const input = await readJsonBody(req);
+        if (input.decision === "approve") {
+          const snapshot = pages.snapshotCurrentForReview(current.slug, current.revisionId);
+          if (!snapshot) {
+            sendJson(res, 409, { error: "无法创建当前版本的稳定快照。" });
+            return;
+          }
+        }
+        const review = passport.recordPageReview(session, current, input);
+        recordAudit(passport, req, session, {
+          action: input.decision === "approve" ? "page.review.approve" : "page.review.requestChanges",
+          targetType: "page",
+          targetId: current.slug,
+          targetLabel: current.title,
+          summary: input.decision === "approve" ? "审核并发布稳定版本" : "提交修改意见",
+          metadata: { revisionId: current.revisionId, hasComment: Boolean(String(input.comment || "").trim()) },
+        });
+        sendJson(res, 200, { review, page: pagePreviewPayload(current) });
+        return;
+      }
+
+      const stablePageMatch = pathname.match(/^\/api\/pages\/(.+)\/stable$/);
+      if (stablePageMatch && req.method === "GET") {
+        const slug = slugFromNestedPath(pathname, "/api/pages/", "/stable");
+        const resolved = resolveLivePage(pages, passport, slug);
+        const current = resolved.page;
+        if (!current) {
+          sendJson(res, 404, { error: "词条不存在。", slug: resolved.requestedSlug });
+          return;
+        }
+        const review = passport ? passport.getPageReview(current.slug, current.revisionId) : null;
+        const stable = review?.stableRevisionId ? pages.getReviewedSnapshot(current.slug, review.stableRevisionId) : null;
+        if (!stable) {
+          sendJson(res, 404, { error: "该词条尚未有已审阅稳定版本。", review });
+          return;
+        }
+        sendJson(res, 200, { ...stable, review, currentRevisionId: current.revisionId, versionMode: "stable" });
+        return;
+      }
+
       if (pathname.startsWith("/api/pages/") && req.method === "GET") {
         const slug = slugFromNestedPath(pathname, "/api/pages/");
         const resolved = resolveLivePage(pages, passport, slug);
@@ -1950,7 +2090,8 @@ function createWikistServer(options) {
           sendJson(res, 404, { error: "词条不存在。", slug: resolved.requestedSlug });
           return;
         }
-        sendJson(res, 200, page);
+        const review = passport ? passport.getPageReview(page.slug, page.revisionId) : null;
+        sendJson(res, 200, { ...page, review, versionMode: "current" });
         return;
       }
 
