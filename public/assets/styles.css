@@ -7594,6 +7594,46 @@ body.admin-mode .plugin-json.compact {
   background: #effaf7;
 }
 
+:root[data-theme="light"] .plugin-doc,
+:root[data-theme="light"] .plugin-doc-inline {
+  color: #20332d;
+  background: #f7fcfa;
+  border-color: #b7d4cc;
+  scrollbar-color: #87aaa1 #e7f1ee;
+}
+
+:root[data-theme="light"] .plugin-doc code,
+:root[data-theme="light"] .plugin-doc-inline code {
+  color: #20332d;
+  background: transparent;
+}
+
+:root[data-theme="light"] .plugin-doc::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+:root[data-theme="light"] .plugin-doc::-webkit-scrollbar-track {
+  background: #e7f1ee;
+}
+
+:root[data-theme="light"] .plugin-doc::-webkit-scrollbar-thumb {
+  border: 2px solid #e7f1ee;
+  border-radius: 999px;
+  background: #87aaa1;
+}
+
+:root[data-theme="light"] .transfer-state {
+  color: #20332d;
+  background: #edf8f4;
+  border-color: #a8cebf;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .92);
+}
+
+:root[data-theme="light"] .transfer-state strong {
+  color: #087955;
+}
+
 @media (max-width: 680px) {
   :root[data-theme="light"] .citation-review-filters,
   :root[data-theme="light"] .review-queue-filters {

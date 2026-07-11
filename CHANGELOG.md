@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-07-11 - Final Light Surface Coverage
+
+- Added light-theme coverage for Plugin management syntax previews, code text, horizontal scrollbars, and the Import / Export signed-in identity card.
+- Bumped the framework package to `0.5.2` and the frontend asset version to `wikist-core-20260711-68`.
+
 ## 2026-07-11 - Light Admin Surface And Review Pagination Fix
 
 - Changed source review and version review to ten rows per page and rendered their pager directly below the filter controls as well as after results.
