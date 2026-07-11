@@ -1046,6 +1046,7 @@ function hydratePlugins(root = el.main) {
   const targetRoot = root || el.main;
   hydrateFunctionPlots(targetRoot).catch(() => {});
   enhanceWikiLinks(targetRoot);
+  hydrateCosmicScenes(targetRoot);
   loadClientPluginModules(targetRoot);
   document.dispatchEvent(new CustomEvent("wikist:plugins-hydrate", { detail: { root: targetRoot, state } }));
 }
@@ -1099,6 +1100,160 @@ function schedulePostRenderHydration(root = el.main) {
 
 function typesetMath(root = el.main) {
   schedulePostRenderHydration(root);
+}
+
+const cosmicScenes = new WeakMap();
+
+function createCosmicScene(canvas) {
+  const context = canvas.getContext("2d");
+  const scene = canvas.dataset.cosmicScene || "home";
+  const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+  const stars = [];
+  const comets = [];
+  let width = 0;
+  let height = 0;
+  let dpr = 1;
+  let frame = 0;
+  let animation = 0;
+
+  function resize() {
+    const rect = canvas.getBoundingClientRect();
+    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    width = Math.max(1, Math.floor(rect.width));
+    height = Math.max(1, Math.floor(rect.height));
+    canvas.width = Math.floor(width * dpr);
+    canvas.height = Math.floor(height * dpr);
+    context.setTransform(dpr, 0, 0, dpr, 0, 0);
+    seed();
+  }
+
+  function seed() {
+    stars.length = 0;
+    comets.length = 0;
+    const count = Math.round((scene === "auth" ? 140 : 210) * Math.min(1.4, Math.max(.72, width / 920)));
+    for (let index = 0; index < count; index += 1) {
+      const angle = Math.random() * Math.PI * 2;
+      const distance = Math.pow(Math.random(), .62);
+      stars.push({
+        x: width * (.5 + Math.cos(angle) * distance * .58),
+        y: height * (.5 + Math.sin(angle) * distance * .45),
+        r: Math.random() * 1.7 + .25,
+        a: Math.random() * .62 + .18,
+        drift: Math.random() * .55 + .12,
+        hue: Math.random() > .7 ? 180 : Math.random() > .48 ? 145 : 42,
+      });
+    }
+    const cometCount = scene === "auth" ? 6 : 9;
+    for (let index = 0; index < cometCount; index += 1) {
+      comets.push({
+        x: Math.random() * width,
+        y: Math.random() * height,
+        speed: Math.random() * .9 + .35,
+        length: Math.random() * 110 + 70,
+        delay: Math.random() * 240,
+      });
+    }
+  }
+
+  function nebula(time) {
+    const cx = width * (scene === "auth" ? .68 : .58);
+    const cy = height * (scene === "auth" ? .42 : .48);
+    const radius = Math.max(width, height) * .62;
+    const gradient = context.createRadialGradient(cx, cy, 0, cx, cy, radius);
+    gradient.addColorStop(0, "rgba(56, 232, 255, .34)");
+    gradient.addColorStop(.28, "rgba(124, 255, 180, .14)");
+    gradient.addColorStop(.52, "rgba(255, 209, 102, .055)");
+    gradient.addColorStop(1, "rgba(0, 0, 0, 0)");
+    context.fillStyle = gradient;
+    context.fillRect(0, 0, width, height);
+
+    context.save();
+    context.translate(cx, cy);
+    context.rotate(time * .000045);
+    for (let arm = 0; arm < 3; arm += 1) {
+      context.beginPath();
+      for (let step = 0; step < 120; step += 1) {
+        const t = step / 119;
+        const angle = arm * Math.PI * 2 / 3 + t * Math.PI * 2.2;
+        const r = t * radius * .58;
+        const x = Math.cos(angle) * r;
+        const y = Math.sin(angle) * r * .34;
+        if (step === 0) context.moveTo(x, y);
+        else context.lineTo(x, y);
+      }
+      context.strokeStyle = `rgba(56, 232, 255, ${scene === "auth" ? .18 : .22})`;
+      context.lineWidth = 1.4;
+      context.stroke();
+    }
+    context.restore();
+  }
+
+  function draw(time = 0) {
+    frame += 1;
+    context.clearRect(0, 0, width, height);
+    context.fillStyle = "#03070b";
+    context.fillRect(0, 0, width, height);
+    nebula(time);
+
+    stars.forEach((star, index) => {
+      const pulse = Math.sin(time * .0015 * star.drift + index) * .22 + .78;
+      context.beginPath();
+      context.fillStyle = `hsla(${star.hue}, 95%, 78%, ${star.a * pulse})`;
+      context.arc(star.x, star.y, star.r * pulse, 0, Math.PI * 2);
+      context.fill();
+      if (!reducedMotion) {
+        star.x += Math.cos(index) * .012 * star.drift;
+        star.y += Math.sin(index * 1.7) * .010 * star.drift;
+      }
+    });
+
+    comets.forEach((comet) => {
+      if (reducedMotion) return;
+      const phase = (frame + comet.delay) % 360;
+      if (phase > 120) return;
+      comet.x += comet.speed * 2.8;
+      comet.y += comet.speed * 1.1;
+      if (comet.x > width + comet.length || comet.y > height + comet.length) {
+        comet.x = -comet.length;
+        comet.y = Math.random() * height * .55;
+      }
+      const gradient = context.createLinearGradient(comet.x - comet.length, comet.y - comet.length * .35, comet.x, comet.y);
+      gradient.addColorStop(0, "rgba(56, 232, 255, 0)");
+      gradient.addColorStop(1, "rgba(255, 255, 255, .74)");
+      context.strokeStyle = gradient;
+      context.lineWidth = 1.2;
+      context.beginPath();
+      context.moveTo(comet.x - comet.length, comet.y - comet.length * .35);
+      context.lineTo(comet.x, comet.y);
+      context.stroke();
+    });
+
+    if (!reducedMotion && canvas.isConnected) animation = requestAnimationFrame(draw);
+  }
+
+  resize();
+  draw(0);
+  if (!reducedMotion) animation = requestAnimationFrame(draw);
+  const onResize = () => resize();
+  window.addEventListener("resize", onResize);
+  return {
+    destroy() {
+      cancelAnimationFrame(animation);
+      window.removeEventListener("resize", onResize);
+    },
+  };
+}
+
+function hydrateCosmicScenes(root = el.main) {
+  const scope = root || document;
+  const canvases = [
+    ...(scope.matches?.("canvas[data-cosmic-scene]") ? [scope] : []),
+    ...Array.from(scope.querySelectorAll?.("canvas[data-cosmic-scene]") || []),
+  ];
+  canvases.forEach((canvas) => {
+    if (cosmicScenes.has(canvas)) return;
+    cosmicScenes.set(canvas, createCosmicScene(canvas));
+  });
 }
 
 function renderTopQuickNav() {
@@ -1586,10 +1741,6 @@ function renderHomePortal(page) {
   const news = state.pages.find((item) => item.slug === "news");
   const newsItems = Array.isArray(homeText.newsItems) ? homeText.newsItems : [];
   const progress = Array.isArray(homeText.progressItems) ? homeText.progressItems : [];
-  const activityCells = Array.from({ length: 42 }, (_, index) => {
-    const level = (index + state.pages.length + state.recent.length + categories.length) % 5;
-    return `<span class="level-${level}" aria-hidden="true"></span>`;
-  }).join("");
   const modules = [
     homeConfig.showFeatured ? `<article class="wiki-box sci-box sci-box-feature"><h2>特色词条</h2>${featured.length ? featured.map((item) => pageCard(item, item.quality || "词条")).join("") : "<p>暂无特色词条。</p>"}</article>` : "",
     homeConfig.showNews ? `<article class="wiki-box sci-box sci-box-news"><h2>${escapeHtml(homeText.newsTitle)}</h2>${newsItems.length ? `<div class="wiki-news-list">${newsItems.map((item) => `<a href="${escapeHtml(item.href || "#/news")}"><span>${escapeHtml(item.date || item.tag || "资讯")}</span>${escapeHtml(item.title)}${item.body ? `<small>${escapeHtml(item.body)}</small>` : ""}</a>`).join("")}</div>` : (news ? `<a class="wiki-news-link" href="#/page/news"><strong>${escapeHtml(news.title)}</strong><span>${escapeHtml(news.summary)}</span></a>` : `<p>${escapeHtml(homeText.newsEmpty)}</p>`)}<div class="wiki-news-list">${state.recent.slice(0, 4).map((item) => `<a href="#/page/${encodeSlug(item.slug)}"><span>${fmtDate(item.updatedAt)}</span>${escapeHtml(item.title)}</a>`).join("")}</div></article>` : "",
@@ -1604,25 +1755,22 @@ function renderHomePortal(page) {
   renderToc([]);
   el.main.innerHTML = `
     <section class="wiki-home sci-home">
-      <header class="wiki-welcome sci-hero">
+      <header class="wiki-welcome sci-hero cosmic-hero">
+        <canvas class="cosmic-canvas" data-cosmic-scene="home" aria-hidden="true"></canvas>
+        <div class="cosmic-vignette" aria-hidden="true"></div>
         <div class="sci-hero-copy">
           <span class="system-kicker">${escapeHtml(homeText.heroKicker)}</span>
           <h1>${escapeHtml(homeText.heroTitle)}</h1>
           <p>${escapeHtml(homeText.heroSummary)}</p>
           <div class="sci-hero-actions"><a href="#/search/群">${escapeHtml(homeText.heroSearch)}</a><a href="#/page/tutorial">${escapeHtml(homeText.heroContribute)}</a><a href="#/page/news">${escapeHtml(homeText.heroNews)}</a></div>
         </div>
-        <aside class="sci-hero-visual" aria-label="Wikist 数据概览">
-          <div class="sci-code-window" aria-hidden="true">
-            <div class="sci-code-bar"><span></span><span></span><span></span><strong>wikist/core</strong></div>
-            <code><span>commit</span> proof.graph.sync()</code>
-            <code><span>merge</span> theorem.review.queue</code>
-            <code><span>build</span> functionPlot.render()</code>
-          </div>
-          <div class="sci-orbit-panel"><strong>${state.pages.length}</strong><span>公开页面</span><small>${categories.length} 个活跃分类</small></div>
-          <div class="sci-contrib-card">
-            <div><span>知识活跃度</span><strong>${state.recent.length || 0} recent signals</strong></div>
-            <div class="sci-contrib-grid">${activityCells}</div>
-          </div>
+        <aside class="cosmic-orbital-stage" aria-label="Wikist 宇宙数据概览">
+          <div class="cosmic-ring ring-1" aria-hidden="true"></div>
+          <div class="cosmic-ring ring-2" aria-hidden="true"></div>
+          <div class="cosmic-ring ring-3" aria-hidden="true"></div>
+          <div class="cosmic-core"><strong>${state.pages.length}</strong><span>pages</span></div>
+          <div class="cosmic-readout readout-a"><span>${categories.length}</span><small>active fields</small></div>
+          <div class="cosmic-readout readout-b"><span>${state.recent.length || 0}</span><small>recent signals</small></div>
         </aside>
       </header>
 
@@ -2410,7 +2558,6 @@ function secureAuthShell(mode) {
   const formTitle = isRegister ? "创建 Wikist 通行证" : "登录 Wikist";
   const formIntro = isRegister ? "建立一个可追踪、可恢复、可参与协作的知识身份。" : "继续编辑、收藏、查看消息，并进入你的知识工作台。";
   const phase = isRegister ? "NEW IDENTITY" : "SESSION HANDSHAKE";
-  const graphCells = Array.from({ length: 35 }, (_, index) => `<span class="level-${(index + (isRegister ? 2 : 4)) % 5}" aria-hidden="true"></span>`).join("");
   const registerFields = `
     <label>用户名<input name="username" autocomplete="username" placeholder="wikist_user" required /></label>
     <label>显示名称<input name="displayName" autocomplete="nickname" placeholder="你的知识署名" required /></label>
@@ -2421,14 +2568,18 @@ function secureAuthShell(mode) {
     <a class="mini-link auth-forgot-link" href="#/forgot-password">忘记密码？</a>`;
   return `<section class="auth-layout auth-cyber-layout">
     <div class="auth-copy auth-cyber-copy">
+      <canvas class="cosmic-canvas auth-cosmic-canvas" data-cosmic-scene="auth" aria-hidden="true"></canvas>
+      <div class="cosmic-vignette" aria-hidden="true"></div>
       <span class="system-kicker">Wikist Passport</span>
       <h1>${title}</h1>
       <p>${intro}</p>
       <div class="auth-signals"><span>邮箱验证</span><span>SMTP 找回</span><span>TOTP 二次验证</span><span>scrypt 加密</span></div>
-      <div class="auth-branch-visual" aria-hidden="true">
-        <div class="auth-branch-head"><span>${phase}</span><strong>wikist/passport</strong></div>
-        <div class="auth-graph-grid">${graphCells}</div>
-        <div class="auth-flow-lines">
+      <div class="auth-cosmic-console" aria-hidden="true">
+        <div class="auth-orbit-lock">
+          <span>${phase}</span>
+          <strong>wikist/passport</strong>
+        </div>
+        <div class="auth-scanlines">
           <span><strong>01</strong> identity.hash()</span>
           <span><strong>02</strong> session.httpOnly()</span>
           <span><strong>03</strong> audit.timeline()</span>

@@ -1,11 +1,12 @@
-﻿# Changelog
+# Changelog
 
 ## 2026-07-11 - Sci-Fi Home And Passport UI
 
-- Refined the home portal with a GitHub-inspired code window, contribution-style activity matrix, knowledge signal panel, and denser sci-fi dashboard layout.
-- Reworked the Wikist Passport login/register UI into a clearer console-style flow with stronger form hierarchy, security signals, and account activity visuals.
-- Added light-theme handling and responsive rules for the new home/auth visual components.
-- Bumped the core frontend asset version to `wikist-core-20260711-49`.
+- Replaced the previous dashboard-style home/auth visuals with animated canvas cosmic scenes: starfields, nebula glow, spiral arms, and comet-like warp streaks.
+- Reworked the home portal around a cinematic orbital data stage with rotating rings, planet-like core metrics, and floating readouts.
+- Reworked the Wikist Passport login/register UI into a cosmic access console with animated space background, orbit lock, scan lines, and stronger form hierarchy.
+- Added reduced-motion handling and responsive rules for the new cosmic visual components.
+- Bumped the core frontend asset version to `wikist-core-20260711-50`.
 
 ## 2026-07-11 - Route And Admin Responsiveness
 
