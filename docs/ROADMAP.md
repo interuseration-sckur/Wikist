@@ -99,9 +99,9 @@ Evolve manifests into a small, documented extension contract:
 
 ## P5: Community Governance
 
-### Delivered: Writing Commons And Community Review
+### Delivered: Collaboration Commons And Community Review
 
-Wikist now has lightweight writing organizations, Passport-synced academic identities, a Markdown-authored organization home, independent paged task/forum/member workspaces, claimable writing/translation/review tasks, topic state with subscriptions and favorites, and threshold-based community consensus for exact article and translation snapshots. Request approvals, role changes, task events, and followed-topic changes reuse directed Passport messages rather than adding a separate forum service. See [Writing Commons And Community Review](WRITING_COMMONS.md).
+Wikist now has lightweight collaboration organizations, Passport-synced academic identities, a Markdown-authored organization home, independent paged task/forum/member workspaces, claimable writing/translation/review tasks, topic state with subscriptions and favorites, and threshold-based community consensus for exact article and translation snapshots. Request approvals, role changes, task events, and followed-topic changes reuse directed Passport messages rather than adding a separate forum service. See [Collaboration Commons And Community Review](WRITING_COMMONS.md).
 
 ### 13. Transparent Contribution Tools
 

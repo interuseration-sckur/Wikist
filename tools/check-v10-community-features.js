@@ -59,6 +59,7 @@ try {
     description: "共同维护代数词条、译文和审阅任务。",
     focus: "抽象代数，群论，英文翻译",
     reviewThreshold: 2,
+    heroImage: "https://example.test/algebra-cover.jpg",
   });
   const requestOrganization = passport.createOrganization(ownerSession, {
     slug: "review-request-commons",
@@ -111,6 +112,19 @@ try {
   const tasks = passport.listOrganizationTasks(reviewerSession, organization.slug, { limit: 20, offset: 0 });
   const posts = passport.listOrganizationPosts(reviewerSession, organization.slug, { limit: 20, offset: 0 });
   const replies = passport.listOrganizationPostReplies(reviewerSession, post.id, { limit: 20, offset: 0 });
+  const flatMentionReply = passport.replyToOrganizationPost(translatorSession, post.id, { parentId: reply.id, contentMd: "@v10_reviewer 赞同这个术语建议。" });
+  const deletedMentionReply = passport.deleteOrganizationPostReply(translatorSession, post.id, flatMentionReply.id);
+  const removablePost = passport.createOrganizationPost(reviewerSession, organization.slug, { postType: "discussion", title: "可删除的临时主题", bodyMd: "用于验证作者删除权限。" });
+  const deletedPost = passport.deleteOrganizationPost(reviewerSession, removablePost.id);
+  const updatedOrganization = passport.updateOrganization(ownerSession, organization.slug, {
+    heroImage: "/uploads/organization/algebra-cover.webp",
+    descriptionMd: "# 代数协作社\n\n维护代数词条、译文和审阅任务。",
+  });
+  const searchedMembers = passport.listOrganizationMembers(organization.id, { query: "reviewer", limit: 10, offset: 0 });
+  const searchedMemberCount = passport.countOrganizationMembers(organization.id, { query: "reviewer" });
+  const adminOrganizations = passport.listOrganizationsForAdmin({ query: "代数", status: "active", limit: 10, offset: 0 });
+  const disabledOrganization = passport.updateOrganizationStatus(ownerSession, requestOrganization.slug, "disabled");
+  passport.updateOrganizationStatus(ownerSession, requestOrganization.slug, "active");
   let readerDenied = false;
   try {
     passport.submitCommunityReview(readerSession, "page", source.slug, { organizationId: organization.id, revisionId: source.revisionId, decision: "approve" });
@@ -124,6 +138,8 @@ try {
       && passport.organizationMembership(organization.id, reviewer.id)?.role === "reviewer",
     tasksCanBeCreatedAndClaimed: claimedTask.assigneeUserId === translator.id && tasks.total === 3 && tasks.items.some((task) => task.id === pageReviewTask.id && task.canReview),
     threadedDiscussionPersists: posts.total === 1 && replies.total === 1 && reply.authorUserId === reviewer.id,
+    flatMentionRepliesAndDeletesPersist: flatMentionReply.parentId === null && deletedMentionReply.reply.id === flatMentionReply.id
+      && deletedPost.id === removablePost.id && !passport.getOrganizationPost(reviewerSession, removablePost.id),
     academicIdentityAndPageTasksPersist: ownerProfile.organizations.some((item) => item.organizationSlug === organization.slug && item.role === "owner")
       && publicOwner.stats.organizations === 2 && pageTasks.total === 3,
     forumTopicsAreFilterableAndNotifyAuthors: forumTopics.total === 1 && forumTopics.items[0].organizationSlug === organization.slug
@@ -135,13 +151,17 @@ try {
       && readerMessagesAfterApproval >= 1,
     forumFollowAndFavoritePersist: followedPost.following && favoritedPost.favorited && Number(favoritedPost.favoriteCount) === 1,
     organizationMarkdownPersists: passport.organizationBySlug(requestOrganization.slug).descriptionMd.includes("Review request commons"),
+    organizationHeroAndMemberSearchPersist: updatedOrganization.heroImage === "/uploads/organization/algebra-cover.webp"
+      && searchedMembers.length === 1 && searchedMembers[0].username === reviewer.username && searchedMemberCount === 1,
+    organizationAdminManagementPersists: adminOrganizations.total === 1 && adminOrganizations.items[0].slug === organization.slug
+      && disabledOrganization.status === "disabled" && passport.organizationAdminStats().total === 2,
     pageConsensusCreatesStableRevision: !pageVoteOne.reachedDecision && pageVoteTwo.reachedDecision === "approve" && pageFinal.finalized && pageFinal.review.isCurrentStable,
     translationConsensusPublishes: !translationVoteOne.reachedDecision && translationVoteTwo.reachedDecision === "approve" && translationFinal.finalized && translationFinal.translation.status === "published",
     communityReviewerCanInspectDraft: reviewerDraft?.id === translation.id,
     snapshotsExposeVotes: pageSnapshot.organizations[0].approve === 2 && pageSnapshot.organizations[0].finalized?.decision === "approve"
       && translationSnapshot.organizations[0].approve === 2 && translationSnapshot.organizations[0].finalized?.decision === "approve",
     ordinaryReaderCannotReview: readerDenied,
-    serverRoutesPresent: appSource.includes("/api/community/organizations") && appSource.includes("community-review") && appSource.includes("organizationPostPayload") && appSource.includes("organizationPayload") && appSource.includes("/api/passport/organizations") && appSource.includes("publicUserOrganizationsMatch") && appSource.includes("organizationPostFollowMatch") && appSource.includes("organizationPostFavoriteMatch"),
+    serverRoutesPresent: appSource.includes("/api/community/organizations") && appSource.includes("/api/admin/organizations") && appSource.includes("organizationPostReplyDeleteMatch") && appSource.includes("community-review") && appSource.includes("organizationPostPayload") && appSource.includes("organizationPayload") && appSource.includes("/api/passport/organizations") && appSource.includes("publicUserOrganizationsMatch") && appSource.includes("organizationPostFollowMatch") && appSource.includes("organizationPostFavoriteMatch"),
   };
   const failed = Object.entries(checks).filter(([, ok]) => !ok).map(([name]) => name);
   assert.deepStrictEqual(failed, [], `v0.10 community checks failed: ${failed.join(", ")}`);

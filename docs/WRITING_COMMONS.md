@@ -1,12 +1,14 @@
-# Writing Commons And Community Review
+# Collaboration Commons And Community Review
 
-## Academic Identity And Forum (v0.11)
+## Academic Identity And Forum (v0.11.1)
 
 - Every active organization membership is part of a Passport academic identity. The account center and public profile show organization, role, active task count, and topic contribution count. Pending memberships remain private to the member.
 - `#/organizations` is the paginated personal identity directory. `#/organizations?user=<username>` exposes only a user's active public memberships.
 - `#/organization/<slug>?tab=forum` is the organization's durable forum workspace. It supports paginated topics, title/body/article search, topic categories, open/resolved/locked state, latest/active/unresolved sorting, coordinator pinning, and independently paginated replies.
-- `#/organization/<slug>` is a paged workspace rather than one long overview: **首页** renders the public Markdown charter and facts, **协作任务** has its own filters and pagination, **学术论坛** owns topic/reply pagination, and **成员** owns applications and role changes. The horizontal sub-navigation remains scrollable on narrow screens.
+- `#/organization/<slug>` is a paged workspace rather than one long overview: **首页** renders the public Markdown charter, facts, and an optional cover image, **协作任务** has its own filters and pagination, **学术论坛** owns topic/reply pagination, and **成员** owns applications, role changes, search, and pagination. The horizontal sub-navigation remains scrollable on narrow screens.
+- `#/admin/organizations` uses the existing dashboard permission boundary. Senior editors can search and inspect organizations; administrators can change only their active/disabled state, while organization coordinators continue to own day-to-day content and membership management.
 - A topic may link to an article and an optional language. New topics notify active organization members through the existing inbox; replies, resolution, and locking notify only the author and topic followers. Members can follow or favorite a topic without creating a second social data store.
+- Replies are a paginated flat floor stream. Replying to a member inserts an `@username` mention in Markdown rather than creating an unbounded second-level tree. Topic/reply authors, coordinators, and administrators can remove public content with an auditable soft delete.
 - Joining a request-only organization notifies active coordinators. Approval, removal, and role changes notify the affected member. Task publication, claim, and status changes are also directed to the relevant organization members, creators, and assignees.
 - Article pages render a paginated organization-task context for writing, translation, and review tasks. Review consensus remains scoped to the exact page or translation snapshot.
 
@@ -95,6 +97,13 @@ PUT  /api/community/posts/:postId/follow
 PUT  /api/community/posts/:postId/favorite
 POST /api/community/posts/:postId/replies
 PUT  /api/community/posts/:postId
+```
+
+Dashboard organization controls:
+
+```text
+GET /api/admin/organizations?page=1&limit=20&q=algebra&status=active
+PUT /api/admin/organizations/:slug { "status": "active" | "disabled" }
 ```
 
 Article and translation community review routes:

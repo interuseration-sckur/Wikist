@@ -218,8 +218,8 @@ function serveIndexHtml(req, res, indexPath, config) {
   const icon = siteIconUrl(config);
   const siteName = configuredSiteName(config);
   const html = fs.readFileSync(indexPath, "utf8")
-    .replace(/href="\/assets\/styles\.css\?v=wikist-core-20260711-78"/g, `href="${escapeHtml(assetUrl(config, "/assets/styles.css?v=wikist-core-20260711-78"))}"`)
-    .replace(/src="\/assets\/app\.js\?v=wikist-core-20260711-78"/g, `src="${escapeHtml(assetUrl(config, "/assets/app.js?v=wikist-core-20260711-78"))}"`)
+    .replace(/href="\/assets\/styles\.css\?v=wikist-core-20260712-89"/g, `href="${escapeHtml(assetUrl(config, "/assets/styles.css?v=wikist-core-20260712-89"))}"`)
+    .replace(/src="\/assets\/app\.js\?v=wikist-core-20260712-89"/g, `src="${escapeHtml(assetUrl(config, "/assets/app.js?v=wikist-core-20260712-89"))}"`)
     .replace(/href="\/assets\/wikist-emblem\.svg"/g, `href="${escapeHtml(icon)}"`)
     .replace(/src="\/assets\/wikist-emblem\.svg"/g, `src="${escapeHtml(icon)}"`)
     .replace(/<title>Wikist<\/title>/, `<title>${escapeHtml(siteName)}</title>`)
@@ -986,11 +986,11 @@ function createWikistServer(options) {
 
       if (pathname === "/api/community/organizations" && req.method === "POST") {
         if (!passport || !session?.user) {
-          sendJson(res, 401, { error: "请先登录后创建写作组织。" });
+          sendJson(res, 401, { error: "请先登录后创建协作组织。" });
           return;
         }
         const organization = passport.createOrganization(session, await readJsonBody(req));
-        recordAudit(passport, req, session, { action: "organization.create", targetType: "organization", targetId: organization.slug, targetLabel: organization.name, summary: "创建写作组织" });
+        recordAudit(passport, req, session, { action: "organization.create", targetType: "organization", targetId: organization.slug, targetLabel: organization.name, summary: "创建协作组织" });
         sendJson(res, 200, { organization });
         return;
       }
@@ -998,13 +998,13 @@ function createWikistServer(options) {
       const organizationMatch = pathname.match(/^\/api\/community\/organizations\/([^/]+)$/);
       if (organizationMatch && req.method === "GET") {
         if (!passport) {
-          sendJson(res, 404, { error: "写作组织功能未启用。" });
+          sendJson(res, 404, { error: "协作组织功能未启用。" });
           return;
         }
         const slug = decodePathPart(organizationMatch[1]);
         const organization = passport.organizationBySlug(slug);
         if (!organization || organization.status !== "active") {
-          sendJson(res, 404, { error: "写作组织不存在或已停用。" });
+          sendJson(res, 404, { error: "协作组织不存在或已停用。" });
           return;
         }
         const member = session?.user ? passport.organizationMembership(organization.id, session.user.id) : null;
@@ -1019,11 +1019,11 @@ function createWikistServer(options) {
 
       if (organizationMatch && req.method === "PUT") {
         if (!passport || !session?.user) {
-          sendJson(res, 401, { error: "请先登录后维护写作组织。" });
+          sendJson(res, 401, { error: "请先登录后维护协作组织。" });
           return;
         }
         const organization = passport.updateOrganization(session, decodePathPart(organizationMatch[1]), await readJsonBody(req));
-        recordAudit(passport, req, session, { action: "organization.update", targetType: "organization", targetId: organization.slug, targetLabel: organization.name, summary: "更新写作组织" });
+        recordAudit(passport, req, session, { action: "organization.update", targetType: "organization", targetId: organization.slug, targetLabel: organization.name, summary: "更新协作组织" });
         sendJson(res, 200, { organization: organizationPayload(organization) });
         return;
       }
@@ -1031,11 +1031,11 @@ function createWikistServer(options) {
       const organizationJoinMatch = pathname.match(/^\/api\/community\/organizations\/([^/]+)\/join$/);
       if (organizationJoinMatch && req.method === "POST") {
         if (!passport || !session?.user) {
-          sendJson(res, 401, { error: "请先登录后加入写作组织。" });
+          sendJson(res, 401, { error: "请先登录后加入协作组织。" });
           return;
         }
         const joined = passport.joinOrganization(session, decodePathPart(organizationJoinMatch[1]), await readJsonBody(req));
-        recordAudit(passport, req, session, { action: "organization.join", targetType: "organization", targetId: joined.organization.slug, targetLabel: joined.organization.name, summary: "加入写作组织", metadata: { status: joined.membership.status } });
+        recordAudit(passport, req, session, { action: "organization.join", targetType: "organization", targetId: joined.organization.slug, targetLabel: joined.organization.name, summary: "加入协作组织", metadata: { status: joined.membership.status } });
         sendJson(res, 200, joined);
         return;
       }
@@ -1043,13 +1043,18 @@ function createWikistServer(options) {
       const organizationMembersMatch = pathname.match(/^\/api\/community\/organizations\/([^/]+)\/members$/);
       if (organizationMembersMatch && req.method === "GET") {
         if (!passport) {
-          sendJson(res, 404, { error: "写作组织功能未启用。" });
+          sendJson(res, 404, { error: "协作组织功能未启用。" });
           return;
         }
         const organization = passport.organizationBySlug(decodePathPart(organizationMembersMatch[1]));
-        if (!organization) { sendJson(res, 404, { error: "写作组织不存在。" }); return; }
+        if (!organization) { sendJson(res, 404, { error: "协作组织不存在。" }); return; }
         const pagination = readPagination(url, 18, 80);
-        sendJson(res, 200, paginationPayload(passport.listOrganizationMembers(organization.id, pagination), passport.countOrganizationMembers(organization.id), pagination));
+        const query = url.searchParams.get("q") || "";
+        sendJson(res, 200, paginationPayload(
+          passport.listOrganizationMembers(organization.id, { ...pagination, query }),
+          passport.countOrganizationMembers(organization.id, { query }),
+          pagination,
+        ));
         return;
       }
 
@@ -1064,7 +1069,7 @@ function createWikistServer(options) {
 
       const organizationTasksMatch = pathname.match(/^\/api\/community\/organizations\/([^/]+)\/tasks$/);
       if (organizationTasksMatch && req.method === "GET") {
-        if (!passport) { sendJson(res, 404, { error: "写作组织功能未启用。" }); return; }
+        if (!passport) { sendJson(res, 404, { error: "协作组织功能未启用。" }); return; }
         const pagination = readPagination(url, 12, 60);
         const result = passport.listOrganizationTasks(session, decodePathPart(organizationTasksMatch[1]), { status: url.searchParams.get("status") || "all", query: url.searchParams.get("q") || "", limit: pagination.limit, offset: pagination.offset });
         sendJson(res, 200, { organization: result.organization, ...paginationPayload(result.items, result.total, pagination) });
@@ -1102,7 +1107,7 @@ function createWikistServer(options) {
 
       const organizationPostsMatch = pathname.match(/^\/api\/community\/organizations\/([^/]+)\/posts$/);
       if (organizationPostsMatch && req.method === "GET") {
-        if (!passport) { sendJson(res, 404, { error: "写作组织功能未启用。" }); return; }
+        if (!passport) { sendJson(res, 404, { error: "协作组织功能未启用。" }); return; }
         const pagination = readPagination(url, 10, 50);
         const result = passport.listOrganizationPosts(session, decodePathPart(organizationPostsMatch[1]), {
           status: url.searchParams.get("status") || "all",
@@ -1126,7 +1131,7 @@ function createWikistServer(options) {
 
       const organizationPostRepliesMatch = pathname.match(/^\/api\/community\/posts\/(\d+)\/replies$/);
       if (organizationPostRepliesMatch && req.method === "GET") {
-        if (!passport) { sendJson(res, 404, { error: "写作组织功能未启用。" }); return; }
+        if (!passport) { sendJson(res, 404, { error: "协作组织功能未启用。" }); return; }
         const pagination = readPagination(url, 12, 60);
         const result = passport.listOrganizationPostReplies(session, Number(organizationPostRepliesMatch[1]), pagination);
         sendJson(res, 200, { post: organizationPostPayload(result.post), ...paginationPayload(result.items.map(organizationPostReplyPayload), result.total, pagination) });
@@ -1137,6 +1142,15 @@ function createWikistServer(options) {
         if (!passport || !session?.user) { sendJson(res, 401, { error: "请先登录后参与组织讨论。" }); return; }
         const reply = passport.replyToOrganizationPost(session, Number(organizationPostRepliesMatch[1]), await readJsonBody(req));
         sendJson(res, 200, { reply: organizationPostReplyPayload(reply) });
+        return;
+      }
+
+      const organizationPostReplyDeleteMatch = pathname.match(/^\/api\/community\/posts\/(\d+)\/replies\/(\d+)$/);
+      if (organizationPostReplyDeleteMatch && req.method === "DELETE") {
+        if (!passport || !session?.user) { sendJson(res, 401, { error: "请先登录后删除讨论回复。" }); return; }
+        const deleted = passport.deleteOrganizationPostReply(session, Number(organizationPostReplyDeleteMatch[1]), Number(organizationPostReplyDeleteMatch[2]));
+        recordAudit(passport, req, session, { action: "organization.post.reply.delete", targetType: "organization-post-reply", targetId: String(deleted.reply.id), targetLabel: deleted.post.title, summary: "删除组织讨论回复", metadata: { postId: deleted.post.id } });
+        sendJson(res, 200, { reply: organizationPostReplyPayload(deleted.reply) });
         return;
       }
 
@@ -1158,7 +1172,7 @@ function createWikistServer(options) {
         return;
       }
       if (organizationPostMatch && req.method === "GET") {
-        if (!passport) { sendJson(res, 404, { error: "写作组织功能未启用。" }); return; }
+        if (!passport) { sendJson(res, 404, { error: "协作组织功能未启用。" }); return; }
         const post = passport.getOrganizationPost(session, Number(organizationPostMatch[1]));
         if (!post) { sendJson(res, 404, { error: "组织讨论不存在或已隐藏。" }); return; }
         sendJson(res, 200, { post: organizationPostPayload(post) });
@@ -1168,6 +1182,13 @@ function createWikistServer(options) {
         if (!passport || !session?.user) { sendJson(res, 401, { error: "请先登录后管理组织讨论。" }); return; }
         const post = passport.updateOrganizationPost(session, Number(organizationPostMatch[1]), await readJsonBody(req));
         sendJson(res, 200, { post: organizationPostPayload(post) });
+        return;
+      }
+      if (organizationPostMatch && req.method === "DELETE") {
+        if (!passport || !session?.user) { sendJson(res, 401, { error: "请先登录后删除组织讨论。" }); return; }
+        const deleted = passport.deleteOrganizationPost(session, Number(organizationPostMatch[1]));
+        recordAudit(passport, req, session, { action: "organization.post.delete", targetType: "organization-post", targetId: String(deleted.id), targetLabel: deleted.title, summary: "删除组织讨论", metadata: { organizationSlug: deleted.organizationSlug } });
+        sendJson(res, 200, { post: organizationPostPayload(deleted) });
         return;
       }
 
@@ -1572,6 +1593,28 @@ function createWikistServer(options) {
         const users = passport.listUsers({ query, limit: pagination.limit, offset: pagination.offset });
         const payload = paginationPayload(users, passport.countUsers(query), pagination);
         sendJson(res, 200, { ...payload, users });
+        return;
+      }
+
+      if (pathname === "/api/admin/organizations" && req.method === "GET") {
+        requireDashboard(passport, session);
+        const pagination = readPagination(url, 20, 100);
+        const result = passport.listOrganizationsForAdmin({
+          query: url.searchParams.get("q") || "",
+          status: url.searchParams.get("status") || "all",
+          limit: pagination.limit,
+          offset: pagination.offset,
+        });
+        sendJson(res, 200, { ...paginationPayload(result.items, result.total, pagination), stats: passport.organizationAdminStats() });
+        return;
+      }
+
+      const adminOrganizationMatch = pathname.match(/^\/api\/admin\/organizations\/([^/]+)$/);
+      if (adminOrganizationMatch && req.method === "PUT") {
+        requireUserAdmin(passport, session);
+        const organization = passport.updateOrganizationStatus(session, decodePathPart(adminOrganizationMatch[1]), (await readJsonBody(req)).status);
+        recordAudit(passport, req, session, { action: "organization.adminStatus", targetType: "organization", targetId: organization.slug, targetLabel: organization.name, summary: `更新协作组织状态为 ${organization.status}`, metadata: { status: organization.status } });
+        sendJson(res, 200, { organization: organizationPayload(organization) });
         return;
       }
 
@@ -2749,11 +2792,25 @@ function createWikistServer(options) {
       if (pathname === "/api/categories" && req.method === "GET") {
         const pageList = pages.listPages();
         const requested = url.searchParams.get("name") || "";
+        const query = String(url.searchParams.get("q") || "").trim().toLocaleLowerCase();
         if (requested) {
-          sendJson(res, 200, categoryDetail(pageList, requested));
+          const detail = categoryDetail(pageList, requested);
+          const pagePagination = readPagination(url, 12, 60);
+          const childPage = Math.max(1, Number(url.searchParams.get("childPage")) || 1);
+          const childLimit = Math.max(4, Math.min(Number(url.searchParams.get("childLimit")) || 12, 60));
+          const childPagination = { page: childPage, limit: childLimit, offset: (childPage - 1) * childLimit };
+          const matches = (value) => !query || String(value || "").toLocaleLowerCase().includes(query);
+          const children = (detail.children || []).filter((item) => matches(`${item.name} ${item.label}`));
+          const directPages = (detail.pages || []).filter((page) => matches(`${page.title} ${page.slug} ${page.summary} ${(page.categories || []).join(" ")}`));
+          const childPayload = paginationPayload(children.slice(childPagination.offset, childPagination.offset + childPagination.limit), children.length, childPagination);
+          const pagesPayload = paginationPayload(directPages.slice(pagePagination.offset, pagePagination.offset + pagePagination.limit), directPages.length, pagePagination);
+          sendJson(res, 200, { ...detail, children: childPayload.items, childrenPagination: childPayload.pagination, pages: pagesPayload.items, pagination: pagesPayload.pagination });
         } else {
           const snapshot = categorySnapshot(pageList);
-          sendJson(res, 200, { categories: snapshot.rootCategoryItems, topics: snapshot.rootTopicItems });
+          const pagination = readPagination(url, 12, 60);
+          const items = snapshot.rootCategoryItems.filter((item) => !query || `${item.name} ${item.parent || ""}`.toLocaleLowerCase().includes(query));
+          const payload = paginationPayload(items.slice(pagination.offset, pagination.offset + pagination.limit), items.length, pagination);
+          sendJson(res, 200, { ...payload, categories: payload.items, topics: snapshot.rootTopicItems });
         }
         return;
       }

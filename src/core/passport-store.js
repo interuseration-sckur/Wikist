@@ -699,6 +699,7 @@ function organizationFromRow(row) {
     name: row.name || row.slug,
     description: row.description || "",
     descriptionMd: row.description_md || row.description || "",
+    heroImage: row.hero_image || "",
     focus: cleanJson(row.focus_json, []),
     visibility: row.visibility || "public",
     reviewThreshold: Math.max(1, Number(row.review_threshold || 2)),
@@ -1334,6 +1335,7 @@ class PassportStore {
         name TEXT NOT NULL,
         description TEXT NOT NULL DEFAULT '',
         description_md TEXT NOT NULL DEFAULT '',
+        hero_image TEXT NOT NULL DEFAULT '',
         focus_json TEXT NOT NULL DEFAULT '[]',
         visibility TEXT NOT NULL DEFAULT 'public',
         review_threshold INTEGER NOT NULL DEFAULT 2,
@@ -1533,6 +1535,7 @@ class PassportStore {
     this.addColumn("page_translations", "review_comment", "TEXT NOT NULL DEFAULT ''");
     this.addColumn("page_translations", "reviewed_at", "TEXT");
     this.addColumn("writing_organizations", "description_md", "TEXT NOT NULL DEFAULT ''");
+    this.addColumn("writing_organizations", "hero_image", "TEXT NOT NULL DEFAULT ''");
     this.db.prepare("UPDATE writing_organizations SET description_md = description WHERE description_md = ''").run();
     this.db.exec("CREATE INDEX IF NOT EXISTS idx_page_aliases_source ON page_aliases(source_page_slug, updated_at)");
 
@@ -3164,11 +3167,11 @@ class PassportStore {
   }
 
   assertOrganizationRole(session, organization, minimumRole = 'member') {
-    if (!session?.user) throw accessError('请先登录后参与写作组织。', 401);
+    if (!session?.user) throw accessError('请先登录后参与协作组织。', 401);
     const org = typeof organization === 'object' ? organization : this.organizationById(organization);
-    if (!org || org.status !== 'active') throw accessError('写作组织不存在或已停用。', 404);
+    if (!org || org.status !== 'active') throw accessError('协作组织不存在或已停用。', 404);
     const membership = this.organizationMembership(org.id, session.user.id);
-    if (!membership || membership.status !== 'active') throw accessError('请先加入该写作组织。', 403);
+    if (!membership || membership.status !== 'active') throw accessError('请先加入该协作组织。', 403);
     if (organizationRoleRank(membership.role) < organizationRoleRank(minimumRole)) {
       throw accessError('你的组织角色没有执行此操作的权限。', 403);
     }
@@ -3200,8 +3203,51 @@ class PassportStore {
     return { items, total };
   }
 
+  listOrganizationsForAdmin(options = {}) {
+    const { limit, offset } = listOptions(options, 20, 100);
+    const query = cleanText(options.query || options.q || '', 120);
+    const status = ['active', 'disabled'].includes(options.status) ? options.status : 'all';
+    const where = [];
+    const args = [];
+    if (status !== 'all') { where.push('o.status = ?'); args.push(status); }
+    if (query) {
+      const like = `%${query}%`;
+      where.push('(o.slug LIKE ? OR o.name LIKE ? OR o.description LIKE ? OR u.username LIKE ? OR u.display_name LIKE ?)');
+      args.push(like, like, like, like, like);
+    }
+    const clause = where.length ? `WHERE ${where.join(' AND ')}` : '';
+    const total = Number(this.db.prepare(`
+      SELECT count(*) AS n
+      FROM writing_organizations o
+      LEFT JOIN users u ON u.id = o.created_by
+      ${clause}
+    `).get(...args).n || 0);
+    const items = this.db.prepare(`
+      SELECT o.*, u.display_name AS founder_name, u.username AS founder_username,
+        (SELECT count(*) FROM organization_members m WHERE m.organization_id = o.id AND m.status = 'active') AS member_count,
+        (SELECT count(*) FROM organization_tasks t WHERE t.organization_id = o.id AND t.status != 'closed') AS task_count,
+        (SELECT count(*) FROM organization_posts p WHERE p.organization_id = o.id AND p.status != 'hidden') AS discussion_count
+      FROM writing_organizations o
+      LEFT JOIN users u ON u.id = o.created_by
+      ${clause}
+      ORDER BY o.updated_at DESC, o.id DESC
+      LIMIT ? OFFSET ?
+    `).all(...args, limit, offset).map(organizationFromRow);
+    return { items, total };
+  }
+
+  organizationAdminStats() {
+    const row = this.db.prepare(`
+      SELECT count(*) AS total,
+        sum(CASE WHEN status = 'active' THEN 1 ELSE 0 END) AS active,
+        sum(CASE WHEN status = 'disabled' THEN 1 ELSE 0 END) AS disabled
+      FROM writing_organizations
+    `).get() || {};
+    return { total: Number(row.total || 0), active: Number(row.active || 0), disabled: Number(row.disabled || 0) };
+  }
+
   createOrganization(session, input = {}) {
-    if (!session?.user) throw accessError('请先登录后创建写作组织。', 401);
+    if (!session?.user) throw accessError('请先登录后创建协作组织。', 401);
     const slug = normalizeOrganizationSlug(input.slug || input.name);
     const name = cleanText(input.name || slug, 90);
     if (!name) throw accessError('组织名称不能为空。', 400);
@@ -3213,9 +3259,9 @@ class PassportStore {
     const reviewThreshold = Math.max(1, Math.min(Number(input.reviewThreshold) || 2, 8));
     const now = nowIso();
     const result = this.db.prepare(`
-      INSERT INTO writing_organizations (slug, name, description, description_md, focus_json, visibility, review_threshold, status, created_by, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)
-    `).run(slug, name, description, descriptionMd, jsonText(focus), visibility, reviewThreshold, session.user.id, now, now);
+      INSERT INTO writing_organizations (slug, name, description, description_md, hero_image, focus_json, visibility, review_threshold, status, created_by, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)
+    `).run(slug, name, description, descriptionMd, cleanText(input.heroImage, 1000), jsonText(focus), visibility, reviewThreshold, session.user.id, now, now);
     const organization = this.organizationById(result.lastInsertRowid);
     this.db.prepare(`
       INSERT INTO organization_members (organization_id, user_id, role, status, intro, joined_at, updated_at)
@@ -3230,6 +3276,7 @@ class PassportStore {
     const name = cleanText(input.name || organization.name, 90);
     const description = cleanText(Object.prototype.hasOwnProperty.call(input, 'description') ? input.description : organization.description, 900);
     const descriptionMd = cleanText(Object.prototype.hasOwnProperty.call(input, 'descriptionMd') ? input.descriptionMd : organization.descriptionMd, 16000);
+    const heroImage = cleanText(Object.prototype.hasOwnProperty.call(input, 'heroImage') ? input.heroImage : organization.heroImage, 1000);
     const focus = Object.prototype.hasOwnProperty.call(input, 'focus')
       ? Array.from(new Set((Array.isArray(input.focus) ? input.focus : String(input.focus || '').split(/[，,\n]/)).map((item) => cleanText(item, 80)).filter(Boolean))).slice(0, 12)
       : organization.focus;
@@ -3238,15 +3285,24 @@ class PassportStore {
       ? Math.max(1, Math.min(Number(input.reviewThreshold) || organization.reviewThreshold, 8))
       : organization.reviewThreshold;
     this.db.prepare(`
-      UPDATE writing_organizations SET name = ?, description = ?, description_md = ?, focus_json = ?, visibility = ?, review_threshold = ?, updated_at = ? WHERE id = ?
-    `).run(name, description, descriptionMd, jsonText(focus), visibility, reviewThreshold, nowIso(), organization.id);
+      UPDATE writing_organizations SET name = ?, description = ?, description_md = ?, hero_image = ?, focus_json = ?, visibility = ?, review_threshold = ?, updated_at = ? WHERE id = ?
+    `).run(name, description, descriptionMd, heroImage, jsonText(focus), visibility, reviewThreshold, nowIso(), organization.id);
+    return this.organizationById(organization.id);
+  }
+
+  updateOrganizationStatus(session, slug, status) {
+    this.assertCanManageUsers(session);
+    const organization = this.organizationBySlug(slug);
+    if (!organization) throw accessError('协作组织不存在。', 404);
+    const nextStatus = status === 'disabled' ? 'disabled' : 'active';
+    this.db.prepare('UPDATE writing_organizations SET status = ?, updated_at = ? WHERE id = ?').run(nextStatus, nowIso(), organization.id);
     return this.organizationById(organization.id);
   }
 
   joinOrganization(session, slug, input = {}) {
-    if (!session?.user) throw accessError('请先登录后加入写作组织。', 401);
+    if (!session?.user) throw accessError('请先登录后加入协作组织。', 401);
     const organization = this.organizationBySlug(slug);
-    if (!organization || organization.status !== 'active') throw accessError('写作组织不存在或已停用。', 404);
+    if (!organization || organization.status !== 'active') throw accessError('协作组织不存在或已停用。', 404);
     const intro = cleanText(input.intro, 500);
     const status = organization.visibility === 'request' ? 'pending' : 'active';
     const now = nowIso();
@@ -3318,18 +3374,33 @@ class PassportStore {
 
   listOrganizationMembers(organizationId, options = {}) {
     const { limit, offset } = listOptions(options, 18, 80);
+    const query = cleanText(options.query || options.q || '', 120);
+    const where = ['m.organization_id = ?', "m.status != 'removed'"];
+    const args = [Number(organizationId)];
+    if (query) {
+      const like = `%${query}%`;
+      where.push('(u.username LIKE ? OR u.display_name LIKE ? OR m.role LIKE ?)');
+      args.push(like, like, like);
+    }
     return this.db.prepare(`
       SELECT m.*, u.display_name, u.username, u.avatar_url
       FROM organization_members m
       JOIN users u ON u.id = m.user_id
-      WHERE m.organization_id = ? AND m.status != 'removed'
+      WHERE ${where.join(' AND ')}
       ORDER BY CASE m.role WHEN 'owner' THEN 5 WHEN 'coordinator' THEN 4 WHEN 'reviewer' THEN 3 WHEN 'translator' THEN 2 WHEN 'writer' THEN 1 ELSE 0 END DESC, m.joined_at ASC
       LIMIT ? OFFSET ?
-    `).all(Number(organizationId), limit, offset).map(organizationMemberFromRow);
+    `).all(...args, limit, offset).map(organizationMemberFromRow);
   }
 
-  countOrganizationMembers(organizationId) {
-    return Number(this.db.prepare("SELECT count(*) AS n FROM organization_members WHERE organization_id = ? AND status != 'removed'").get(Number(organizationId)).n || 0);
+  countOrganizationMembers(organizationId, options = {}) {
+    const query = cleanText(options.query || options.q || '', 120);
+    if (!query) return Number(this.db.prepare("SELECT count(*) AS n FROM organization_members WHERE organization_id = ? AND status != 'removed'").get(Number(organizationId)).n || 0);
+    const like = `%${query}%`;
+    return Number(this.db.prepare(`
+      SELECT count(*) AS n
+      FROM organization_members m JOIN users u ON u.id = m.user_id
+      WHERE m.organization_id = ? AND m.status != 'removed' AND (u.username LIKE ? OR u.display_name LIKE ? OR m.role LIKE ?)
+    `).get(Number(organizationId), like, like, like).n || 0);
   }
 
   organizationTaskQuery(session, organizationId, options = {}) {
@@ -3372,7 +3443,7 @@ class PassportStore {
 
   listOrganizationTasks(session, slug, options = {}) {
     const organization = this.organizationBySlug(slug);
-    if (!organization || organization.status !== 'active') throw accessError('写作组织不存在或已停用。', 404);
+    if (!organization || organization.status !== 'active') throw accessError('协作组织不存在或已停用。', 404);
     return { organization, ...this.organizationTaskQuery(session, organization.id, options) };
   }
 
@@ -3563,7 +3634,7 @@ class PassportStore {
 
   listOrganizationPosts(session, slug, options = {}) {
     const organization = this.organizationBySlug(slug);
-    if (!organization || organization.status !== 'active') throw accessError('写作组织不存在或已停用。', 404);
+    if (!organization || organization.status !== 'active') throw accessError('协作组织不存在或已停用。', 404);
     return { organization, ...this.organizationPostQuery(session, organization.id, options) };
   }
 
@@ -3673,11 +3744,9 @@ class PassportStore {
     if (post.status === 'locked') throw accessError('该组织讨论已锁定。', 409);
     const content = cleanText(input.contentMd || input.content || '', COMMENT_MAX_LENGTH);
     if (!content) throw accessError('回复内容不能为空。', 400);
-    const parentId = Number(input.parentId || 0) || null;
-    if (parentId) {
-      const parent = this.db.prepare("SELECT id FROM organization_post_replies WHERE id = ? AND post_id = ? AND status = 'published'").get(parentId, post.id);
-      if (!parent) throw accessError('要回复的讨论内容不存在。', 404);
-    }
+    // Forum replies stay as a single readable floor stream. The UI writes @mentions
+    // into the Markdown body instead of creating an arbitrarily deep reply tree.
+    const parentId = null;
     const now = nowIso();
     const result = this.db.prepare(`
       INSERT INTO organization_post_replies (post_id, parent_id, author_user_id, content_md, status, created_at, updated_at)
@@ -3718,6 +3787,44 @@ class PassportStore {
       });
     }
     return updated;
+  }
+
+  deleteOrganizationPost(session, postId) {
+    if (!session?.user) throw accessError('请先登录后删除组织讨论。', 401);
+    const post = this.getOrganizationPost(session, postId);
+    if (!post) throw accessError('组织讨论不存在。', 404);
+    const organization = this.organizationById(post.organizationId);
+    const isAuthor = Number(post.authorUserId) === Number(session.user.id);
+    const isAdmin = session.user.role === 'admin';
+    if (!isAuthor && !isAdmin) {
+      const access = this.assertOrganizationRole(session, organization, 'member');
+      if (organizationRoleRank(access.membership.role) < organizationRoleRank('coordinator')) throw accessError('只有主题作者、组织协调者或管理员可以删除该讨论。', 403);
+    }
+    this.db.prepare("UPDATE organization_posts SET status = 'hidden', updated_at = ? WHERE id = ?").run(nowIso(), post.id);
+    return post;
+  }
+
+  deleteOrganizationPostReply(session, postId, replyId) {
+    if (!session?.user) throw accessError('请先登录后删除讨论回复。', 401);
+    const post = this.getOrganizationPost(session, postId);
+    if (!post) throw accessError('组织讨论不存在。', 404);
+    const reply = organizationPostReplyFromRow(this.db.prepare(`
+      SELECT r.*, u.display_name AS author_name, u.username AS author_username, u.avatar_url AS author_avatar_url
+      FROM organization_post_replies r JOIN users u ON u.id = r.author_user_id
+      WHERE r.id = ? AND r.post_id = ? AND r.status = 'published'
+    `).get(Number(replyId), post.id));
+    if (!reply) throw accessError('讨论回复不存在。', 404);
+    const organization = this.organizationById(post.organizationId);
+    const isAuthor = Number(reply.authorUserId) === Number(session.user.id);
+    const isAdmin = session.user.role === 'admin';
+    if (!isAuthor && !isAdmin) {
+      const access = this.assertOrganizationRole(session, organization, 'member');
+      if (organizationRoleRank(access.membership.role) < organizationRoleRank('coordinator')) throw accessError('只有回复作者、组织协调者或管理员可以删除该回复。', 403);
+    }
+    const now = nowIso();
+    this.db.prepare("UPDATE organization_post_replies SET status = 'deleted', updated_at = ? WHERE id = ?").run(now, reply.id);
+    this.db.prepare('UPDATE organization_posts SET updated_at = ? WHERE id = ?').run(now, post.id);
+    return { post, reply };
   }
 
   notifyOrganizationCoordinators(organization, input = {}) {

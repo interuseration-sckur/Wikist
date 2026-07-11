@@ -1,5 +1,69 @@
 # Changelog
 
+## 2026-07-12 - Knowledge Directory Spacing And Release Sync
+
+- Added deliberate spacing between the knowledge-network metrics and the category/topic directory actions, preventing the two control bands from visually colliding.
+- Prepared the release workspace to become the canonical GitHub source for the current framework build.
+- Bumped the framework package to `0.11.10` with frontend asset version `wikist-core-20260712-89`.
+
+## 2026-07-11 - Visual Code Preview Enforcement
+
+- Explicitly enabled Vditor WYSIWYG code-block preview so visual rendering remains active regardless of upstream defaults or a cached editor configuration.
+- Bumped the framework package to `0.11.9` with frontend asset version `wikist-core-20260711-88`.
+
+## 2026-07-11 - Visual Editor Toolbar Guard
+
+- Added the documented no-op `customWysiwygToolbar` hook to Vditor initialization, preventing optional-toolbar callback errors when code-block controls are used.
+- Bumped the framework package to `0.11.8` with frontend asset version `wikist-core-20260711-87`.
+
+## 2026-07-11 - Visual Editor Dark Code Blocks
+
+- Switched Vditor's dark-mode code highlighting from the light `native` style to `monokai`, applying the same code style on initialization and every theme switch.
+- Added a dark editor-host fallback for WYSIWYG code-block previews so late CDN styles cannot reintroduce a light code surface.
+- Bumped the framework package to `0.11.7` with frontend asset version `wikist-core-20260711-86`.
+
+## 2026-07-11 - Editor Knowledge Field Density
+
+- Made aliases and redirects, disambiguation, and mathematical knowledge metadata collapsed by default so the visual editor remains immediately reachable.
+- Rebuilt the three editor panels with responsive, full-width form grids: alias and redirect fields now align as equal columns, while mathematical metadata inputs fill their cells and stack cleanly on small screens.
+- Bumped the framework package to `0.11.6` with frontend asset version `wikist-core-20260711-85`.
+
+## 2026-07-11 - Collaboration Organization Polish
+
+- Normalized every user-facing organization-creation, validation, audit, empty-state, dashboard, and documentation label to Collaboration Organization without changing the durable `writing_organizations` database table or community API routes.
+- Refined the empty article collaboration panel so its community entry remains a compact, naturally aligned action instead of stretching across the panel.
+- Bumped the framework package to `0.11.5` with frontend asset version `wikist-core-20260711-84`.
+
+## 2026-07-11 - Collaboration Commons Naming
+
+- Renamed the user-facing Writing Community surface to Collaboration Community across navigation, article collaboration prompts, organization identity states, the administration sidebar, documentation, and English visual labels. Existing `#/community` and organization routes remain unchanged.
+- Bumped the framework package to `0.11.4` with frontend asset version `wikist-core-20260711-83`.
+
+## 2026-07-11 - Home Brand And Forum Layout Repair
+
+- Restored the dynamic home welcome title as `欢迎来到 {site name}`. The configured site name again uses the existing particle-matrix title renderer instead of being replaced with a generic “首页”.
+- Moved article knowledge, collaboration, and rating shortcuts into a second row below the favorite/watch controls; the rating shortcut now updates with the current average score.
+- Rebuilt the forum reply composer as a full-width Wikist form and moved reply-floor identifiers into a dedicated left marker column.
+- Restored the missing `Admin -> Writing Community Management` navigation entry and clarified the management screen label.
+- Bumped the framework package to `0.11.3` with frontend asset version `wikist-core-20260711-82`.
+
+## 2026-07-11 - Forum Interaction And Article Action Shortcuts
+
+- Unified native select controls with explicit dark/light palettes, including organization roles, task states, forum filters, and dashboard forms.
+- Rebuilt forum follow and favorite controls with the same icon-and-state language as article watch/favorite actions, fixed their asynchronous event-state failure, and kept topic-management actions on one desktop toolbar.
+- Made organization discussion replies a deliberate flat floor stream: replying to a member writes an `@username` mention instead of creating a nested tree; replies now expose floor numbers, reply affordances, and author/coordinator/admin soft-delete controls. Topic authors, coordinators, and administrators can likewise remove a topic from public view while retaining audit history.
+- Added article-header shortcuts for knowledge links, organization collaboration, and ratings; each scrolls to the relevant loaded panel without asking readers to hunt through a long article.
+- Promoted Writing Community visibility in the admin overview and bumped the framework package to `0.11.2` with frontend asset version `wikist-core-20260711-81`.
+
+## 2026-07-11 - Organization Workspace And Category Directory Refinement
+
+- Rebuilt category directories as searchable, paginated result streams. Root categories, child categories, and direct article lists now use server-side pagination and the same readable article-result treatment as search instead of centered ordinal tiles.
+- Removed the duplicate knowledge-network item from the persistent sidebar while retaining it in primary navigation.
+- Reframed organization workspaces around a responsive article-style header, optional rounded cover image, aligned horizontal tabs, semantic member metadata, and a collapsible coordinator editor using Wikist form controls.
+- Rebuilt organization task, member, and forum-topic layouts so available desktop space is used deliberately, with real side context where a sidebar exists and a single-column mobile layout where it does not.
+- Added member search with server-side pagination, organization cover-image persistence, and **Admin -> Writing Community** for paginated organization discovery and administrator status control.
+- Added regression coverage for cover-image persistence, member filtering, and organization administration; bumped the framework package to `0.11.1` and the frontend asset version to `wikist-core-20260711-80`.
+
 ## 2026-07-11 - Academic Identity And Organization Forum
 
 - Added Passport-synced academic organization identities to account and public user profiles, with a paginated identity directory that keeps pending memberships private.
@@ -8,13 +72,13 @@
 - Reframed every organization as a paged academic workspace: a Markdown-authored public home, task board, forum, and members/approval page now use one horizontal sub-navigation with responsive light and dark surfaces.
 - Routed request membership, approval, role changes, task publication/claim/status changes, topic subscriptions, favorites, replies, and resolution events through the existing inbox without duplicating user or forum storage.
 - Made user-facing site branding runtime-configurable across the homepage, Passport shell, account surface, administration shell, email verification/reset templates, and static chrome. Fresh homepages now use the neutral title “首页” instead of a hard-coded product greeting.
-- Made writing organizations a first-class functional entry in the primary navigation, quick navigation, homepage collaboration console, organization overview, and article task context.
+- Made collaboration organizations a first-class functional entry in the primary navigation, quick navigation, homepage collaboration console, organization overview, and article task context.
 - Expanded article organization context from review-only work to paginated writing, translation, and review tasks, while retaining the existing community-review consensus panel.
 - Bumped the framework package to `0.11.0` and the frontend asset version to `wikist-core-20260711-78`.
 
-## 2026-07-11 - Writing Commons And Community Review
+## 2026-07-11 - Collaboration Commons And Community Review
 
-- Added self-contained writing organizations with direct or request-based joining, durable member roles, coordinator-managed task boards, and a paginated Markdown discussion stream.
+- Added self-contained collaboration organizations with direct or request-based joining, durable member roles, coordinator-managed task boards, and a paginated Markdown discussion stream.
 - Added claimable article-writing, translation, and review tasks. Organization updates and consensus events reuse the existing inbox instead of creating a second notification backend.
 - Added threshold-based community review for exact page revisions and translation snapshots. Eligible organization reviewers can form a documented approval or changes-requested consensus; approval creates a stable page snapshot or publishes the reviewed translation.
 - Added article-level organization task visibility and community review panels in both page and translation review workflows, while retaining senior-editor direct review as a maintenance path.
