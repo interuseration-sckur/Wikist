@@ -290,16 +290,23 @@ function renderInline(source, runtime = createRuntime()) {
     return html ? stash(html) : match;
   });
   text = text.replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, (_match, slug, label) => {
-    return stash(`<a href="#/page/${encodeURIComponent(slug.trim())}" class="wiki-link">${escapeHtml(label.trim())}</a>`);
+    return stash(`<a href="#/page/${encodeURIComponent(slug.trim())}" class="wiki-link">${renderInline(label.trim(), runtime)}</a>`);
   });
   text = text.replace(/\[\[([^\]]+)\]\]/g, (_match, slug) => {
     const label = slug.trim();
     return stash(`<a href="#/page/${encodeURIComponent(label)}" class="wiki-link">${escapeHtml(label)}</a>`);
   });
   text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_match, label, href) => {
-    return stash(`<a href="${sanitizeHref(href)}" rel="noreferrer">${escapeHtml(label)}</a>`);
+    return stash(`<a href="${sanitizeHref(href)}" rel="noreferrer">${renderInline(label, runtime)}</a>`);
   });
   text = text.replace(/<((?:https?:\/\/|mailto:)[^<>\s]+)>/g, (_match, href) => stash(`<a href="${sanitizeHref(href)}" rel="noreferrer">${escapeHtml(href)}</a>`));
+
+  // Protect TeX before Markdown emphasis processing so identifiers such as
+  // $S_3$ and $F^*(G)$ cannot be rewritten into malformed <em> markup.
+  text = text.replace(/\\\[([^\n]*?)\\\]/g, (_match, tex) => stash(`<span class="math-display math-display-inline">\\[${escapeHtml(tex)}\\]</span>`));
+  text = text.replace(/\$\$([^\n]*?)\$\$/g, (_match, tex) => stash(`<span class="math-display math-display-inline">\\[${escapeHtml(tex)}\\]</span>`));
+  text = text.replace(/\\\(([^\n]*?)\\\)/g, (_match, tex) => stash(`<span class="math-inline">\\(${escapeHtml(tex)}\\)</span>`));
+  text = text.replace(/(^|[^\\$])\$(?!\$)([^$\n]+?)(?<!\\)\$/g, (_match, prefix, tex) => `${prefix}${stash(`<span class="math-inline">\\(${escapeHtml(tex)}\\)</span>`)}`);
 
   text = escapeHtml(text);
   text = text.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
@@ -493,7 +500,9 @@ function renderContainer(lines, start, context, runtime) {
   const kind = fence.name.toLowerCase();
   const supported = new Set(["theorem", "definition", "example", "proof", "note", "warning", "tip", "danger", "info"]);
   const isSupported = supported.has(kind);
-  if (!markdownFeatureEnabled(context, "upstreamContainer")) return null;
+  // Mathematical semantic blocks are native Wikist syntax. The optional
+  // upstream container plugin only controls arbitrary third-party block names.
+  if (!isSupported && !markdownFeatureEnabled(context, "upstreamContainer")) return null;
   const title = fence.meta.trim() || kind;
   const body = [];
   let index = start + 1;
@@ -506,12 +515,12 @@ function renderContainer(lines, start, context, runtime) {
   if (!isSupported) {
     const safeKind = slugToId(kind);
     return {
-      html: `<div class="wikist-container wikist-container-${escapeHtml(safeKind)}"><div class="wikist-container-label">${escapeHtml(title)}</div>${renderedBody}</div>`,
+      html: `<div class="wikist-container wikist-container-${escapeHtml(safeKind)}"><div class="wikist-container-label">${renderInline(title, runtime)}</div>${renderedBody}</div>`,
       next: index,
     };
   }
   return {
-    html: `<aside class="math-note math-note-${escapeHtml(kind)}"><div class="math-note-label">${escapeHtml(title)}</div>${renderedBody}</aside>`,
+    html: `<aside class="math-note math-note-${escapeHtml(kind)}"><div class="math-note-label">${renderInline(title, runtime)}</div>${renderedBody}</aside>`,
     next: index,
   };
 }
@@ -580,16 +589,17 @@ function renderMarkdown(source, context = {}) {
       continue;
     }
 
-    if (trimmed === "$$") {
+    if (trimmed === "$$" || trimmed === "\\[") {
       flushParagraph(paragraph, html, runtime);
+      const closingMarker = trimmed === "$$" ? "$$" : "\\]";
       const math = [];
       index += 1;
-      while (index < lines.length && lines[index].trim() !== "$$") {
+      while (index < lines.length && lines[index].trim() !== closingMarker) {
         math.push(lines[index]);
         index += 1;
       }
       if (index < lines.length) index += 1;
-      html.push(`<div class="math-block">$$\n${escapeHtml(math.join("\n"))}\n$$</div>`);
+      html.push(`<div class="math-block">\\[\n${escapeHtml(math.join("\n"))}\n\\]</div>`);
       continue;
     }
 

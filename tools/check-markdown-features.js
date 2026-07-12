@@ -45,6 +45,14 @@ Term
 
 Footnote[^a]
 
+Inline math $S_3$, $F^*(G)$, and \\(N_G(P)/C_G(P)\\).
+
+[[sylow-p-subgroup|Sylow $p$-subgroup]]
+
+\\[
+x_i^2 + y_i^2 = 1
+\\]
+
 [^a]: note
 
 ## Heading {#lab-heading}
@@ -66,14 +74,23 @@ assert(html.includes('footnote-ref'), 'footnote should render');
 assert(html.includes('id="lab-heading"'), 'heading attrs should render');
 assert(html.includes('wiki-image'), 'MediaWiki image should render');
 assert(!html.includes('<pre><code class="language-warning"'), 'warning must not fall back to code');
+assert(html.includes('<span class="math-inline">\\(S_3\\)</span>'), 'dollar-delimited inline TeX should be protected');
+assert(html.includes('<span class="math-inline">\\(F^*(G)\\)</span>'), 'inline TeX punctuation should be preserved');
+assert(html.includes('<span class="math-inline">\\(N_G(P)/C_G(P)\\)</span>'), 'parenthesized inline TeX should render');
+assert(html.includes('<div class="math-block">\\['), 'bracket-delimited display TeX should render');
+assert(!html.includes('S<em>3') && !html.includes('N<em>G'), 'TeX underscores must not become emphasis markup');
 
 
-const disabledContainer = renderMarkdown("::: warning\ncontent\n:::", { config: { plugins: { markdownAdvanced: { enabled: true }, upstreamContainer: { enabled: false } } } }).html;
-assert(!disabledContainer.includes("math-note-warning"), "disabled container plugin should not render warning blocks");
+const disabledContainer = renderMarkdown("::: warning Group $G$\ncontent\n:::", { config: { plugins: { markdownAdvanced: { enabled: true }, upstreamContainer: { enabled: false } } } }).html;
+assert(disabledContainer.includes("math-note-warning"), "native Wikist semantic blocks must render without the optional container plugin");
+assert(disabledContainer.includes('<span class="math-inline">\\(G\\)</span>'), "semantic block titles should render inline TeX");
+
+const disabledCustomContainer = renderMarkdown("::: spoiler\ncontent\n:::", { config: { plugins: { markdownAdvanced: { enabled: true }, upstreamContainer: { enabled: false } } } }).html;
+assert(!disabledCustomContainer.includes("wikist-container-spoiler"), "disabled container plugin should not render arbitrary custom blocks");
 
 const disabledPlot = renderMarkdown("::: function-plot\nsin(x)\n:::", { config: { plugins: { functionPlot: { enabled: false } } } }).html;
 assert(!disabledPlot.includes("wikist-function-plot"), "disabled functionPlot plugin should not render function plots");
 
 const disabledFootnote = renderMarkdown("Footnote[^a]\n\n[^a]: note", { config: { plugins: { markdownAdvanced: { enabled: true }, upstreamFootnote: { enabled: false } } } }).html;
 assert(!disabledFootnote.includes("footnote-ref"), "disabled footnote plugin should not render footnotes");
-console.log(JSON.stringify({ ok: true, checks: 13, htmlLength: html.length }));
+console.log(JSON.stringify({ ok: true, checks: 20, htmlLength: html.length }));
