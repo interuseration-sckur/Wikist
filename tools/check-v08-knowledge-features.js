@@ -1,4 +1,5 @@
 const assert = require("assert");
+const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 const { PageStore } = require("../src/core/page-store");
@@ -20,11 +21,17 @@ function request() {
 }
 
 function captcha(store) {
-  const item = store.createCaptcha();
-  const row = store.db.prepare("SELECT question FROM captchas WHERE id = ?").get(item.id);
-  const match = row.question.match(/(\d+)\s*([+-])\s*(\d+)/);
-  const answer = match[2] === "+" ? Number(match[1]) + Number(match[3]) : Number(match[1]) - Number(match[3]);
-  return { captchaId: item.id, captchaAnswer: String(answer) };
+  // This suite exercises knowledge navigation, not the visual CAPTCHA grammar.
+  // Keep its registration fixture deterministic so a CAPTCHA display change cannot block upgrades.
+  const id = crypto.randomUUID();
+  const answer = "42";
+  const createdAt = new Date().toISOString();
+  const expiresAt = new Date(Date.now() + 60 * 1000).toISOString();
+  store.db.prepare(`
+    INSERT INTO captchas (id, answer_hash, question, svg, created_at, expires_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(id, store.captchaAnswerHash(id, answer), "40 + 2", '<svg xmlns="http://www.w3.org/2000/svg"/>', createdAt, expiresAt);
+  return { captchaId: id, captchaAnswer: answer };
 }
 
 removeTempRoot();

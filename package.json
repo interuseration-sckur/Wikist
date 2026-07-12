@@ -1,6 +1,6 @@
 {
   "name": "wikist",
-  "version": "0.12.3",
+  "version": "0.12.4",
   "private": true,
   "description": "A fast, open, math-first wiki framework.",
   "main": "server.js",

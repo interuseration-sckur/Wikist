@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-07-12 - Upgrade Check Fixture Reliability
+
+- Replaced the v0.8 knowledge-navigation self-check's display-text CAPTCHA parser with a deterministic isolated CAPTCHA fixture, while retaining registration and CAPTCHA verification coverage.
+- This removes a non-product random-input dependency that could incorrectly stop an otherwise valid framework upgrade.
+- Bumped the framework package to `0.12.4`; frontend asset version remains `wikist-core-20260712-96` because no browser asset changed.
+
 ## 2026-07-12 - Responsive Protection States
 
 - Extended the off-canvas navigation and balanced topbar control layout through the tablet transition range, so the sidebar no longer consumes the workspace before compact navigation takes over.
