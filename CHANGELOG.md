@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-07-12 - MathJax Display Delimiter Alignment
+
+- Fixed the browser MathJax configuration so server-rendered `\\[...\\]` blocks are recognized and typeset instead of remaining visible inside `.math-block` elements.
+- Enabled both `\\[...\\]` and `$$...$$` display delimiters, retained both `\\(...\\)` and `$...$` inline delimiters, and added a frontend configuration regression assertion.
+- Bumped the framework package to `0.12.9` and the frontend asset version to `wikist-core-20260712-98` so browsers and CDNs cannot reuse the incompatible script.
+
 ## 2026-07-12 - Imported Article TeX Rendering
 
 - Fixed server-side Markdown ordering so dollar-delimited inline TeX such as `$S_3$`, `$F^*(G)$`, and `$N_G(P)/C_G(P)$` is protected before emphasis and subscript processing.

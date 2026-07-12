@@ -1,4 +1,6 @@
 const assert = require("assert");
+const fs = require("fs");
+const path = require("path");
 const { renderMarkdown } = require("../src/core/markdown");
 
 const config = {
@@ -93,4 +95,7 @@ assert(!disabledPlot.includes("wikist-function-plot"), "disabled functionPlot pl
 
 const disabledFootnote = renderMarkdown("Footnote[^a]\n\n[^a]: note", { config: { plugins: { markdownAdvanced: { enabled: true }, upstreamFootnote: { enabled: false } } } }).html;
 assert(!disabledFootnote.includes("footnote-ref"), "disabled footnote plugin should not render footnotes");
-console.log(JSON.stringify({ ok: true, checks: 20, htmlLength: html.length }));
+
+const appSource = fs.readFileSync(path.join(__dirname, "../public/assets/app.js"), "utf8");
+assert(appSource.includes('displayMath: [["\\\\[", "\\\\]"], ["$$", "$$"]]'), "MathJax must recognize bracket-delimited display TeX");
+console.log(JSON.stringify({ ok: true, checks: 21, htmlLength: html.length }));
