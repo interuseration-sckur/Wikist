@@ -60,6 +60,7 @@ try {
     focus: "抽象代数，群论，英文翻译",
     reviewThreshold: 2,
     heroImage: "https://example.test/algebra-cover.jpg",
+    avatarImage: "https://example.test/algebra-avatar.png",
   });
   const requestOrganization = passport.createOrganization(ownerSession, {
     slug: "review-request-commons",
@@ -118,6 +119,7 @@ try {
   const deletedPost = passport.deleteOrganizationPost(reviewerSession, removablePost.id);
   const updatedOrganization = passport.updateOrganization(ownerSession, organization.slug, {
     heroImage: "/uploads/organization/algebra-cover.webp",
+    avatarImage: "/uploads/organization/algebra-avatar.webp",
     descriptionMd: "# 代数协作社\n\n维护代数词条、译文和审阅任务。",
   });
   const searchedMembers = passport.listOrganizationMembers(organization.id, { query: "reviewer", limit: 10, offset: 0 });
@@ -151,7 +153,7 @@ try {
       && readerMessagesAfterApproval >= 1,
     forumFollowAndFavoritePersist: followedPost.following && favoritedPost.favorited && Number(favoritedPost.favoriteCount) === 1,
     organizationMarkdownPersists: passport.organizationBySlug(requestOrganization.slug).descriptionMd.includes("Review request commons"),
-    organizationHeroAndMemberSearchPersist: updatedOrganization.heroImage === "/uploads/organization/algebra-cover.webp"
+    organizationHeroAndMemberSearchPersist: updatedOrganization.heroImage === "/uploads/organization/algebra-cover.webp" && updatedOrganization.avatarImage === "/uploads/organization/algebra-avatar.webp"
       && searchedMembers.length === 1 && searchedMembers[0].username === reviewer.username && searchedMemberCount === 1,
     organizationAdminManagementPersists: adminOrganizations.total === 1 && adminOrganizations.items[0].slug === organization.slug
       && disabledOrganization.status === "disabled" && passport.organizationAdminStats().total === 2,

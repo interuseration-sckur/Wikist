@@ -1,5 +1,26 @@
 # Changelog
 
+## 2026-07-12 - Collaboration Organization Avatars
+
+- Added a durable organization avatar field with automatic SQLite migration, safe image-path validation, and compatibility with HTTPS, `data:image`, and local `/uploads/...` images.
+- Added avatar controls to organization creation and coordinator-managed profile editing, with a generated initial badge when no image is configured.
+- Rendered organization identity marks in the collaboration directory and every organization workspace header.
+- Bumped the framework package to `0.11.13` with frontend asset version `wikist-core-20260712-92`.
+
+## 2026-07-12 - Mobile Distribution Follow-up
+
+- Distributed the compact topbar controls across the available mobile width instead of clustering them at the right edge.
+- Made article quality, favorite, watch, knowledge, collaboration, and rating controls fill their mobile action bands deliberately.
+- Forced the site navigation shown from an admin route back into a vertical drawer list, overriding the legacy horizontal overflow layout.
+- Bumped the framework package to `0.11.12` with frontend asset version `wikist-core-20260712-91`.
+
+## 2026-07-12 - Mobile Navigation Drawers And Compact Article Controls
+
+- Rebuilt narrow-screen navigation as an off-canvas Wikist drawer with a compact floating trigger, backdrop dismissal, keyboard escape handling, and no persistent sidebar above article content.
+- Reworked article header actions into full-width, balanced mobile controls and collapsed the page tool strip into a focused expandable tool menu.
+- Converted the mobile admin control panel into a dedicated bottom-left circular launcher that opens a single-column management drawer instead of rendering every admin route button in the page flow.
+- Bumped the framework package to `0.11.11` with frontend asset version `wikist-core-20260712-90`.
+
 ## 2026-07-12 - Knowledge Directory Spacing And Release Sync
 
 - Added deliberate spacing between the knowledge-network metrics and the category/topic directory actions, preventing the two control bands from visually colliding.

@@ -215,6 +215,14 @@ function cleanUrl(value, maxLength = 500) {
   return url;
 }
 
+function cleanOrganizationImage(value, maxLength = 1000) {
+  const url = cleanText(value, maxLength);
+  if (!url) return "";
+  if (!/^https?:\/\//i.test(url) && !/^data:image\//i.test(url) && !/^\/uploads\/[\w./-]+$/i.test(url)) {
+    throw new Error("\u7ec4\u7ec7\u56fe\u7247\u5730\u5740\u5fc5\u987b\u662f http(s), data:image \u6216 /uploads/ \u8def\u5f84\u3002");
+  }
+  return url;
+}
 function cleanExternalUrl(value, maxLength = 500) {
   const url = cleanText(value, maxLength);
   if (!url) return "";
@@ -700,6 +708,7 @@ function organizationFromRow(row) {
     description: row.description || "",
     descriptionMd: row.description_md || row.description || "",
     heroImage: row.hero_image || "",
+    avatarImage: row.avatar_image || "",
     focus: cleanJson(row.focus_json, []),
     visibility: row.visibility || "public",
     reviewThreshold: Math.max(1, Number(row.review_threshold || 2)),
@@ -1336,6 +1345,7 @@ class PassportStore {
         description TEXT NOT NULL DEFAULT '',
         description_md TEXT NOT NULL DEFAULT '',
         hero_image TEXT NOT NULL DEFAULT '',
+        avatar_image TEXT NOT NULL DEFAULT '',
         focus_json TEXT NOT NULL DEFAULT '[]',
         visibility TEXT NOT NULL DEFAULT 'public',
         review_threshold INTEGER NOT NULL DEFAULT 2,
@@ -1536,6 +1546,7 @@ class PassportStore {
     this.addColumn("page_translations", "reviewed_at", "TEXT");
     this.addColumn("writing_organizations", "description_md", "TEXT NOT NULL DEFAULT ''");
     this.addColumn("writing_organizations", "hero_image", "TEXT NOT NULL DEFAULT ''");
+    this.addColumn("writing_organizations", "avatar_image", "TEXT NOT NULL DEFAULT ''");
     this.db.prepare("UPDATE writing_organizations SET description_md = description WHERE description_md = ''").run();
     this.db.exec("CREATE INDEX IF NOT EXISTS idx_page_aliases_source ON page_aliases(source_page_slug, updated_at)");
 
@@ -3259,9 +3270,9 @@ class PassportStore {
     const reviewThreshold = Math.max(1, Math.min(Number(input.reviewThreshold) || 2, 8));
     const now = nowIso();
     const result = this.db.prepare(`
-      INSERT INTO writing_organizations (slug, name, description, description_md, hero_image, focus_json, visibility, review_threshold, status, created_by, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)
-    `).run(slug, name, description, descriptionMd, cleanText(input.heroImage, 1000), jsonText(focus), visibility, reviewThreshold, session.user.id, now, now);
+      INSERT INTO writing_organizations (slug, name, description, description_md, hero_image, avatar_image, focus_json, visibility, review_threshold, status, created_by, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)
+    `).run(slug, name, description, descriptionMd, cleanOrganizationImage(input.heroImage, 1000), cleanOrganizationImage(input.avatarImage, 500), jsonText(focus), visibility, reviewThreshold, session.user.id, now, now);
     const organization = this.organizationById(result.lastInsertRowid);
     this.db.prepare(`
       INSERT INTO organization_members (organization_id, user_id, role, status, intro, joined_at, updated_at)
@@ -3276,7 +3287,8 @@ class PassportStore {
     const name = cleanText(input.name || organization.name, 90);
     const description = cleanText(Object.prototype.hasOwnProperty.call(input, 'description') ? input.description : organization.description, 900);
     const descriptionMd = cleanText(Object.prototype.hasOwnProperty.call(input, 'descriptionMd') ? input.descriptionMd : organization.descriptionMd, 16000);
-    const heroImage = cleanText(Object.prototype.hasOwnProperty.call(input, 'heroImage') ? input.heroImage : organization.heroImage, 1000);
+    const heroImage = cleanOrganizationImage(Object.prototype.hasOwnProperty.call(input, 'heroImage') ? input.heroImage : organization.heroImage, 1000);
+    const avatarImage = cleanOrganizationImage(Object.prototype.hasOwnProperty.call(input, 'avatarImage') ? input.avatarImage : organization.avatarImage, 500);
     const focus = Object.prototype.hasOwnProperty.call(input, 'focus')
       ? Array.from(new Set((Array.isArray(input.focus) ? input.focus : String(input.focus || '').split(/[，,\n]/)).map((item) => cleanText(item, 80)).filter(Boolean))).slice(0, 12)
       : organization.focus;
@@ -3285,8 +3297,8 @@ class PassportStore {
       ? Math.max(1, Math.min(Number(input.reviewThreshold) || organization.reviewThreshold, 8))
       : organization.reviewThreshold;
     this.db.prepare(`
-      UPDATE writing_organizations SET name = ?, description = ?, description_md = ?, hero_image = ?, focus_json = ?, visibility = ?, review_threshold = ?, updated_at = ? WHERE id = ?
-    `).run(name, description, descriptionMd, heroImage, jsonText(focus), visibility, reviewThreshold, nowIso(), organization.id);
+      UPDATE writing_organizations SET name = ?, description = ?, description_md = ?, hero_image = ?, avatar_image = ?, focus_json = ?, visibility = ?, review_threshold = ?, updated_at = ? WHERE id = ?
+    `).run(name, description, descriptionMd, heroImage, avatarImage, jsonText(focus), visibility, reviewThreshold, nowIso(), organization.id);
     return this.organizationById(organization.id);
   }
 

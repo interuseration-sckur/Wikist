@@ -218,8 +218,8 @@ function serveIndexHtml(req, res, indexPath, config) {
   const icon = siteIconUrl(config);
   const siteName = configuredSiteName(config);
   const html = fs.readFileSync(indexPath, "utf8")
-    .replace(/href="\/assets\/styles\.css\?v=wikist-core-20260712-89"/g, `href="${escapeHtml(assetUrl(config, "/assets/styles.css?v=wikist-core-20260712-89"))}"`)
-    .replace(/src="\/assets\/app\.js\?v=wikist-core-20260712-89"/g, `src="${escapeHtml(assetUrl(config, "/assets/app.js?v=wikist-core-20260712-89"))}"`)
+    .replace(/href="\/assets\/styles\.css\?v=wikist-core-20260712-92"/g, `href="${escapeHtml(assetUrl(config, "/assets/styles.css?v=wikist-core-20260712-92"))}"`)
+    .replace(/src="\/assets\/app\.js\?v=wikist-core-20260712-92"/g, `src="${escapeHtml(assetUrl(config, "/assets/app.js?v=wikist-core-20260712-92"))}"`)
     .replace(/href="\/assets\/wikist-emblem\.svg"/g, `href="${escapeHtml(icon)}"`)
     .replace(/src="\/assets\/wikist-emblem\.svg"/g, `src="${escapeHtml(icon)}"`)
     .replace(/<title>Wikist<\/title>/, `<title>${escapeHtml(siteName)}</title>`)
