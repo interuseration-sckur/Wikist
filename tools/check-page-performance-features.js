@@ -54,11 +54,16 @@ try {
   const appSource = fs.readFileSync(path.join(process.cwd(), "public", "assets", "app.js"), "utf8");
   const serverSource = fs.readFileSync(path.join(process.cwd(), "src", "server", "app.js"), "utf8");
   assert(appSource.includes("wikistRouteLoader"), "route loading must have a native fallback independent of optional plugins");
+  assert(appSource.includes("wikist-native-route-loader"), "native route loading must use an isolated component class");
+  assert(appSource.includes("data-wikist-route-loader-provider"), "native loading must yield to an active plugin provider");
+  const cosmicSource = fs.readFileSync(path.join(process.cwd(), "plugins", "wikist-cosmic-experience", "cosmic.mjs"), "utf8");
+  assert(cosmicSource.includes("wikist-cosmic-route-loader"), "cosmic loading must use an isolated component class");
+  assert(!cosmicSource.includes('document.querySelector(".wikist-route-loader")'), "cosmic loading must never capture the native loader");
   assert(serverSource.includes("pages.listPageSummaries()"), "list APIs should use the lightweight metadata catalog");
 
   console.log(JSON.stringify({
     ok: true,
-    checks: 7,
+    checks: 11,
     pages: cold.length,
     coldCatalogMs: Number(coldMs.toFixed(2)),
     warmCatalogMs: Number(warmMs.toFixed(2)),

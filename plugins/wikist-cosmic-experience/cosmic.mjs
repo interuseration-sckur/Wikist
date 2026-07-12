@@ -184,17 +184,17 @@ function ensureStyle() {
     }
 
     :root[data-theme="light"] .wikist-warp-copy span,
-    :root[data-theme="light"] .wikist-route-loader strong {
+    :root[data-theme="light"] .wikist-cosmic-route-loader strong {
       color: #007a68;
     }
 
     :root[data-theme="light"] .wikist-warp-copy small,
-    :root[data-theme="light"] .wikist-route-loader span {
+    :root[data-theme="light"] .wikist-cosmic-route-loader span {
       color: rgba(20, 49, 41, .68);
     }
 
     .wikist-warp-progress,
-    .wikist-route-meter {
+    .wikist-cosmic-route-meter {
       position: relative;
       overflow: hidden;
       height: 6px;
@@ -205,7 +205,7 @@ function ensureStyle() {
     }
 
     .wikist-warp-progress i,
-    .wikist-route-meter i {
+    .wikist-cosmic-route-meter i {
       display: block;
       width: var(--progress, 8%);
       height: 100%;
@@ -221,7 +221,7 @@ function ensureStyle() {
       transition: opacity .36s ease, transform .36s ease;
     }
 
-    .wikist-route-loader {
+    .wikist-cosmic-route-loader {
       position: fixed;
       inset: 0;
       z-index: 9999;
@@ -229,103 +229,95 @@ function ensureStyle() {
       place-items: center;
       padding: 24px;
       background:
-        radial-gradient(circle at 50% 50%, rgba(56, 232, 255, .22), transparent 22%),
-        radial-gradient(circle at 42% 58%, rgba(124, 255, 180, .12), transparent 32%),
-        #010409;
+        radial-gradient(circle at 50% 48%, rgba(56, 232, 255, .12), transparent 32%),
+        color-mix(in srgb, #010409 94%, transparent);
+      backdrop-filter: blur(10px);
       color: #f2fdff;
-      transform: scale(1.02);
       opacity: 0;
       pointer-events: none;
-      transition: opacity .22s ease, transform .28s ease;
+      transition: opacity .2s ease;
       overflow: hidden;
     }
 
-    :root[data-theme="light"] .wikist-route-loader {
+    :root[data-theme="light"] .wikist-cosmic-route-loader {
       background:
-        radial-gradient(circle at 50% 50%, rgba(0, 126, 167, .18), transparent 22%),
-        radial-gradient(circle at 42% 58%, rgba(0, 139, 95, .12), transparent 32%),
-        linear-gradient(180deg, rgba(248, 255, 253, .98), rgba(234, 247, 245, .98));
+        radial-gradient(circle at 50% 48%, rgba(0, 126, 167, .1), transparent 32%),
+        rgba(244, 251, 249, .94);
       color: #143129;
     }
 
-    .wikist-route-loader::before,
-    .wikist-route-loader::after {
+    .wikist-cosmic-route-loader::before {
       content: "";
       position: absolute;
-      inset: -18%;
+      inset: 0;
       pointer-events: none;
-    }
-
-    .wikist-route-loader::before {
       background:
-        repeating-conic-gradient(from 0deg at 50% 50%, rgba(56, 232, 255, .34) 0deg 1deg, transparent 1deg 9deg);
-      mask-image: radial-gradient(circle at center, transparent 0 8%, #000 11% 62%, transparent 76%);
-      animation: wikist-loader-warp 1.2s linear infinite;
-      opacity: .62;
+        linear-gradient(rgba(56, 232, 255, .055) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(56, 232, 255, .055) 1px, transparent 1px);
+      background-size: 48px 48px;
+      mask-image: radial-gradient(circle at center, #000 0 24%, transparent 72%);
+      opacity: .5;
     }
 
-    .wikist-route-loader::after {
+    :root[data-theme="light"] .wikist-cosmic-route-loader::before {
       background:
-        radial-gradient(circle at center, rgba(255,255,255,.7) 0 1px, transparent 2px),
-        radial-gradient(circle at 42% 50%, rgba(56,232,255,.28), transparent 20%);
-      background-size: 28px 28px, 100% 100%;
-      transform: perspective(520px) rotateX(64deg) scale(1.5);
-      animation: wikist-loader-stars .72s linear infinite;
-      opacity: .45;
+        linear-gradient(rgba(0, 126, 167, .06) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0, 126, 167, .06) 1px, transparent 1px);
+      background-size: 48px 48px;
+      opacity: .42;
     }
 
-    :root[data-theme="light"] .wikist-route-loader::before {
-      background:
-        repeating-conic-gradient(from 0deg at 50% 50%, rgba(0, 126, 167, .26) 0deg 1deg, transparent 1deg 9deg);
-      opacity: .34;
-    }
-
-    :root[data-theme="light"] .wikist-route-loader::after {
-      background:
-        radial-gradient(circle at center, rgba(0, 126, 167, .55) 0 1px, transparent 2px),
-        radial-gradient(circle at 42% 50%, rgba(0,126,167,.16), transparent 20%);
-      opacity: .28;
-    }
-
-    .wikist-route-loader.visible {
+    .wikist-cosmic-route-loader.visible {
       opacity: 1;
-      transform: scale(1);
     }
 
-    .wikist-route-loader > * {
+    .wikist-cosmic-route-panel {
       position: relative;
       z-index: 1;
-      width: min(520px, calc(100vw - 42px));
+      width: min(390px, calc(100vw - 42px));
+      padding: 28px;
+      border: 1px solid rgba(56, 232, 255, .28);
+      border-radius: 8px;
+      background: rgba(5, 15, 18, .86);
+      box-shadow: 0 18px 70px rgba(0, 0, 0, .32), inset 0 0 34px rgba(56, 232, 255, .045);
     }
 
-    .wikist-route-loader strong,
-    .wikist-route-loader span {
+    :root[data-theme="light"] .wikist-cosmic-route-panel {
+      border-color: rgba(0, 126, 167, .24);
+      background: rgba(255, 255, 255, .9);
+      box-shadow: 0 18px 70px rgba(25, 80, 68, .12), inset 0 0 34px rgba(0, 126, 167, .04);
+    }
+
+    .wikist-cosmic-route-mark {
+      display: grid;
+      width: 42px;
+      height: 42px;
+      place-items: center;
+      margin: 0 auto 16px;
+      border: 1px solid rgba(56, 232, 255, .42);
+      border-radius: 50%;
+      color: #38e8ff;
+      font-weight: 900;
+      box-shadow: 0 0 24px rgba(56, 232, 255, .14);
+    }
+
+    .wikist-cosmic-route-loader strong,
+    .wikist-cosmic-route-loader span {
       display: block;
       text-align: center;
     }
 
-    .wikist-route-loader strong {
+    .wikist-cosmic-route-loader strong {
       color: #7cffb4;
       font-size: .82rem;
       font-weight: 900;
-      letter-spacing: .14em;
-      text-transform: uppercase;
+      letter-spacing: .08em;
     }
 
-    .wikist-route-loader span {
+    .wikist-cosmic-route-loader span {
       margin: 9px 0 14px;
       color: rgba(237, 247, 242, .78);
       font-size: .94rem;
-    }
-
-    @keyframes wikist-loader-warp {
-      from { transform: rotate(0deg) scale(.92); }
-      to { transform: rotate(24deg) scale(1.08); }
-    }
-
-    @keyframes wikist-loader-stars {
-      from { background-position: 0 0, 0 0; }
-      to { background-position: 0 120px, 0 0; }
     }
 
     .wikist-black-hole {
@@ -585,14 +577,18 @@ function updateLocalizedText() {
 
 function showRouteLoader() {
   if (settings().routeLoader === false || reducedMotion()) return;
-  let loader = document.querySelector(".wikist-route-loader");
+  document.documentElement.setAttribute("data-wikist-route-loader-provider", "cosmic");
+  let loader = document.querySelector(".wikist-cosmic-route-loader");
   if (!loader) {
     loader = document.createElement("div");
-    loader.className = "wikist-route-loader";
+    loader.className = "wikist-cosmic-route-loader";
     loader.innerHTML = `
-      <strong data-cosmic-text="loaderTitle">${text("loaderTitle")}</strong>
-      <span data-cosmic-text="loaderStatus">${text("loaderStatus")}</span>
-      <div class="wikist-route-meter" aria-hidden="true"><i></i></div>`;
+      <div class="wikist-cosmic-route-panel">
+        <b class="wikist-cosmic-route-mark" aria-hidden="true">W</b>
+        <strong data-cosmic-text="loaderTitle">${text("loaderTitle")}</strong>
+        <span data-cosmic-text="loaderStatus">${text("loaderStatus")}</span>
+        <div class="wikist-cosmic-route-meter" aria-hidden="true"><i></i></div>
+      </div>`;
     document.body.appendChild(loader);
   }
   routeProgress = 12;
@@ -610,7 +606,10 @@ function hideRouteLoader() {
   routeTimer = 0;
   window.clearInterval(routeProgressTimer);
   routeProgressTimer = 0;
-  const loader = document.querySelector(".wikist-route-loader");
+  const loader = document.querySelector(".wikist-cosmic-route-loader");
+  if (document.documentElement.getAttribute("data-wikist-route-loader-provider") === "cosmic") {
+    document.documentElement.removeAttribute("data-wikist-route-loader-provider");
+  }
   if (!loader) return;
   loader.style.setProperty("--progress", "100%");
   window.setTimeout(() => {
@@ -754,7 +753,8 @@ function installEvents() {
   installed = true;
   document.addEventListener("pointermove", handlePointerMove, { passive: true });
   document.addEventListener("wikist:route-loading", () => {
-    if (!enabled() || settings().routeLoader === false) return;
+    if (!enabled() || settings().routeLoader === false || reducedMotion()) return;
+    document.documentElement.setAttribute("data-wikist-route-loader-provider", "cosmic");
     window.clearTimeout(routeTimer);
     routeTimer = window.setTimeout(showRouteLoader, 140);
   });

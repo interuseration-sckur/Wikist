@@ -290,7 +290,7 @@ select {
   pointer-events: none;
 }
 
-.wikist-route-loader {
+.wikist-native-route-loader {
   position: fixed;
   inset: 0;
   z-index: 1200;
@@ -304,7 +304,7 @@ select {
   pointer-events: none;
 }
 
-.wikist-route-loader[hidden] {
+.wikist-native-route-loader[hidden] {
   display: none;
 }
 
@@ -340,11 +340,11 @@ select {
   text-shadow: 0 0 18px color-mix(in srgb, var(--cyan) 55%, transparent);
 }
 
-.wikist-route-loader > strong {
+.wikist-native-route-loader > strong {
   font-size: .96rem;
 }
 
-.wikist-route-loader > small {
+.wikist-native-route-loader > small {
   color: var(--muted);
 }
 

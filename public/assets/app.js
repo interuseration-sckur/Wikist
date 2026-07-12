@@ -1,6 +1,6 @@
 const THEME_KEY = "wikist-theme";
 const LANG_KEY = "wikist-language";
-const CORE_ASSET_VERSION = "wikist-core-20260712-100";
+const CORE_ASSET_VERSION = "wikist-core-20260712-101";
 const VDITOR_VERSION = "3.11.2";
 const VDITOR_CDN = `https://cdn.jsdelivr.net/npm/vditor@${VDITOR_VERSION}`;
 const SWEETALERT_VERSION = "11.26.25";
@@ -6747,6 +6747,7 @@ function beginRouteTransition() {
   document.dispatchEvent(new CustomEvent("wikist:route-loading", { detail: { state } }));
   routePendingTimer = window.setTimeout(() => {
     el.main?.classList.add("route-pending");
+    if (document.documentElement.hasAttribute("data-wikist-route-loader-provider")) return;
     const loader = ensureRouteLoader();
     loader.hidden = false;
   }, 120);
@@ -6766,7 +6767,7 @@ function ensureRouteLoader() {
   if (loader) return loader;
   loader = document.createElement("div");
   loader.id = "wikistRouteLoader";
-  loader.className = "wikist-route-loader";
+  loader.className = "wikist-native-route-loader";
   loader.hidden = true;
   loader.setAttribute("role", "status");
   loader.setAttribute("aria-live", "polite");

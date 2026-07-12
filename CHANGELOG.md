@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-07-12 - Coordinated Knowledge Route Loading
+
+- Isolated the native and `cosmic-experience` route loaders so plugin code can no longer capture, restyle, or display the fallback loader at the same time.
+- Added a route-loader provider handshake: the native loader appears only when no enabled visual plugin has claimed the current transition.
+- Reworked the cosmic transition into a restrained knowledge terminal with a subtle grid, compact status panel, and single progress meter; removed the full-screen radial streak and star-warp motion.
+- Decoupled the v0.10 community regression fixture from the visual CAPTCHA generator so a CAPTCHA presentation change cannot block local or cloud updates.
+- Added loader-collision regression assertions. Bumped the framework to `0.13.1` and frontend assets to `wikist-core-20260712-101`.
+
 ## 2026-07-12 - Scalable Page Catalog And Route Loading
 
 - Split lightweight page metadata from full Markdown rendering. List, recent, category, topic, knowledge-link, watchlist, review-queue, and alias operations now reuse a five-second incremental metadata catalog instead of rendering every article.
