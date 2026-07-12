@@ -1,6 +1,6 @@
 const THEME_KEY = "wikist-theme";
 const LANG_KEY = "wikist-language";
-const CORE_ASSET_VERSION = "wikist-core-20260712-92";
+const CORE_ASSET_VERSION = "wikist-core-20260712-93";
 const VDITOR_VERSION = "3.11.2";
 const VDITOR_CDN = `https://cdn.jsdelivr.net/npm/vditor@${VDITOR_VERSION}`;
 const SWEETALERT_VERSION = "11.26.25";
@@ -1113,7 +1113,16 @@ async function loadClientPluginModules(root = el.main) {
         if (typeof activate === "function") return activate(context);
         return null;
       })
-      .catch((error) => console.warn(`Wikist plugin module failed: ${plugin.id}`, error));
+      .catch((error) => {
+        console.warn(`Wikist plugin module failed: ${plugin.id}`, error);
+        fetch("/api/runtime/plugin-failure", {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ pluginId: plugin.id, hook: "client.module" }),
+        }).catch(() => {});
+        return null;
+      });
     pluginModulePromises.set(src, promise);
     pending.push(promise);
   });
@@ -5150,7 +5159,7 @@ function adminSectionTitleLegacy(section) {
 }
 
 function adminSectionTitle(section) {
-  return ({ overview: "概览", users: "用户管理", organizations: "协作社区管理", pages: "词条管理", knowledge: "知识网络", citations: "来源审阅", reviews: "版本审阅", "search-index": "搜索索引", comments: "评论管理", "comment-replies": "二级评论", messages: "消息管理", logs: "更新日志", archives: "归档页面", backups: "全站备份", settings: "站点设置", imports: "导入导出", plugins: "插件管理" })[section] || pluginAdminPanels.get(section)?.title || "概览";
+  return ({ overview: "概览", users: "用户管理", organizations: "协作社区管理", pages: "词条管理", knowledge: "知识网络", citations: "来源审阅", reviews: "版本审阅", "search-index": "搜索索引", runtime: "运行健康", comments: "评论管理", "comment-replies": "二级评论", messages: "消息管理", logs: "更新日志", archives: "归档页面", backups: "全站备份", settings: "站点设置", imports: "导入导出", plugins: "插件管理" })[section] || pluginAdminPanels.get(section)?.title || "概览";
 }
 
 function adminShellLegacy(active, body) {
@@ -5191,6 +5200,7 @@ function adminShell(active, body) {
     ["citations", "来源审阅"],
     ["reviews", "版本审阅"],
     ["search-index", "搜索索引"],
+    ["runtime", "运行健康"],
     ["comments", "评论管理"],
     ["messages", "消息管理"],
     ["logs", "更新日志"],
@@ -5656,6 +5666,72 @@ async function renderAdminSearchIndex() {
   });
 }
 
+function runtimeBucketFields(firewall = {}) {
+  const labels = { general: "站点访问", api: "读取 API", write: "写入请求", auth: "通行证", install: "安装器" };
+  return Object.entries(labels).map(([key, label]) => {
+    const bucket = firewall.policies?.[key] || {};
+    return `<fieldset class="runtime-firewall-bucket"><legend>${label}</legend><label>次数<input name="${key}.points" type="number" min="4" max="20000" value="${Number(bucket.points || 0)}" /></label><label>窗口（秒）<input name="${key}.windowSeconds" type="number" min="1" max="86400" value="${Number(bucket.windowSeconds || 0)}" /></label><label>封禁（秒）<input name="${key}.blockSeconds" type="number" min="1" max="86400" value="${Number(bucket.blockSeconds || 0)}" /></label></fieldset>`;
+  }).join("");
+}
+
+async function renderAdminRuntime() {
+  const payload = await api("/api/admin/health");
+  const health = payload.health || {};
+  const metrics = health.metrics || {};
+  const database = health.database || {};
+  const index = health.searchIndex || {};
+  const firewall = health.firewall || {};
+  const requests = metrics.requests || {};
+  const searchMetrics = metrics.search || {};
+  const pluginFailures = metrics.pluginFailures || [];
+  const routes = requests.routes || [];
+  const body = `
+    ${adminHeader("运行健康", "集中查看 SQLite 并发状态、索引回退、备份校验演练、脱敏运行指标与请求防护。指标只在当前进程内聚合，不记录 IP、账号、查询词或正文。")}
+    <section class="admin-metrics runtime-health-metrics">
+      <article class="admin-metric"><span>数据库</span><strong class="${database.integrityOk === false ? "danger" : ""}">${database.integrityOk === false ? "异常" : "正常"}</strong><small>${escapeHtml(database.journalMode || "SQLite")}</small></article>
+      <article class="admin-metric"><span>FTS5 索引</span><strong class="${index.recoveryNeeded ? "danger" : ""}">${index.ready ? "就绪" : index.recoveryNeeded ? "待修复" : "回退"}</strong><small>${Number(index.documents || 0)} 词条</small></article>
+      <article class="admin-metric"><span>请求</span><strong>${Number(requests.total || 0)}</strong><small>本进程启动后</small></article>
+      <article class="admin-metric"><span>搜索平均耗时</span><strong>${Number(searchMetrics.avgMs || 0)} ms</strong><small>缓存命中 ${Number(metrics.cache?.hitRate || 0)}%</small></article>
+      <article class="admin-metric"><span>防护拦截</span><strong>${Number(metrics.firewall?.blocked || 0)}</strong><small>限流 / 安装防护</small></article>
+    </section>
+    <section class="admin-settings-panel runtime-panel">
+      <div class="panel-heading-row"><div><h2>健康检查与恢复</h2><p class="muted-line">SQLite 使用 WAL、foreign keys 与 busy timeout；索引损坏时会自动退回轻量搜索，修复动作只重建 FTS5 表。</p></div><span class="search-index-state ${health.ok ? "ready" : "pending"}">${health.ok ? "运行正常" : "需要处理"}</span></div>
+      <div class="runtime-health-facts"><span><small>WAL</small><strong>${escapeHtml(database.journalMode || "未知")}</strong></span><span><small>busy timeout</small><strong>${Number(database.busyTimeoutMs || 0)} ms</strong></span><span><small>完整性</small><strong>${database.integrityChecked ? (database.integrityOk ? "通过" : "失败") : "未深检"}</strong></span><span><small>索引失败</small><strong>${Number(index.failureCount || 0)} 次</strong></span></div>
+      <div class="editor-actions"><button class="command-button" id="runHealthCheck" type="button">执行健康检查</button><button class="command-button secondary" id="recoverSearchIndex" type="button" ${index.enabled && index.available !== false ? "" : "disabled"}>修复搜索索引</button><button class="command-button secondary" id="runBackupDrill" type="button">执行还原演练</button></div>
+      <label class="setting-toggle runtime-drill-toggle"><input id="backupDrillUserData" type="checkbox" /><span><strong>演练包含用户数据</strong><small>在临时隔离目录验证用户数据库文件可还原，不会修改本站任何数据。</small></span></label>
+      <p class="status-line" id="runtimeStatus"></p>
+    </section>
+    <section class="admin-settings-panel runtime-panel">
+      <div class="panel-heading-row"><div><h2>请求防护</h2><p class="muted-line">轻量固定窗口防护覆盖站点、读取 API、写入、登录与安装器；安装操作还需要短时一次性校验。生产反代只有在确认上游会清理伪造头时才开启可信代理。</p></div><span class="search-index-state ${firewall.enabled ? "ready" : "pending"}">${firewall.enabled ? "已启用" : "已停用"}</span></div>
+      <form id="runtimeFirewallForm" class="runtime-firewall-form">
+        <div class="settings-toggle-row"><label class="setting-toggle"><input name="enabled" type="checkbox" ${firewall.enabled ? "checked" : ""} /><span><strong>启用请求防护</strong><small>对高频访问返回 429 与 Retry-After。</small></span></label><label class="setting-toggle"><input name="trustedProxy" type="checkbox" ${firewall.trustedProxy ? "checked" : ""} /><span><strong>信任反向代理</strong><small>仅在 Nginx 等可信代理已正确覆写 X-Forwarded-For 时启用。</small></span></label><label>最大请求体（字节）<input name="maxBodyBytes" type="number" min="16384" max="33554432" value="${Number(firewall.maxBodyBytes || 0)}" /></label></div>
+        <div class="runtime-firewall-grid">${runtimeBucketFields(firewall)}</div>
+        <div class="editor-actions"><button class="command-button" type="submit">保存防护策略</button></div><p class="status-line" id="runtimeFirewallStatus"></p>
+      </form>
+    </section>
+    <section class="admin-settings-panel runtime-panel"><h2>脱敏指标</h2><div class="runtime-observability-grid"><div><h3>高频路由</h3><div class="admin-table-wrap"><table class="admin-table"><thead><tr><th>路由</th><th>请求</th><th>平均耗时</th><th>5xx</th></tr></thead><tbody>${routes.length ? routes.map((item) => `<tr><td>${escapeHtml(item.route)}</td><td>${Number(item.count || 0)}</td><td>${Number(item.avgMs || 0)} ms</td><td>${Number(item.errors || 0)}</td></tr>`).join("") : "<tr><td colspan=\"4\">尚无请求样本。</td></tr>"}</tbody></table></div></div><div><h3>插件失败</h3>${pluginFailures.length ? `<ul class="runtime-plugin-failures">${pluginFailures.map((item) => `<li><strong>${escapeHtml(item.pluginId)}</strong><span>${escapeHtml(item.hook)}</span><small>${Number(item.failures || 0)} 次 · ${item.lastAt ? fmtDate(item.lastAt) : ""}</small></li>`).join("")}</ul>` : "<p class=\"muted-line\">未记录插件失败。</p>"}</div></div></section>`;
+  el.main.innerHTML = adminShell("runtime", body);
+  const status = document.querySelector("#runtimeStatus");
+  document.querySelector("#runHealthCheck")?.addEventListener("click", async (event) => {
+    event.currentTarget.disabled = true; status.textContent = "检查中...";
+    try { const result = await api("/api/admin/health/check", { method: "POST", body: "{}" }); status.textContent = result.health?.ok ? "健康检查通过。" : "检查发现需处理项。"; await renderAdminRuntime(); } catch (error) { status.textContent = error.message; } finally { event.currentTarget.disabled = false; }
+  });
+  document.querySelector("#recoverSearchIndex")?.addEventListener("click", async (event) => {
+    event.currentTarget.disabled = true; status.textContent = "正在重建 SQLite FTS5...";
+    try { const result = await api("/api/admin/search-index/recover", { method: "POST", body: "{}" }); status.textContent = `索引已修复：${Number(result.index?.documents || 0)} 个词条。`; await renderAdminRuntime(); } catch (error) { status.textContent = error.message; } finally { event.currentTarget.disabled = false; }
+  });
+  document.querySelector("#runBackupDrill")?.addEventListener("click", async (event) => {
+    event.currentTarget.disabled = true; status.textContent = "正在创建隔离快照并演练还原...";
+    try { const result = await api("/api/admin/health/backup-drill", { method: "POST", body: JSON.stringify({ includeUserData: document.querySelector("#backupDrillUserData")?.checked === true }) }); status.textContent = `演练通过：恢复 ${Number(result.drill?.restored || 0)} 个文件。`; } catch (error) { status.textContent = error.message; } finally { event.currentTarget.disabled = false; }
+  });
+  document.querySelector("#runtimeFirewallForm")?.addEventListener("submit", async (event) => {
+    event.preventDefault(); const form = event.currentTarget; const formData = new FormData(form); const firewallInput = { enabled: form.elements.enabled.checked, trustedProxy: form.elements.trustedProxy.checked, maxBodyBytes: Number(formData.get("maxBodyBytes")) };
+    ["general", "api", "write", "auth", "install"].forEach((key) => { firewallInput[key] = { points: Number(formData.get(`${key}.points`)), windowSeconds: Number(formData.get(`${key}.windowSeconds`)), blockSeconds: Number(formData.get(`${key}.blockSeconds`)) }; });
+    const firewallStatus = document.querySelector("#runtimeFirewallStatus"); firewallStatus.textContent = "保存中...";
+    try { await api("/api/admin/runtime/firewall", { method: "PUT", body: JSON.stringify({ firewall: firewallInput }) }); firewallStatus.textContent = "请求防护策略已保存。"; } catch (error) { firewallStatus.textContent = error.message; }
+  });
+}
+
 async function renderAdminLogs(page = 1, query = "", action = "all", targetType = "all") {
   const limit = 18;
   const payload = await api(`/api/admin/logs?page=${page}&limit=${limit}&q=${encodeURIComponent(query)}&action=${encodeURIComponent(action)}&targetType=${encodeURIComponent(targetType)}`);
@@ -6118,10 +6194,15 @@ function backupMetricsHtml(counts = {}) {
 function backupInspectHtml(backup = {}) {
   const files = (backup.files || []).slice(0, 8).map((file) => `<li><span>${escapeHtml(file.path)}</span><small>${humanFileSize(file.bytes)}</small></li>`).join("");
   const users = (backup.userData || []).map((file) => `<li><span>${escapeHtml(file.path)}</span><small>${humanFileSize(file.bytes)}</small></li>`).join("");
+  const validation = backup.validation || {};
+  const validationLine = validation.valid === false
+    ? `<p class="muted-line strong-warn">校验失败：${escapeHtml((validation.issues || []).slice(0, 3).join("；") || "备份包内容不完整")}</p>`
+    : `<p class="muted-line">完整性校验：${escapeHtml(validation.algorithm || "legacy")} · ${validation.valid === true ? "通过" : "旧格式，已完成路径检查"}</p>`;
   return `
     <div class="backup-result-card">
       <div class="backup-result-head"><strong>备份包已识别</strong><small>${backup.generatedAt ? fmtDate(backup.generatedAt) : "未知时间"} · ${escapeHtml(backup.format || "")}</small></div>
       ${backupMetricsHtml(backup.counts || {})}
+      ${validationLine}
       <div class="backup-file-preview">
         <div><b>内容样例</b><ul>${files || "<li><span>无内容文件</span></li>"}</ul></div>
         <div><b>用户数据</b><ul>${users || "<li><span>未包含通行证数据库</span></li>"}</ul></div>
@@ -6449,7 +6530,7 @@ function pluginTableRow(plugin, plugins) {
   const config = plugins?.[plugin.id] || {};
   return `
     <tr data-plugin-id="${escapeHtml(plugin.id)}">
-      <td><strong>${escapeHtml(plugin.name)}</strong><small>${escapeHtml(plugin.id)} · ${escapeHtml(plugin.type)}</small></td>
+      <td><strong>${escapeHtml(plugin.name)}</strong><small>${escapeHtml(plugin.id)} · ${escapeHtml(plugin.type)} · 配置 v${Number(plugin.configVersion || 1)}</small></td>
       <td><span class="plugin-enabled-state">${config.enabled !== false ? "启用" : "停用"}</span><small class="plugin-state-meta">${escapeHtml(plugin.entry || "manifest-only")}</small>${pluginRuntimeHtml(plugin)}</td>
       <td>${escapeHtml(plugin.description)}${pluginHookHtml(plugin)}${pluginVendorHtml(plugin)}</td>
       <td><pre class="plugin-doc plugin-doc-inline"><code>${escapeHtml(plugin.syntax.join("\n"))}</code></pre></td>
@@ -6487,6 +6568,10 @@ async function renderAdminPlugins(page = 1, query = "") {
         <label class="wide">GitHub 仓库<input name="repository" placeholder="https://github.com/owner/repo.git" /></label>
         <label class="wide">说明<input name="description" placeholder="插件用途说明" /></label>
         <label class="wide">语法示例<textarea name="syntax" class="plugin-mini-textarea" spellcheck="false" placeholder="::: graph-box\n...\n:::"></textarea></label>
+        <label>配置版本<input name="configVersion" type="number" min="1" max="1000" value="1" /></label>
+        <label class="wide">默认配置 JSON<textarea name="defaultConfig" class="plugin-mini-textarea" spellcheck="false">{"enabled":true}</textarea></label>
+        <label class="wide">配置 Schema JSON<textarea name="configSchema" class="plugin-mini-textarea" spellcheck="false" placeholder='{"type":"object","properties":{"enabled":{"type":"boolean","default":true}}}'></textarea></label>
+        <label class="wide">声明式配置迁移 JSON<textarea name="configMigrations" class="plugin-mini-textarea" spellcheck="false" placeholder='[{"from":1,"to":2,"rename":{"oldKey":"newKey"},"defaults":{"enabled":true}}]'></textarea></label>
       </div><div class="editor-actions"><button class="command-button" type="submit">创建插件 Manifest</button></div><div class="status-line" id="pluginCreateStatus"></div></section>
     </form>
     ${adminSearchForm("adminPluginSearch", query, "搜索插件名称、类型或来源")}
@@ -6594,7 +6679,7 @@ async function renderAdmin(section = "overview") {
   const parts = String(section || "overview").split("/");
   const requested = parts[0];
   const pluginPanel = activePluginAdminPanels().find((panel) => panel.routeId === requested) || null;
-  const active = ["overview", "users", "organizations", "pages", "knowledge", "citations", "reviews", "search-index", "comments", "comment-replies", "messages", "logs", "archives", "backups", "imports", "settings", "plugins"].includes(requested) || pluginPanel ? requested : "overview";
+  const active = ["overview", "users", "organizations", "pages", "knowledge", "citations", "reviews", "search-index", "runtime", "comments", "comment-replies", "messages", "logs", "archives", "backups", "imports", "settings", "plugins"].includes(requested) || pluginPanel ? requested : "overview";
   setChromeTitle(`后台 - ${adminSectionTitle(active === "comment-replies" ? "comment-replies" : active)}`);
   renderToc([]);
   el.editLink.href = "#/new";
@@ -6608,6 +6693,7 @@ async function renderAdmin(section = "overview") {
   else if (active === "citations") await renderAdminCitations();
   else if (active === "reviews") await renderAdminReviews();
   else if (active === "search-index") await renderAdminSearchIndex();
+  else if (active === "runtime") await renderAdminRuntime();
   else if (active === "comments") await renderAdminComments();
   else if (active === "comment-replies") await renderAdminCommentReplies(Number(parts[1]) || 0);
   else if (active === "messages") await renderAdminMessages();

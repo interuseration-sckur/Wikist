@@ -20,7 +20,9 @@ The FTS table is only a derived cache. Canonical article data remains in `conten
 
 ## Operations
 
-The Search Index dashboard reports availability, coverage, indexed document count, and the most recent incremental update. Building the index is an administrator action because it intentionally reads all current pages. This is appropriate after enabling FTS5 for an existing site, after a manual database repair, or after restoring external content. It is not part of normal startup.
+The Search Index dashboard reports availability, coverage, indexed document count, the most recent incremental update, and failed-operation state. Building the index is an administrator action because it intentionally reads all current pages. This is appropriate after enabling FTS5 for an existing site, after a manual database repair, or after restoring external content. It is not part of normal startup.
+
+If a schema, incremental write, or query fails, Wikist records a recovery-needed state and immediately keeps serving the in-memory fallback. Article saves are not rolled back because an optional derived index failed. An administrator can choose **Repair Search Index** from the runtime console or search-index page; it drops only the FTS tables and rebuilds them from the current Markdown pages.
 
 For diagnostics run:
 

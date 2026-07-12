@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-07-12 - Runtime Reliability, Backup Rehearsal, And Request Protection
+
+- Upgraded Passport SQLite startup to WAL with foreign keys, a configurable busy timeout, normal synchronous mode, automatic WAL checkpoints, health inspection, and consistent `VACUUM INTO` snapshots for live backup downloads.
+- Added SHA-256 backup-entry and manifest validation, legacy-package visibility, path / size / encoding checks, live database reconnection for full rollback, and an isolated restore rehearsal that never changes the active site.
+- Added durable FTS5 failure state, lightweight-search fallback protection, explicit FTS repair, and health diagnostics for index recovery.
+- Added an in-memory privacy-preserving observability layer for request latency, search time, cache hits, FTS / fallback usage, plugin failures, and protection events; no IP, account, query, content, or User-Agent is retained.
+- Added configurable single-node request protection for page/API/write/auth/install scopes, body-size limits, standard rate-limit headers, installer challenge tokens, origin checking, and conservative reverse-proxy trust controls.
+- Added plugin configuration schemas, declarative rename/default/remove migrations, health reporting, and a strict trusted-core boundary for server Hook registration; external server modules remain declared but never auto-executed.
+- Added the responsive **Admin -> Runtime Health** console and bumped the framework package to `0.12.0` with frontend asset version `wikist-core-20260712-93`.
+
 ## 2026-07-12 - Collaboration Organization Avatars
 
 - Added a durable organization avatar field with automatic SQLite migration, safe image-path validation, and compatibility with HTTPS, `data:image`, and local `/uploads/...` images.

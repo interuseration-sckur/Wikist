@@ -10,6 +10,7 @@ const uninstallPanel = document.querySelector("#uninstallPanel");
 const uninstallConfirm = document.querySelector("#uninstallConfirm");
 const uninstallButton = document.querySelector("#uninstallButton");
 const uninstallStatus = document.querySelector("#uninstallStatus");
+let installFirewallToken = "";
 
 function setStatus(text, tone = "") {
   statusNode.textContent = text;
@@ -21,8 +22,9 @@ function syncMailFields() {
 }
 
 async function request(url, options = {}) {
+  const installRequest = url === "/api/install" || url === "/api/install/uninstall";
   const response = await fetch(url, {
-    headers: { "content-type": "application/json", ...(options.headers || {}) },
+    headers: { "content-type": "application/json", ...(installRequest && installFirewallToken ? { "x-wikist-install-token": installFirewallToken } : {}), ...(options.headers || {}) },
     ...options,
   });
   const payload = await response.json().catch(() => ({}));
@@ -34,6 +36,7 @@ async function loadStatus() {
   if (uninstallPanel) uninstallPanel.hidden = true;
   try {
     const state = await request("/api/install/status");
+    installFirewallToken = state.firewall?.installToken?.token || "";
     if (uninstallPanel) uninstallPanel.hidden = !state.uninstallAllowed;
     if (state.setupAllowed) {
       stateNode.textContent = state.forceMode ? "维护重配模式" : "可开始安装";

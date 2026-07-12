@@ -987,9 +987,78 @@ class PassportStore {
     this.secret = process.env.WIKIST_PASSPORT_SECRET || "wikist-dev-passport-secret";
     this.dbPath = path.resolve(rootDir, this.options.database);
     fs.mkdirSync(path.dirname(this.dbPath), { recursive: true });
-    this.db = new DatabaseSync(this.dbPath);
+    this.db = null;
+    this.openDatabase();
     this.migrate();
     this.cleanup();
+  }
+
+  sqliteBusyTimeoutMs() {
+    return Math.max(1000, Math.min(Number(this.options.sqliteBusyTimeoutMs) || 8000, 30000));
+  }
+
+  openDatabase() {
+    this.db = new DatabaseSync(this.dbPath);
+    const timeout = this.sqliteBusyTimeoutMs();
+    this.db.exec(`
+      PRAGMA journal_mode = WAL;
+      PRAGMA foreign_keys = ON;
+      PRAGMA busy_timeout = ${timeout};
+      PRAGMA synchronous = NORMAL;
+      PRAGMA wal_autocheckpoint = 1000;
+      PRAGMA temp_store = MEMORY;
+    `);
+    return this.db;
+  }
+
+  closeDatabase() {
+    if (!this.db) return;
+    try { this.db.close(); } finally { this.db = null; }
+  }
+
+  reopenDatabase() {
+    this.closeDatabase();
+    this.openDatabase();
+    this.migrate();
+    this.cleanup();
+    return this.databaseHealth({ integrity: false });
+  }
+
+  createDatabaseSnapshot() {
+    const directory = path.dirname(this.dbPath);
+    const snapshotPath = path.join(directory, `.wikist-backup-${crypto.randomUUID()}.sqlite`);
+    try {
+      const quoted = snapshotPath.replace(/'/g, "''");
+      this.db.exec(`VACUUM INTO '${quoted}'`);
+      return fs.readFileSync(snapshotPath);
+    } catch (error) {
+      try { this.db.prepare("PRAGMA wal_checkpoint(TRUNCATE)").all(); } catch (_checkpointError) {}
+      if (fs.existsSync(this.dbPath)) return fs.readFileSync(this.dbPath);
+      throw error;
+    } finally {
+      try { fs.rmSync(snapshotPath, { force: true }); } catch (_cleanupError) {}
+    }
+  }
+
+  databaseHealth(options = {}) {
+    const integrity = options.integrity !== false;
+    const journal = this.db.prepare("PRAGMA journal_mode").get();
+    const busy = this.db.prepare("PRAGMA busy_timeout").get();
+    const foreignKeys = this.db.prepare("PRAGMA foreign_keys").get();
+    const result = integrity ? this.db.prepare("PRAGMA quick_check(1)").all() : [];
+    const integrityOk = !integrity || result.every((row) => String(Object.values(row)[0] || "").toLowerCase() === "ok");
+    const stat = fs.existsSync(this.dbPath) ? fs.statSync(this.dbPath) : null;
+    return {
+      available: Boolean(this.db),
+      path: path.relative(this.rootDir, this.dbPath).replace(/\\/g, "/"),
+      journalMode: String(journal?.journal_mode || Object.values(journal || {})[0] || "").toLowerCase(),
+      busyTimeoutMs: Number(busy?.timeout || Object.values(busy || {})[0] || 0),
+      foreignKeys: Number(foreignKeys?.foreign_keys || Object.values(foreignKeys || {})[0] || 0) === 1,
+      integrityChecked: integrity,
+      integrityOk,
+      integrityDetail: integrity ? result.map((row) => String(Object.values(row)[0] || "")).slice(0, 4) : [],
+      bytes: stat?.size || 0,
+    };
   }
 
   columnExists(table, column) {
@@ -1002,10 +1071,6 @@ class PassportStore {
 
   migrate() {
     this.db.exec(`
-      PRAGMA journal_mode = WAL;
-      PRAGMA foreign_keys = ON;
-      PRAGMA busy_timeout = 3000;
-
       CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         username TEXT NOT NULL UNIQUE COLLATE NOCASE,

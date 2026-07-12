@@ -33,6 +33,8 @@ const HOOK_DEFINITIONS = Object.freeze({
 const HOOK_NAMES = new Set(Object.keys(HOOK_DEFINITIONS));
 const HOOK_PERMISSIONS = new Set(Object.values(HOOK_DEFINITIONS).map((item) => item.permission));
 const coreHookHandlers = new Map(Object.keys(HOOK_DEFINITIONS).map((name) => [name, []]));
+const TRUSTED_SERVER_HOOKS = new Set(["magicWords", "functionPlot", "geometryBoard", "mathChart", "advancedSearch"]);
+let pluginRuntimeObserver = null;
 const DEFAULT_PLUGINS = {
   magicWords: {
     enabled: true,
@@ -168,6 +170,136 @@ function normalizePluginPermissions(value) {
   return manifestList(value).filter((name) => HOOK_PERMISSIONS.has(name));
 }
 
+function cleanSchemaValue(value, depth = 0) {
+  if (depth > 5) return null;
+  if (value === null || ["string", "number", "boolean"].includes(typeof value)) return value;
+  if (Array.isArray(value)) return value.slice(0, 80).map((item) => cleanSchemaValue(item, depth + 1));
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).slice(0, 80).map(([key, item]) => [String(key).slice(0, 80), cleanSchemaValue(item, depth + 1)]));
+  }
+  return null;
+}
+
+function cleanConfigSchema(value, depth = 0) {
+  if (!value || typeof value !== "object" || Array.isArray(value) || depth > 5) return null;
+  const type = ["object", "string", "number", "integer", "boolean", "array"].includes(value.type) ? value.type : "object";
+  const schema = { type };
+  if (Object.prototype.hasOwnProperty.call(value, "default")) schema.default = cleanSchemaValue(value.default, depth + 1);
+  if (Array.isArray(value.enum)) schema.enum = value.enum.slice(0, 40).map((item) => cleanSchemaValue(item, depth + 1));
+  if (Number.isFinite(Number(value.minimum))) schema.minimum = Number(value.minimum);
+  if (Number.isFinite(Number(value.maximum))) schema.maximum = Number(value.maximum);
+  if (Number.isFinite(Number(value.maxLength))) schema.maxLength = Math.max(1, Math.min(Number(value.maxLength), 4000));
+  if (type === "array" && value.items) schema.items = cleanConfigSchema(value.items, depth + 1);
+  if (type === "object") {
+    schema.properties = Object.fromEntries(Object.entries(value.properties || {}).slice(0, 80)
+      .map(([key, child]) => [String(key).slice(0, 80), cleanConfigSchema(child, depth + 1)])
+      .filter(([, child]) => child));
+    schema.additionalProperties = value.additionalProperties !== false;
+  }
+  return schema;
+}
+
+function inferConfigSchema(manifest = {}) {
+  const properties = {};
+  const defaults = manifest.defaultConfig && typeof manifest.defaultConfig === "object" ? manifest.defaultConfig : {};
+  for (const key of manifest.configKeys || Object.keys(defaults)) {
+    const value = defaults[key];
+    if (key === "enabled" || ["grid", "axis", "fts5", "fuzzy", "prefix", "autoConvert"].includes(key)) properties[key] = { type: "boolean", default: Boolean(value) };
+    else if (["defaultHeight", "samples", "pageSize", "titleWeight", "summaryWeight", "bodyWeight", "categoryWeight"].includes(key)) properties[key] = { type: "number", default: Number(value) || 0, minimum: 0, maximum: 20000 };
+    else if (key === "custom") properties[key] = { type: "object", default: value && typeof value === "object" ? value : {}, additionalProperties: true };
+    else properties[key] = { type: "string", default: String(value ?? ""), maxLength: 1000 };
+  }
+  return { type: "object", properties, additionalProperties: true };
+}
+
+function cleanConfigMigrations(value) {
+  if (!Array.isArray(value)) return [];
+  return value.slice(0, 20).map((item) => {
+    if (!item || typeof item !== "object") return null;
+    const from = Math.max(1, Math.min(Number(item.from) || 1, 1000));
+    const to = Math.max(from + 1, Math.min(Number(item.to) || from + 1, 1000));
+    const rename = Object.fromEntries(Object.entries(item.rename || {}).slice(0, 40)
+      .map(([fromKey, toKey]) => [String(fromKey).slice(0, 80), String(toKey).slice(0, 80)])
+      .filter(([fromKey, toKey]) => /^[\w.-]{1,80}$/.test(fromKey) && /^[\w.-]{1,80}$/.test(toKey)));
+    const defaults = item.defaults && typeof item.defaults === "object" && !Array.isArray(item.defaults) ? cleanSchemaValue(item.defaults) : {};
+    const remove = Array.isArray(item.remove) ? item.remove.map((key) => String(key).slice(0, 80)).filter((key) => /^[\w.-]{1,80}$/.test(key)).slice(0, 40) : [];
+    return { from, to, rename, defaults, remove };
+  }).filter(Boolean).sort((a, b) => a.from - b.from || a.to - b.to);
+}
+
+function applyConfigMigrations(config = {}, manifest = {}) {
+  const value = config && typeof config === "object" && !Array.isArray(config) ? { ...config } : {};
+  const version = Math.max(1, Math.min(Number(manifest.configVersion) || 1, 1000));
+  let current = Math.max(1, Math.min(Number(value.__wikistConfigVersion) || 1, 1000));
+  const applied = [];
+  for (const migration of manifest.configMigrations || []) {
+    if (migration.from !== current || migration.to > version) continue;
+    for (const [from, to] of Object.entries(migration.rename || {})) {
+      if (Object.prototype.hasOwnProperty.call(value, from) && !Object.prototype.hasOwnProperty.call(value, to)) value[to] = value[from];
+      delete value[from];
+    }
+    for (const [key, defaultValue] of Object.entries(migration.defaults || {})) {
+      if (!Object.prototype.hasOwnProperty.call(value, key)) value[key] = defaultValue;
+    }
+    for (const key of migration.remove || []) delete value[key];
+    current = migration.to;
+    applied.push({ from: migration.from, to: migration.to });
+  }
+  if (current < version) current = version;
+  value.__wikistConfigVersion = current;
+  return { value, applied, version: current };
+}
+
+function validateConfigValue(value, schema, pathName = "config", errors = []) {
+  const fallback = Object.prototype.hasOwnProperty.call(schema || {}, "default") ? cleanSchemaValue(schema.default) : undefined;
+  if (!schema) return value;
+  if (value === undefined || value === null) return fallback;
+  if (schema.type === "boolean") {
+    if (typeof value !== "boolean") errors.push(`${pathName} 必须是布尔值`);
+    return typeof value === "boolean" ? value : Boolean(fallback);
+  }
+  if (schema.type === "number" || schema.type === "integer") {
+    const number = Number(value);
+    if (!Number.isFinite(number)) { errors.push(`${pathName} 必须是数字`); return Number(fallback) || 0; }
+    const bounded = Math.max(schema.minimum ?? -Infinity, Math.min(schema.maximum ?? Infinity, number));
+    return schema.type === "integer" ? Math.round(bounded) : bounded;
+  }
+  if (schema.type === "string") {
+    if (typeof value !== "string") errors.push(`${pathName} 必须是字符串`);
+    let text = String(value ?? "");
+    if (schema.maxLength) text = text.slice(0, schema.maxLength);
+    if (schema.enum && !schema.enum.includes(text)) { errors.push(`${pathName} 不在允许值内`); return String(fallback ?? ""); }
+    return text;
+  }
+  if (schema.type === "array") {
+    if (!Array.isArray(value)) { errors.push(`${pathName} 必须是数组`); return Array.isArray(fallback) ? fallback : []; }
+    return value.slice(0, 200).map((item, index) => validateConfigValue(item, schema.items || { type: "string" }, `${pathName}[${index}]`, errors));
+  }
+  if (schema.type === "object") {
+    if (!value || typeof value !== "object" || Array.isArray(value)) { errors.push(`${pathName} 必须是对象`); return fallback && typeof fallback === "object" ? fallback : {}; }
+    const output = {};
+    for (const [key, child] of Object.entries(schema.properties || {})) {
+      const childValue = validateConfigValue(value[key], child, `${pathName}.${key}`, errors);
+      if (childValue !== undefined) output[key] = childValue;
+    }
+    if (schema.additionalProperties !== false) {
+      for (const [key, item] of Object.entries(value).slice(0, 120)) {
+        if (!Object.prototype.hasOwnProperty.call(schema.properties || {}, key)) output[key] = cleanSchemaValue(item);
+      }
+    }
+    return output;
+  }
+  return value;
+}
+
+function validatePluginConfiguration(manifest, config = {}) {
+  const migrated = applyConfigMigrations(config, manifest);
+  const errors = [];
+  const value = validateConfigValue(migrated.value, manifest.configSchema || inferConfigSchema(manifest), `${manifest.id}.config`, errors);
+  value.__wikistConfigVersion = Math.max(1, Number(manifest.configVersion) || 1);
+  return { valid: errors.length === 0, errors, value, migrations: migrated.applied, version: value.__wikistConfigVersion };
+}
+
 function pluginHookCapabilities(manifest = {}) {
   const permissions = new Set(normalizePluginPermissions(manifest.permissions));
   return normalizePluginHooks(manifest.hooks).map((name) => {
@@ -190,7 +322,7 @@ function pluginHookCapabilities(manifest = {}) {
 
 function registerCoreHook(pluginId, hookName, handler) {
   const definition = HOOK_DEFINITIONS[hookName];
-  if (!definition || definition.side !== "server" || typeof handler !== "function") return false;
+  if (!definition || definition.side !== "server" || !TRUSTED_SERVER_HOOKS.has(String(pluginId || "")) || typeof handler !== "function") return false;
   const handlers = coreHookHandlers.get(hookName);
   if (!handlers || handlers.some((item) => item.pluginId === pluginId && item.handler === handler)) return false;
   handlers.push({ pluginId: String(pluginId || "core"), handler });
@@ -205,16 +337,21 @@ function runCoreHook(hookName, value, context = {}) {
       return next === undefined || next === null ? current : next;
     } catch (error) {
       console.warn(`Wikist core hook failed (${item.pluginId}:${hookName}):`, error.message);
+      try { pluginRuntimeObserver?.({ pluginId: item.pluginId, hook: hookName, error }); } catch (_observerError) {}
       return current;
     }
   }, value);
+}
+
+function setPluginRuntimeObserver(observer) {
+  pluginRuntimeObserver = typeof observer === "function" ? observer : null;
 }
 
 function cleanManifest(manifest, directory = "core") {
   if (!manifest || typeof manifest !== "object" || !manifest.id) return null;
   const id = String(manifest.id || "").trim();
   if (!/^[a-zA-Z][a-zA-Z0-9_-]{1,60}$/.test(id)) return null;
-  return {
+  const base = {
     id,
     name: String(manifest.name || id).slice(0, 80),
     type: String(manifest.type || "extension").slice(0, 40),
@@ -226,6 +363,8 @@ function cleanManifest(manifest, directory = "core") {
     hooks: normalizePluginHooks(manifest.hooks),
     permissions: normalizePluginPermissions(manifest.permissions),
     defaultConfig: manifest.defaultConfig && typeof manifest.defaultConfig === "object" ? manifest.defaultConfig : { enabled: true },
+    configVersion: Math.max(1, Math.min(Number(manifest.configVersion) || 1, 1000)),
+    configMigrations: cleanConfigMigrations(manifest.configMigrations),
     entry: String(manifest.entry || "manifest-only").slice(0, 120),
     serverModule: cleanModulePath(manifest.serverModule),
     clientModule: cleanModulePath(manifest.clientModule),
@@ -234,6 +373,8 @@ function cleanManifest(manifest, directory = "core") {
     license: String(manifest.license || "").slice(0, 80),
     directory,
   };
+  base.configSchema = cleanConfigSchema(manifest.configSchema) || inferConfigSchema(base);
+  return base;
 }
 
 
@@ -404,7 +545,8 @@ function enrichPlugin(rootDir, manifest) {
   const vendor = pluginVendorStatus(rootDir, manifest);
   const runtime = pluginRuntimeStatus(manifest, vendor);
   const hookCapabilities = pluginHookCapabilities(manifest);
-  return vendor ? { ...manifest, hookApiVersion: HOOK_API_VERSION, hookCapabilities, vendor, runtime } : { ...manifest, hookApiVersion: HOOK_API_VERSION, hookCapabilities, runtime };
+  const base = { ...manifest, hookApiVersion: HOOK_API_VERSION, hookCapabilities, runtime };
+  return vendor ? { ...base, vendor } : base;
 }
 
 function readPluginManifests(rootDir = process.cwd()) {
@@ -456,7 +598,44 @@ function mergeDeep(base, incoming) {
 }
 
 function pluginSettings(config = {}, rootDir = process.cwd()) {
-  return mergeDeep(defaultPluginSettings(rootDir), config.plugins || {});
+  const defaults = defaultPluginSettings(rootDir);
+  const source = config.plugins && typeof config.plugins === "object" ? config.plugins : {};
+  const settings = {};
+  for (const manifest of basePluginCatalog(rootDir)) {
+    const incoming = source[manifest.id] && typeof source[manifest.id] === "object" ? source[manifest.id] : {};
+    const validation = validatePluginConfiguration(manifest, mergeDeep(defaults[manifest.id] || {}, incoming));
+    settings[manifest.id] = validation.value;
+  }
+  for (const [key, value] of Object.entries(source)) {
+    if (!Object.prototype.hasOwnProperty.call(settings, key)) settings[key] = value;
+  }
+  return settings;
+}
+
+function pluginConfigurationReport(config = {}, rootDir = process.cwd()) {
+  const defaults = defaultPluginSettings(rootDir);
+  const source = config.plugins && typeof config.plugins === "object" ? config.plugins : {};
+  const settings = {};
+  const plugins = [];
+  let changed = false;
+  for (const manifest of basePluginCatalog(rootDir)) {
+    const incoming = source[manifest.id] && typeof source[manifest.id] === "object" ? source[manifest.id] : {};
+    const validation = validatePluginConfiguration(manifest, mergeDeep(defaults[manifest.id] || {}, incoming));
+    settings[manifest.id] = validation.value;
+    const hadIncoming = Object.prototype.hasOwnProperty.call(source, manifest.id);
+    const migrated = validation.migrations.length > 0 || (hadIncoming && JSON.stringify(validation.value) !== JSON.stringify(incoming));
+    changed = changed || migrated;
+    plugins.push({
+      id: manifest.id,
+      name: manifest.name,
+      valid: validation.valid,
+      errors: validation.errors,
+      configVersion: validation.version,
+      migrations: validation.migrations,
+      runtime: pluginRuntimeStatus(manifest, pluginVendorStatus(rootDir, manifest)),
+    });
+  }
+  return { settings, plugins, changed };
 }
 
 function syncVendorPlugin(rootDir, input = {}) {
@@ -813,6 +992,9 @@ module.exports = {
   pluginHookCapabilities,
   normalizePluginHooks,
   normalizePluginPermissions,
+  validatePluginConfiguration,
+  pluginConfigurationReport,
+  setPluginRuntimeObserver,
   registerCoreHook,
   syncVendorPlugin,
   applyMagicWords,

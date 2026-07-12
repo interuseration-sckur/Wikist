@@ -33,6 +33,20 @@ const defaults = {
     passwordResetTTLSeconds: 1200,
     twoFactorIssuer: "Wikist",
     twoFactorWindow: 1,
+    sqliteBusyTimeoutMs: 8000,
+  },
+  security: {
+    firewall: {
+      enabled: true,
+      trustedProxy: false,
+      maxBodyBytes: 2097152,
+      maxEntries: 12000,
+      general: { points: 240, windowSeconds: 60, blockSeconds: 60 },
+      api: { points: 120, windowSeconds: 60, blockSeconds: 90 },
+      write: { points: 48, windowSeconds: 60, blockSeconds: 120 },
+      auth: { points: 16, windowSeconds: 60, blockSeconds: 300 },
+      install: { points: 8, windowSeconds: 600, blockSeconds: 900 },
+    },
   },
   mail: {
     enabled: false,

@@ -1,7 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 const zlib = require("zlib");
-const { createBackupPackage, inspectBackupPackage, restoreBackupPackage } = require("../src/core/backup");
+const { createBackupPackage, inspectBackupPackage, validateBackupPackage, restoreBackupPackage, exerciseBackupPackage } = require("../src/core/backup");
 
 const root = path.join(process.cwd(), "data", "wikist-backup-test");
 fs.rmSync(root, { recursive: true, force: true });
@@ -18,6 +18,11 @@ const backup = createBackupPackage(root, { database: "data/wikist.sqlite" });
 const payload = JSON.parse(zlib.gunzipSync(backup.buffer).toString("utf8"));
 const packageBase64 = backup.buffer.toString("base64");
 const inspected = inspectBackupPackage({ packageBase64 });
+const validated = validateBackupPackage({ packageBase64 });
+const tampered = JSON.parse(zlib.gunzipSync(backup.buffer).toString("utf8"));
+tampered.files[0].content = "tampered";
+const tamperedValidation = validateBackupPackage({ package: tampered });
+const drill = exerciseBackupPackage({ packageBase64 }, { database: "data/wikist.sqlite", includeUserData: true });
 
 fs.writeFileSync(path.join(root, "content", "pages", "home.md"), "---\ntitle: Broken\n---\nChanged\n", "utf8");
 fs.writeFileSync(path.join(root, "content", "reviewed", "home", "2026-07-11T08-00-00-000Z.md"), "---\ntitle: Broken\n---\nChanged review\n", "utf8");
@@ -33,6 +38,8 @@ const checks = {
   users: payload.userData.some((file) => file.path === "data/wikist.sqlite" && file.encoding === "base64"),
   manifest: backup.manifest.textFiles >= 2 && backup.manifest.userDataFiles === 1,
   inspect: inspected.counts.pages === 1 && inspected.counts.reviewed === 1 && inspected.counts.config === 1 && inspected.counts.userDataFiles === 1,
+  checksums: validated.valid && inspected.validation.valid && !tamperedValidation.valid,
+  restoreDrill: drill.ok && drill.restored >= 4 && drill.validation.valid,
   restorePage: fs.readFileSync(path.join(root, "content", "pages", "home.md"), "utf8").includes("Body"),
   restoreReviewed: fs.readFileSync(path.join(root, "content", "reviewed", "home", "2026-07-11T08-00-00-000Z.md"), "utf8").includes("Reviewed body"),
   restoreConfig: JSON.parse(fs.readFileSync(path.join(root, "config", "site.config.json"), "utf8")).name === "Wikist",

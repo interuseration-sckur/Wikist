@@ -121,6 +121,7 @@ class SearchIndex {
     this.persistentIndex = persistentIndex;
     this.cacheKey = "";
     this.documents = [];
+    this.lastTelemetry = { cacheHit: false, engine: "wikist-mini", durationMs: 0 };
   }
 
   pluginSettings() {
@@ -131,7 +132,11 @@ class SearchIndex {
   buildDocuments() {
     const pages = this.pageStore.listPages();
     const key = pages.map((page) => `${page.slug}|${page.updatedAt || ""}|${page.bytes || 0}`).join("\n");
-    if (key === this.cacheKey) return this.documents;
+    if (key === this.cacheKey) {
+      this.lastBuildCacheHit = true;
+      return this.documents;
+    }
+    this.lastBuildCacheHit = false;
     this.cacheKey = key;
     this.documents = pages.map((page) => ({
       page,
@@ -178,6 +183,26 @@ class SearchIndex {
     return status;
   }
 
+  recoverPersistentIndex() {
+    if (!this.persistentIndex) {
+      const error = new Error("Wikist Passport 未启用，无法修复 SQLite FTS5 索引。");
+      error.statusCode = 409;
+      throw error;
+    }
+    const status = this.persistentIndex.recover(this.pageStore.listPages());
+    this.cacheKey = "";
+    return status;
+  }
+
+  finishSearch(result, startedAt, cacheHit = false) {
+    this.lastTelemetry = {
+      cacheHit: Boolean(cacheHit),
+      engine: result?.engine || "wikist-mini",
+      durationMs: Math.max(0, Date.now() - startedAt),
+    };
+    return result;
+  }
+
   enhance(result, query, options) {
     return runSearchEnhancementHooks(result, {
       query: String(query || ""),
@@ -191,6 +216,7 @@ class SearchIndex {
       return this.search(query, { limit: optionsOrLimit }).items;
     }
 
+    const startedAt = Date.now();
     const raw = String(query || "").trim();
     const plugin = this.pluginSettings();
     const options = cleanSearchOptions({
@@ -200,7 +226,7 @@ class SearchIndex {
       prefix: optionsOrLimit.prefix ?? plugin.prefix,
     });
     if (!raw && !options.category && !options.quality && !options.difficulty) {
-      return this.enhance(this.emptyResult(raw, options), raw, options);
+      return this.finishSearch(this.enhance(this.emptyResult(raw, options), raw, options), startedAt, true);
     }
 
     const parsed = parseQuery(raw);
@@ -211,7 +237,7 @@ class SearchIndex {
       difficulty: options.difficulty || parsed.filters.difficulty || "",
     };
     const persistent = this.persistentIndex?.search(raw, options);
-    if (persistent && (persistent.total > 0 || options.fuzzy === false)) return this.enhance(persistent, raw, options);
+    if (persistent && (persistent.total > 0 || options.fuzzy === false)) return this.finishSearch(this.enhance(persistent, raw, options), startedAt, false);
     const q = parsed.text || raw;
     const queryTokens = tokenize(q);
     const normalizedQuery = normalizeText(q);
@@ -253,7 +279,7 @@ class SearchIndex {
     const facets = this.facets(scored);
     const total = scored.length;
     const items = scored.slice(options.offset, options.offset + options.limit);
-    return this.enhance({
+    return this.finishSearch(this.enhance({
       query: raw,
       items,
       total,
@@ -267,7 +293,7 @@ class SearchIndex {
         hasPrev: options.page > 1,
         hasNext: options.page < Math.ceil(total / options.limit),
       },
-    }, raw, options);
+    }, raw, options), startedAt, this.lastBuildCacheHit === true);
   }
 
   facets(results) {

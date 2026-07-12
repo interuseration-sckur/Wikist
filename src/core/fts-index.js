@@ -52,11 +52,36 @@ function facets(rows) {
 
 class PersistentFtsIndex {
   constructor(passport, settingsProvider = null) {
+    this.passport = passport || null;
     this.db = passport?.db || null;
     this.settingsProvider = settingsProvider;
     this.initialized = false;
     this.available = null;
     this.error = "";
+    this.failureCount = 0;
+    this.lastFailureAt = "";
+    this.lastRecoveryAt = "";
+    this.recoveryNeeded = false;
+  }
+
+  refreshDatabase() {
+    const current = this.passport?.db || this.db;
+    if (current !== this.db) {
+      this.db = current;
+      this.initialized = false;
+      this.available = null;
+      this.error = "";
+    }
+    return this.db;
+  }
+
+  markFailure(error) {
+    this.error = error?.message || "SQLite FTS5 operation failed.";
+    this.failureCount += 1;
+    this.lastFailureAt = nowIso();
+    this.recoveryNeeded = true;
+    this.initialized = false;
+    this.available = false;
   }
 
   settings() {
@@ -65,11 +90,13 @@ class PersistentFtsIndex {
   }
 
   enabled() {
+    this.refreshDatabase();
     const settings = this.settings();
     return Boolean(this.db && settings.enabled !== false && settings.fts5 !== false);
   }
 
   ensureSchema() {
+    this.refreshDatabase();
     if (!this.db || this.available === false) return false;
     if (this.initialized) return true;
     try {
@@ -103,7 +130,7 @@ class PersistentFtsIndex {
       return true;
     } catch (error) {
       this.available = false;
-      this.error = error.message || "SQLite FTS5 不可用。";
+      this.markFailure(error);
       return false;
     }
   }
@@ -134,6 +161,10 @@ class PersistentFtsIndex {
         documents: 0,
         updatedAt: "",
         error: this.error,
+        recoveryNeeded: this.recoveryNeeded,
+        failureCount: this.failureCount,
+        lastFailureAt: this.lastFailureAt,
+        lastRecoveryAt: this.lastRecoveryAt,
       };
     }
     if (!this.ensureSchema()) {
@@ -146,6 +177,10 @@ class PersistentFtsIndex {
         documents: 0,
         updatedAt: "",
         error: this.error,
+        recoveryNeeded: this.recoveryNeeded,
+        failureCount: this.failureCount,
+        lastFailureAt: this.lastFailureAt,
+        lastRecoveryAt: this.lastRecoveryAt,
       };
     }
     const documents = Number(this.db.prepare(`SELECT count(*) AS n FROM ${FTS_TABLE}`).get().n || 0);
@@ -159,6 +194,10 @@ class PersistentFtsIndex {
       documents,
       updatedAt: this.getState("updated_at", ""),
       error: "",
+      recoveryNeeded: this.recoveryNeeded,
+      failureCount: this.failureCount,
+      lastFailureAt: this.lastFailureAt,
+      lastRecoveryAt: this.lastRecoveryAt,
     };
   }
 
@@ -201,17 +240,25 @@ class PersistentFtsIndex {
 
   syncPage(page) {
     if (!this.enabled() || !this.ensureSchema()) return this.status();
-    this.writePage(page);
-    if (this.getState("coverage", "") === "") this.setState("coverage", "incremental");
-    this.setState("updated_at", nowIso());
+    try {
+      this.writePage(page);
+      if (this.getState("coverage", "") === "") this.setState("coverage", "incremental");
+      this.setState("updated_at", nowIso());
+    } catch (error) {
+      this.markFailure(error);
+    }
     return this.status();
   }
 
   removePage(slug) {
     if (!this.enabled() || !this.ensureSchema()) return this.status();
-    this.db.prepare(`DELETE FROM ${FTS_TABLE} WHERE slug = ?`).run(String(slug || ""));
-    if (this.getState("coverage", "") === "") this.setState("coverage", "incremental");
-    this.setState("updated_at", nowIso());
+    try {
+      this.db.prepare(`DELETE FROM ${FTS_TABLE} WHERE slug = ?`).run(String(slug || ""));
+      if (this.getState("coverage", "") === "") this.setState("coverage", "incremental");
+      this.setState("updated_at", nowIso());
+    } catch (error) {
+      this.markFailure(error);
+    }
     return this.status();
   }
 
@@ -235,9 +282,39 @@ class PersistentFtsIndex {
       this.db.exec("COMMIT");
     } catch (error) {
       try { this.db.exec("ROLLBACK"); } catch (_rollbackError) {}
+      this.markFailure(error);
       throw error;
     }
+    this.recoveryNeeded = false;
+    this.lastRecoveryAt = nowIso();
     return this.status();
+  }
+
+  recover(pages = []) {
+    if (!this.enabled()) {
+      const error = new Error("SQLite FTS5 已在高级搜索配置中停用。");
+      error.statusCode = 409;
+      throw error;
+    }
+    this.refreshDatabase();
+    if (!this.db) {
+      const error = new Error("SQLite 数据库当前不可用。");
+      error.statusCode = 503;
+      throw error;
+    }
+    this.initialized = false;
+    this.available = null;
+    this.error = "";
+    try {
+      this.db.exec(`DROP TABLE IF EXISTS ${FTS_TABLE}; DROP TABLE IF EXISTS ${STATE_TABLE};`);
+      const result = this.rebuild(pages);
+      this.recoveryNeeded = false;
+      this.lastRecoveryAt = nowIso();
+      return result;
+    } catch (error) {
+      this.markFailure(error);
+      throw error;
+    }
   }
 
   filters(parsed, options) {
@@ -333,7 +410,7 @@ class PersistentFtsIndex {
         },
       };
     } catch (error) {
-      this.error = error.message || "FTS5 查询失败。";
+      this.markFailure(error);
       return null;
     }
   }

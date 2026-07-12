@@ -1,7 +1,7 @@
 const fs = require("fs");
 const http = require("http");
 const path = require("path");
-const { createBackupPackage, inspectBackupPackage, restoreBackupPackage } = require("../core/backup");
+const { createBackupPackage, inspectBackupPackage, restoreBackupPackage, exerciseBackupPackage } = require("../core/backup");
 const { normalizeArxiv, normalizeCitationId, normalizeDoi, normalizeUrl } = require("../core/citations");
 const { hasSiteConfig, loadConfig, uninstallSiteConfig, writeInitialConfig } = require("../core/config");
 const { readJsonBody, safeJoin, sendJson, sendText, serveStatic } = require("../core/http");
@@ -10,12 +10,13 @@ const { categoryDetail, categorySnapshot, topicDetail } = require("../core/knowl
 const { publicMailSettings, sendWikistMail, siteBaseUrl } = require("../core/mailer");
 const { renderMarkdown } = require("../core/markdown");
 const { PersistentFtsIndex } = require("../core/fts-index");
-const { HOOK_DEFINITIONS, normalizePluginHooks, normalizePluginPermissions, pluginCatalog, pluginSettings, syncVendorPlugin } = require("../core/plugin-registry");
+const { HOOK_DEFINITIONS, normalizePluginHooks, normalizePluginPermissions, pluginCatalog, pluginSettings, pluginConfigurationReport, setPluginRuntimeObserver, syncVendorPlugin } = require("../core/plugin-registry");
 const { PageStore } = require("../core/page-store");
 const { PassportStore, clearSessionCookie, sessionCookie } = require("../core/passport-store");
 const { buildLineDiff } = require("../core/revision-review");
 const { SearchIndex } = require("../core/search-index");
 const { decodePathPart, normalizeSlug } = require("../core/slug");
+const { RuntimeMetrics, RequestFirewall, cleanFirewallConfig } = require("../core/runtime-ops");
 
 function isEditAllowed(req, config, session) {
   if (!config.editing?.open) return false;
@@ -218,8 +219,8 @@ function serveIndexHtml(req, res, indexPath, config) {
   const icon = siteIconUrl(config);
   const siteName = configuredSiteName(config);
   const html = fs.readFileSync(indexPath, "utf8")
-    .replace(/href="\/assets\/styles\.css\?v=wikist-core-20260712-92"/g, `href="${escapeHtml(assetUrl(config, "/assets/styles.css?v=wikist-core-20260712-92"))}"`)
-    .replace(/src="\/assets\/app\.js\?v=wikist-core-20260712-92"/g, `src="${escapeHtml(assetUrl(config, "/assets/app.js?v=wikist-core-20260712-92"))}"`)
+    .replace(/href="\/assets\/styles\.css\?v=wikist-core-20260712-93"/g, `href="${escapeHtml(assetUrl(config, "/assets/styles.css?v=wikist-core-20260712-93"))}"`)
+    .replace(/src="\/assets\/app\.js\?v=wikist-core-20260712-93"/g, `src="${escapeHtml(assetUrl(config, "/assets/app.js?v=wikist-core-20260712-93"))}"`)
     .replace(/href="\/assets\/wikist-emblem\.svg"/g, `href="${escapeHtml(icon)}"`)
     .replace(/src="\/assets\/wikist-emblem\.svg"/g, `src="${escapeHtml(icon)}"`)
     .replace(/<title>Wikist<\/title>/, `<title>${escapeHtml(siteName)}</title>`)
@@ -371,20 +372,18 @@ function reloadRuntimeConfig(rootDir, runtimeConfig, pages) {
 function sanitizePluginSettings(input, current = {}, rootDir = process.cwd()) {
   const next = pluginSettings({ plugins: current }, rootDir);
   const source = input && typeof input === "object" ? input : {};
-  for (const plugin of pluginCatalog(rootDir)) {
-    const incoming = source[plugin.id];
-    if (!incoming || typeof incoming !== "object") continue;
-    next[plugin.id] = { ...next[plugin.id] };
-    for (const key of plugin.configKeys) {
-      if (!Object.prototype.hasOwnProperty.call(incoming, key)) continue;
-      if (["enabled", "grid", "axis", "fts5", "fuzzy", "prefix", "autoConvert"].includes(key)) next[plugin.id][key] = Boolean(incoming[key]);
-      else if (key === "defaultHeight") next[plugin.id][key] = Math.max(220, Math.min(Number(incoming[key]) || 360, 760));
-      else if (key === "samples") next[plugin.id][key] = Math.max(160, Math.min(Number(incoming[key]) || 720, 1800));
-      else if (key === "custom" && incoming[key] && typeof incoming[key] === "object") next[plugin.id][key] = incoming[key];
-      else next[plugin.id][key] = String(incoming[key] || "").slice(0, 1000);
-    }
+  for (const [pluginId, incoming] of Object.entries(source)) {
+    if (!incoming || typeof incoming !== "object" || Array.isArray(incoming)) continue;
+    next[pluginId] = { ...(next[pluginId] || {}), ...incoming };
   }
-  return next;
+  const report = pluginConfigurationReport({ plugins: next }, rootDir);
+  const invalid = report.plugins.filter((plugin) => !plugin.valid);
+  if (invalid.length) {
+    const error = new Error(`插件配置校验失败：${invalid.map((plugin) => `${plugin.id}（${plugin.errors.slice(0, 2).join("；")}）`).join("；")}`);
+    error.statusCode = 400;
+    throw error;
+  }
+  return report.settings;
 }
 
 function siteSettingsPayload(config) {
@@ -529,6 +528,34 @@ function validatePluginManifestDeclarations(input = {}) {
   return { hooks: validHooks, permissions: validPermissions };
 }
 
+function parsePluginManifestJson(value, field, fallback) {
+  if (value === undefined || value === null || value === "") return fallback;
+  if (value && typeof value === "object") return value;
+  try {
+    const parsed = JSON.parse(String(value));
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("not-object");
+    return parsed;
+  } catch (_error) {
+    const error = new Error(`${field} 必须是 JSON 对象。`);
+    error.statusCode = 400;
+    throw error;
+  }
+}
+
+function parsePluginManifestArrayJson(value, field, fallback = []) {
+  if (value === undefined || value === null || value === "") return fallback;
+  if (Array.isArray(value)) return value;
+  try {
+    const parsed = JSON.parse(String(value));
+    if (!Array.isArray(parsed)) throw new Error("not-array");
+    return parsed;
+  } catch (_error) {
+    const error = new Error(`${field} 必须是 JSON 数组。`);
+    error.statusCode = 400;
+    throw error;
+  }
+}
+
 function createPluginManifest(rootDir, input = {}) {
   const id = cleanPluginId(input.id);
   const dirName = id.replace(/([a-z])([A-Z])/g, "$1-$2").toLowerCase();
@@ -557,7 +584,10 @@ function createPluginManifest(rootDir, input = {}) {
     configKeys: configKeys.length ? configKeys : ["enabled"],
     hooks: declarations.hooks,
     permissions: declarations.permissions,
-    defaultConfig: input.defaultConfig && typeof input.defaultConfig === "object" ? input.defaultConfig : { enabled: true },
+    defaultConfig: parsePluginManifestJson(input.defaultConfig, "默认配置", { enabled: true }),
+    configVersion: Math.max(1, Math.min(Number(input.configVersion) || 1, 1000)),
+    configSchema: input.configSchema ? parsePluginManifestJson(input.configSchema, "配置 Schema", {}) : undefined,
+    configMigrations: parsePluginManifestArrayJson(input.configMigrations, "配置迁移", []),
     entry: cleanSettingText(input.entry || "manifest-only", 120) || "manifest-only",
     serverModule: cleanSettingText(input.serverModule || "", 180),
     clientModule: cleanSettingText(input.clientModule || "", 180),
@@ -638,6 +668,8 @@ function createWikistServer(options) {
   const publicDir = path.join(rootDir, "public");
   const configuredAtStartup = hasSiteConfig(rootDir);
   const config = loadConfig(rootDir);
+  const migratedPlugins = pluginConfigurationReport(config, rootDir);
+  if (configuredAtStartup && migratedPlugins.changed) saveSiteConfig(rootDir, config, { plugins: migratedPlugins.settings });
   const installerForceMode = process.env.WIKIST_INSTALL_MODE === "1";
   let installWroteConfig = false;
   let installRemovedConfig = false;
@@ -657,6 +689,33 @@ function createWikistServer(options) {
   const passport = configuredAtStartup && config.passport?.enabled ? new PassportStore(rootDir, config.passport) : null;
   const persistentSearch = passport ? new PersistentFtsIndex(passport, () => ({ plugins: pluginSettings(config, rootDir) })) : null;
   const search = new SearchIndex(pages, () => ({ plugins: pluginSettings(config, rootDir) }), persistentSearch);
+  const runtimeMetrics = new RuntimeMetrics();
+  const firewall = new RequestFirewall(() => config, runtimeMetrics);
+  setPluginRuntimeObserver(({ pluginId, hook, error }) => runtimeMetrics.observePluginFailure({ pluginId, hook, error }));
+  const liveBackup = (options = {}) => createBackupPackage(rootDir, {
+    database: config.passport?.database || "data/wikist.sqlite",
+    databaseSnapshot: options.includeUserData === false ? null : passport?.createDatabaseSnapshot(),
+    includeUserData: options.includeUserData,
+  });
+  const runtimeHealth = (options = {}) => {
+    const index = search.persistentStatus();
+    const plugins = pluginConfigurationReport(config, rootDir);
+    const database = passport ? passport.databaseHealth({ integrity: options.integrity !== false }) : { available: false, integrityChecked: false, integrityOk: false, detail: "Passport 未启用" };
+    const healthy = (!passport || database.integrityOk) && (!index.enabled || index.available !== false);
+    return {
+      ok: healthy,
+      checkedAt: new Date().toISOString(),
+      database,
+      searchIndex: index,
+      plugins: {
+        valid: plugins.plugins.every((plugin) => plugin.valid),
+        invalid: plugins.plugins.filter((plugin) => !plugin.valid).map((plugin) => ({ id: plugin.id, errors: plugin.errors.slice(0, 4) })),
+        migrationsPending: plugins.plugins.filter((plugin) => plugin.migrations.length).map((plugin) => plugin.id),
+      },
+      firewall: firewall.status(),
+      metrics: options.public ? undefined : runtimeMetrics.snapshot(),
+    };
+  };
   pages.onChange(({ type, page }) => {
     if (!page?.slug) return;
     if (type === "delete") search.removePage(page.slug);
@@ -664,19 +723,53 @@ function createWikistServer(options) {
   });
 
   return http.createServer(async (req, res) => {
+    const requestStartedAt = Date.now();
+    let observedPathname = "/";
+    res.on("finish", () => {
+      runtimeMetrics.observeRequest({
+        method: req.method,
+        pathname: observedPathname,
+        statusCode: res.statusCode,
+        durationMs: Date.now() - requestStartedAt,
+      });
+    });
     try {
       const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
       const pathname = decodeURIComponent(url.pathname);
+      observedPathname = pathname;
+      firewall.applySecurityHeaders(res);
+      const firewallResult = firewall.evaluate(req, pathname);
+      firewall.applyHeaders(res, firewallResult);
+      if (!firewallResult.allowed) {
+        sendJson(res, firewallResult.statusCode || 429, { error: firewallResult.reason, retryAfter: firewallResult.retryAfter || 0 });
+        return;
+      }
       const session = passport ? passport.authenticate(req) : null;
       const installerAsset = pathname === "/assets/install.css" || pathname === "/assets/install.js" || pathname === "/assets/wikist-emblem.svg";
       const installerRequest = pathname === "/install.html" || pathname.startsWith("/api/install/") || pathname === "/api/install" || installerAsset;
 
+      if (pathname === "/api/health" && (req.method === "GET" || req.method === "HEAD")) {
+        const health = runtimeHealth({ public: true, integrity: false });
+        sendJson(res, health.ok ? 200 : 503, {
+          ok: health.ok,
+          checkedAt: health.checkedAt,
+          database: { available: health.database.available, journalMode: health.database.journalMode || "", integrityChecked: health.database.integrityChecked },
+          searchIndex: { enabled: health.searchIndex.enabled, available: health.searchIndex.available, ready: health.searchIndex.ready, recoveryNeeded: health.searchIndex.recoveryNeeded },
+        });
+        return;
+      }
+
       if (pathname === "/api/install/status" && req.method === "GET") {
-        sendJson(res, 200, installerStatus());
+        sendJson(res, 200, { ...installerStatus(), firewall: { installToken: firewall.issueInstallToken(req) } });
         return;
       }
 
       if (pathname === "/api/install" && req.method === "POST") {
+        const firewallCheck = firewall.verifyInstallRequest(req, req.headers.host || "");
+        if (!firewallCheck.ok) {
+          sendJson(res, 403, { error: firewallCheck.reason });
+          return;
+        }
         const status = installerStatus();
         if (!status.setupAllowed) {
           sendJson(res, 409, { error: "当前站点已经配置完成。如需重新生成配置，请以 WIKIST_INSTALL_MODE=1 重启服务后再操作。" });
@@ -698,6 +791,11 @@ function createWikistServer(options) {
       }
 
       if (pathname === "/api/install/uninstall" && req.method === "POST") {
+        const firewallCheck = firewall.verifyInstallRequest(req, req.headers.host || "");
+        if (!firewallCheck.ok) {
+          sendJson(res, 403, { error: firewallCheck.reason });
+          return;
+        }
         if (!installerForceMode) {
           sendJson(res, 403, { error: "卸载安装配置必须先以 WIKIST_INSTALL_MODE=1 重启服务。" });
           return;
@@ -757,6 +855,19 @@ function createWikistServer(options) {
             compatibleWith: "Waline-style Markdown comments",
           },
         });
+        return;
+      }
+
+      if (pathname === "/api/runtime/plugin-failure" && req.method === "POST") {
+        const body = await readJsonBody(req, 8 * 1024);
+        const pluginId = String(body.pluginId || "").replace(/[^A-Za-z0-9_-]/g, "").slice(0, 64);
+        const known = pluginCatalog(rootDir).some((plugin) => plugin.id === pluginId);
+        if (!known) {
+          sendJson(res, 400, { error: "插件标识无效。" });
+          return;
+        }
+        runtimeMetrics.observePluginFailure({ pluginId, hook: String(body.hook || "client.module") });
+        sendJson(res, 202, { ok: true });
         return;
       }
 
@@ -1455,9 +1566,53 @@ function createWikistServer(options) {
         return;
       }
 
+      if (pathname === "/api/admin/health" && req.method === "GET") {
+        requireDashboard(passport, session);
+        sendJson(res, 200, { health: runtimeHealth({ integrity: true }) });
+        return;
+      }
+
+      if (pathname === "/api/admin/health/check" && req.method === "POST") {
+        requireDashboard(passport, session);
+        const health = runtimeHealth({ integrity: true });
+        recordAudit(passport, req, session, { action: "runtime.health.check", targetType: "runtime", targetId: "health", targetLabel: "运行健康", summary: "执行运行健康检查", metadata: { ok: health.ok, index: health.searchIndex.coverage } });
+        sendJson(res, health.ok ? 200 : 503, { health });
+        return;
+      }
+
+      if (pathname === "/api/admin/health/backup-drill" && req.method === "POST") {
+        requireDashboard(passport, session);
+        const body = await readJsonBody(req);
+        const backup = liveBackup({ includeUserData: body.includeUserData === true });
+        const drill = exerciseBackupPackage(backup.buffer, {
+          database: config.passport?.database || "data/wikist.sqlite",
+          includeUserData: body.includeUserData === true,
+        });
+        recordAudit(passport, req, session, { action: "backup.drill", targetType: "backup", targetId: "restore-drill", targetLabel: "备份还原演练", summary: "执行隔离的备份还原演练", metadata: { scope: drill.scope, restored: drill.restored, skipped: drill.skipped } });
+        sendJson(res, 200, { drill });
+        return;
+      }
+
+      if (pathname === "/api/admin/runtime/firewall" && req.method === "GET") {
+        requireDashboard(passport, session);
+        sendJson(res, 200, { firewall: firewall.status() });
+        return;
+      }
+
+      if (pathname === "/api/admin/runtime/firewall" && req.method === "PUT") {
+        requireDashboard(passport, session);
+        const body = await readJsonBody(req);
+        const currentFirewall = config.security?.firewall || {};
+        const security = { ...(config.security || {}), firewall: cleanFirewallConfig(body.firewall || body, currentFirewall) };
+        saveSiteConfig(rootDir, config, { security });
+        recordAudit(passport, req, session, { action: "runtime.firewall.update", targetType: "runtime", targetId: "firewall", targetLabel: "安装与请求防护", summary: "更新请求防护策略", metadata: { enabled: security.firewall.enabled, trustedProxy: security.firewall.trustedProxy } });
+        sendJson(res, 200, { firewall: firewall.status() });
+        return;
+      }
+
       if (pathname === "/api/admin/backup" && req.method === "GET") {
         requireDashboard(passport, session);
-        const backup = createBackupPackage(rootDir, { database: config.passport?.database || "data/wikist.sqlite" });
+        const backup = liveBackup();
         sendDownload(res, backup);
         return;
       }
@@ -1483,20 +1638,39 @@ function createWikistServer(options) {
         return;
       }
 
+      if (pathname === "/api/admin/search-index/recover" && req.method === "POST") {
+        requireDashboard(passport, session);
+        const index = search.recoverPersistentIndex();
+        recordAudit(passport, req, session, { action: "search.fts.recover", targetType: "search", targetId: "sqlite-fts5", targetLabel: "SQLite FTS5 搜索索引", summary: "修复 SQLite FTS5 搜索索引", metadata: index });
+        sendJson(res, 200, { index });
+        return;
+      }
+
       if (pathname === "/api/admin/backup/restore" && req.method === "POST") {
         requireDashboard(passport, session);
         const body = await readJsonBody(req, 128 * 1024 * 1024);
-        const result = restoreBackupPackage(rootDir, body, {
-          database: config.passport?.database || "data/wikist.sqlite",
-          includeUserData: body.includeUserData === true,
-        });
+        const restoresUserData = body.includeUserData === true;
+        if (restoresUserData) {
+          passport?.closeDatabase();
+          const databasePath = path.resolve(rootDir, config.passport?.database || "data/wikist.sqlite");
+          for (const suffix of ["-wal", "-shm"]) fs.rmSync(`${databasePath}${suffix}`, { force: true });
+        }
+        let result;
+        try {
+          result = restoreBackupPackage(rootDir, body, {
+            database: config.passport?.database || "data/wikist.sqlite",
+            includeUserData: restoresUserData,
+          });
+        } finally {
+          if (restoresUserData) passport?.reopenDatabase();
+        }
         reloadRuntimeConfig(rootDir, config, pages);
         passport.rebuildPageLinks(pages.listPages());
         const searchStatus = search.persistentStatus();
         if (searchStatus.enabled && searchStatus.available) search.rebuildPersistentIndex();
         search.cacheKey = "";
         recordAudit(passport, req, session, { action: "backup.restore", targetType: "site", targetId: "backup", targetLabel: body.filename || "backup", summary: "执行备份回档", metadata: { includeUserData: body.includeUserData === true, restored: result.restored?.length || 0, skipped: result.skipped?.length || 0 } });
-        sendJson(res, 200, result);
+        sendJson(res, 200, { ...result, runtimeReloaded: restoresUserData });
         return;
       }
 
@@ -2773,14 +2947,16 @@ function createWikistServer(options) {
       if (pathname === "/api/search" && req.method === "GET") {
         const searchSettings = pluginSettings(config, rootDir).advancedSearch || {};
         const pagination = readPagination(url, Number(searchSettings.pageSize) || 10, 50);
-        sendJson(res, 200, search.search(url.searchParams.get("q") || "", {
+        const result = search.search(url.searchParams.get("q") || "", {
           page: pagination.page,
           limit: pagination.limit,
           mode: url.searchParams.get("mode") || "balanced",
           category: url.searchParams.get("category") || "",
           quality: url.searchParams.get("quality") || "",
           difficulty: url.searchParams.get("difficulty") || "",
-        }));
+        });
+        runtimeMetrics.observeSearch(search.lastTelemetry);
+        sendJson(res, 200, result);
         return;
       }
 
