@@ -42,6 +42,7 @@ const defaults = {
       maxBodyBytes: 2097152,
       maxEntries: 12000,
       general: { points: 240, windowSeconds: 60, blockSeconds: 60 },
+      health: { points: 600, windowSeconds: 60, blockSeconds: 20 },
       api: { points: 120, windowSeconds: 60, blockSeconds: 90 },
       write: { points: 48, windowSeconds: 60, blockSeconds: 120 },
       auth: { points: 16, windowSeconds: 60, blockSeconds: 300 },

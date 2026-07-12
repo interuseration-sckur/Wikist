@@ -6,6 +6,7 @@ const DEFAULT_FIREWALL = Object.freeze({
   maxBodyBytes: 2 * 1024 * 1024,
   maxEntries: 12000,
   general: { points: 240, windowSeconds: 60, blockSeconds: 60 },
+  health: { points: 600, windowSeconds: 60, blockSeconds: 20 },
   api: { points: 120, windowSeconds: 60, blockSeconds: 90 },
   write: { points: 48, windowSeconds: 60, blockSeconds: 120 },
   auth: { points: 16, windowSeconds: 60, blockSeconds: 300 },
@@ -40,6 +41,7 @@ function cleanFirewallConfig(input = {}, current = DEFAULT_FIREWALL) {
     maxBodyBytes: clampInteger(source.maxBodyBytes ?? base.maxBodyBytes, DEFAULT_FIREWALL.maxBodyBytes, 16 * 1024, 32 * 1024 * 1024),
     maxEntries: clampInteger(source.maxEntries ?? base.maxEntries, DEFAULT_FIREWALL.maxEntries, 200, 100000),
     general: bucket("general", DEFAULT_FIREWALL.general),
+    health: bucket("health", DEFAULT_FIREWALL.health),
     api: bucket("api", DEFAULT_FIREWALL.api),
     write: bucket("write", DEFAULT_FIREWALL.write),
     auth: bucket("auth", DEFAULT_FIREWALL.auth),
@@ -186,6 +188,7 @@ class RequestFirewall {
 
   scopeFor(req, pathname) {
     const method = String(req?.method || "GET").toUpperCase();
+    if (pathname === "/api/health" && (method === "GET" || method === "HEAD")) return "health";
     if (pathname === "/api/install" || pathname.startsWith("/api/install/") || pathname === "/install.html") return "install";
     if (pathname.startsWith("/api/passport/") && /(login|register|forgot|captcha|reset)/.test(pathname)) return "auth";
     if (method !== "GET" && method !== "HEAD" && method !== "OPTIONS") return pathname.startsWith("/api/") ? "write" : "general";
@@ -315,7 +318,7 @@ class RequestFirewall {
       enabled: config.enabled,
       trustedProxy: config.trustedProxy,
       maxBodyBytes: config.maxBodyBytes,
-      policies: ["general", "api", "write", "auth", "install"].reduce((result, key) => ({ ...result, [key]: { ...config[key] } }), {}),
+      policies: ["general", "health", "api", "write", "auth", "install"].reduce((result, key) => ({ ...result, [key]: { ...config[key] } }), {}),
       activeBuckets: this.buckets.size,
       installChallenges: this.installTokens.size,
       privacy: "限流键仅使用进程随机盐散列的网段摘要，不持久化原始地址。",

@@ -1,6 +1,6 @@
 const THEME_KEY = "wikist-theme";
 const LANG_KEY = "wikist-language";
-const CORE_ASSET_VERSION = "wikist-core-20260712-93";
+const CORE_ASSET_VERSION = "wikist-core-20260712-96";
 const VDITOR_VERSION = "3.11.2";
 const VDITOR_CDN = `https://cdn.jsdelivr.net/npm/vditor@${VDITOR_VERSION}`;
 const SWEETALERT_VERSION = "11.26.25";
@@ -25,6 +25,8 @@ let routeGeneration = 0;
 let routePendingTimer = 0;
 let userRefreshPromise = null;
 let userLastFetchedAt = 0;
+let firewallNoticeTimer = 0;
+let firewallNoticeUntil = 0;
 
 const state = {
   site: null,
@@ -84,8 +86,65 @@ async function api(path, options = {}) {
     ...options,
   });
   const payload = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(payload.error || `请求失败（HTTP ${response.status}）`);
+  if (!response.ok) {
+    const retryAfter = Math.max(0, Number(payload.retryAfter || response.headers.get("retry-after") || 0));
+    if (response.status === 429) {
+      showFirewallNotice(retryAfter);
+      const error = new Error(retryAfter > 0 ? `请求过于频繁，请在 ${retryAfter} 秒后重试。` : "请求过于频繁，请稍后再试。");
+      error.code = "rate_limited";
+      error.retryAfter = retryAfter;
+      error.statusCode = response.status;
+      throw error;
+    }
+    if (response.status === 413) {
+      const error = new Error("提交内容超过本站当前允许的大小，请精简后重试。");
+      error.code = "body_too_large";
+      error.statusCode = response.status;
+      throw error;
+    }
+    const error = new Error(payload.error || `请求失败（HTTP ${response.status}）`);
+    error.statusCode = response.status;
+    throw error;
+  }
   return payload;
+}
+
+function firewallNoticeNode() {
+  let node = document.querySelector("#wikistFirewallNotice");
+  if (node) return node;
+  node = document.createElement("section");
+  node.id = "wikistFirewallNotice";
+  node.className = "wikist-system-overlay";
+  node.hidden = true;
+  node.setAttribute("role", "alertdialog");
+  node.setAttribute("aria-modal", "true");
+  node.setAttribute("aria-live", "assertive");
+  document.body.appendChild(node);
+  return node;
+}
+
+function showFirewallNotice(retryAfter = 0) {
+  const seconds = Math.max(1, Math.ceil(Number(retryAfter) || 1));
+  firewallNoticeUntil = Math.max(firewallNoticeUntil, Date.now() + seconds * 1000);
+  const node = firewallNoticeNode();
+  const render = () => {
+    const remaining = Math.max(0, Math.ceil((firewallNoticeUntil - Date.now()) / 1000));
+    const ready = remaining === 0;
+    node.innerHTML = `<div class="wikist-system-grid" aria-hidden="true"></div><article class="wikist-system-card ${ready ? "is-ready" : ""}"><span class="wikist-system-mark" aria-hidden="true">&#9670;</span><p class="wikist-system-kicker">WIKIST REQUEST PROTECTION</p><h1>${ready ? "可以重新连接" : "请求保护已启用"}</h1><p class="wikist-system-copy">${ready ? "冷却窗口已结束。重新连接后将恢复正常浏览与编辑。" : "为保持知识库稳定，当前页面已暂时锁定；请在冷却结束后继续操作。"}</p><div class="wikist-system-countdown"><span>冷却时间</span><strong>${remaining}s</strong></div><button type="button" class="command-button wikist-system-retry" ${ready ? "" : "disabled"}>${ready ? "重新连接" : "等待冷却结束"}</button>${ready ? `<a href="#/page/${encodeSlug(state.site?.defaultPage || "home")}" class="wikist-system-home">返回首页</a>` : ""}</article>`;
+    node.hidden = false;
+    document.body.classList.toggle("wikist-protection-active", !ready);
+    node.querySelector(".wikist-system-retry")?.addEventListener("click", () => window.location.reload(), { once: true });
+    node.querySelector(".wikist-system-home")?.addEventListener("click", () => {
+      window.clearInterval(firewallNoticeTimer);
+      firewallNoticeTimer = 0;
+      document.body.classList.remove("wikist-protection-active");
+      node.hidden = true;
+    }, { once: true });
+    if (ready) window.clearInterval(firewallNoticeTimer);
+  };
+  window.clearInterval(firewallNoticeTimer);
+  render();
+  firewallNoticeTimer = window.setInterval(render, 1000);
 }
 
 function sweetAlertOptions(options = {}) {
@@ -5667,7 +5726,7 @@ async function renderAdminSearchIndex() {
 }
 
 function runtimeBucketFields(firewall = {}) {
-  const labels = { general: "站点访问", api: "读取 API", write: "写入请求", auth: "通行证", install: "安装器" };
+  const labels = { general: "站点访问", health: "健康检查", api: "读取 API", write: "写入请求", auth: "通行证", install: "安装器" };
   return Object.entries(labels).map(([key, label]) => {
     const bucket = firewall.policies?.[key] || {};
     return `<fieldset class="runtime-firewall-bucket"><legend>${label}</legend><label>次数<input name="${key}.points" type="number" min="4" max="20000" value="${Number(bucket.points || 0)}" /></label><label>窗口（秒）<input name="${key}.windowSeconds" type="number" min="1" max="86400" value="${Number(bucket.windowSeconds || 0)}" /></label><label>封禁（秒）<input name="${key}.blockSeconds" type="number" min="1" max="86400" value="${Number(bucket.blockSeconds || 0)}" /></label></fieldset>`;
@@ -5726,7 +5785,7 @@ async function renderAdminRuntime() {
   });
   document.querySelector("#runtimeFirewallForm")?.addEventListener("submit", async (event) => {
     event.preventDefault(); const form = event.currentTarget; const formData = new FormData(form); const firewallInput = { enabled: form.elements.enabled.checked, trustedProxy: form.elements.trustedProxy.checked, maxBodyBytes: Number(formData.get("maxBodyBytes")) };
-    ["general", "api", "write", "auth", "install"].forEach((key) => { firewallInput[key] = { points: Number(formData.get(`${key}.points`)), windowSeconds: Number(formData.get(`${key}.windowSeconds`)), blockSeconds: Number(formData.get(`${key}.blockSeconds`)) }; });
+    ["general", "health", "api", "write", "auth", "install"].forEach((key) => { firewallInput[key] = { points: Number(formData.get(`${key}.points`)), windowSeconds: Number(formData.get(`${key}.windowSeconds`)), blockSeconds: Number(formData.get(`${key}.blockSeconds`)) }; });
     const firewallStatus = document.querySelector("#runtimeFirewallStatus"); firewallStatus.textContent = "保存中...";
     try { await api("/api/admin/runtime/firewall", { method: "PUT", body: JSON.stringify({ firewall: firewallInput }) }); firewallStatus.textContent = "请求防护策略已保存。"; } catch (error) { firewallStatus.textContent = error.message; }
   });
@@ -6647,7 +6706,22 @@ async function renderAdminPlugins(page = 1, query = "") {
   });
 }
 function renderError(error) {
-  el.main.innerHTML = `<section class="empty-state"><h1>加载失败</h1><p>${escapeHtml(error.message)}</p></section>`;
+  if (error?.code === "rate_limited") {
+    showFirewallNotice(error.retryAfter || 0);
+    return;
+  }
+  const statusCode = Number(error?.statusCode || 0);
+  const missing = statusCode === 404;
+  const tooLarge = error?.code === "body_too_large";
+  const title = missing ? "未找到这个入口" : tooLarge ? "这次提交需要精简" : "连接暂时中断";
+  const copy = missing
+    ? "该词条、协作资源或功能入口可能已被移动、归档或尚未创建。"
+    : tooLarge
+      ? "提交内容超过站点当前允许的大小。请移除不必要内容后重新提交。"
+      : (error?.message || "请求未能完成，请稍后重试。");
+  const code = missing ? "404 / KNOWLEDGE ROUTE" : tooLarge ? "413 / PAYLOAD LIMIT" : `ERROR / ${statusCode || "NETWORK"}`;
+  el.main.innerHTML = `<section class="wikist-route-state ${missing ? "is-missing" : ""}"><div class="wikist-route-state-grid" aria-hidden="true"></div><article><span class="wikist-system-mark" aria-hidden="true">${missing ? "?" : "!"}</span><p class="wikist-system-kicker">${escapeHtml(code)}</p><h1>${escapeHtml(title)}</h1><p>${escapeHtml(copy)}</p><div class="wikist-route-state-actions"><a class="command-button" href="#/page/${encodeSlug(state.site?.defaultPage || "home")}">返回首页</a>${missing ? '<a class="command-button secondary" href="#/search">搜索词条</a>' : '<button class="command-button secondary" type="button" data-route-retry>重新尝试</button>'}</div></article></section>`;
+  el.main.querySelector("[data-route-retry]")?.addEventListener("click", () => route());
 }
 
 function beginRouteTransition() {

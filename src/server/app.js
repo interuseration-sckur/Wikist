@@ -219,8 +219,8 @@ function serveIndexHtml(req, res, indexPath, config) {
   const icon = siteIconUrl(config);
   const siteName = configuredSiteName(config);
   const html = fs.readFileSync(indexPath, "utf8")
-    .replace(/href="\/assets\/styles\.css\?v=wikist-core-20260712-93"/g, `href="${escapeHtml(assetUrl(config, "/assets/styles.css?v=wikist-core-20260712-93"))}"`)
-    .replace(/src="\/assets\/app\.js\?v=wikist-core-20260712-93"/g, `src="${escapeHtml(assetUrl(config, "/assets/app.js?v=wikist-core-20260712-93"))}"`)
+    .replace(/href="\/assets\/styles\.css\?v=wikist-core-20260712-96"/g, `href="${escapeHtml(assetUrl(config, "/assets/styles.css?v=wikist-core-20260712-96"))}"`)
+    .replace(/src="\/assets\/app\.js\?v=wikist-core-20260712-96"/g, `src="${escapeHtml(assetUrl(config, "/assets/app.js?v=wikist-core-20260712-96"))}"`)
     .replace(/href="\/assets\/wikist-emblem\.svg"/g, `href="${escapeHtml(icon)}"`)
     .replace(/src="\/assets\/wikist-emblem\.svg"/g, `src="${escapeHtml(icon)}"`)
     .replace(/<title>Wikist<\/title>/, `<title>${escapeHtml(siteName)}</title>`)
@@ -663,6 +663,48 @@ function knowledgeWrite(passport, page, session, options = {}) {
   return { links: linkSync.links, notifications, followerNotifications };
 }
 
+function requestPrefersHtml(req) {
+  const accept = String(req?.headers?.accept || "").toLowerCase();
+  return accept.includes("text/html") && !accept.includes("application/json");
+}
+
+function systemStatusDocument({ statusCode = 500, title = "服务暂时不可用", copy = "请求暂时无法完成，请稍后再试。", kicker = "WIKIST SYSTEM STATE", retryAfter = 0 } = {}) {
+  const retry = Math.max(0, Number(retryAfter) || 0);
+  const warning = Number(statusCode) === 404 ? "#38e8ff" : "#ffd166";
+  const action = retry ? `<p class="countdown">冷却时间 <strong>${retry}s</strong></p>` : "";
+  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title><style>:root{color-scheme:dark light}*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px;background:#07100e;background-image:linear-gradient(rgba(56,232,255,.07) 1px,transparent 1px),linear-gradient(90deg,rgba(56,232,255,.07) 1px,transparent 1px);background-size:44px 44px;color:#eaf7f0;font:16px/1.6 system-ui,-apple-system,"Segoe UI",sans-serif}.panel{width:min(580px,100%);padding:clamp(28px,6vw,48px);border:1px solid ${warning};border-radius:12px;background:linear-gradient(135deg,color-mix(in srgb,${warning} 10%,transparent),transparent 42%),rgba(11,23,20,.94);box-shadow:0 28px 90px rgba(0,0,0,.44)}.mark{display:grid;width:52px;height:52px;place-items:center;border:1px solid ${warning};border-radius:50%;color:${warning};font:800 24px/1 ui-monospace,Consolas,monospace}.eyebrow{margin:20px 0 5px;color:${warning};font:700 12px/1.2 ui-monospace,Consolas,monospace;letter-spacing:.08em}h1{margin:0;font-size:clamp(28px,5vw,42px);line-height:1.1;letter-spacing:0}p{color:#abc4ba}.countdown{display:flex;align-items:baseline;justify-content:space-between;gap:16px;padding:12px 14px;border:1px solid rgba(56,232,255,.3);border-radius:8px;background:rgba(56,232,255,.06);color:#cde5dc}.countdown strong{color:#38e8ff;font:800 22px ui-monospace,Consolas,monospace}a{display:inline-flex;align-items:center;justify-content:center;min-height:42px;margin-top:12px;padding:0 18px;border:1px solid #7cffb4;border-radius:7px;color:#eaf7f0;text-decoration:none;background:rgba(124,255,180,.08)}a:hover{background:rgba(124,255,180,.16)}</style></head><body><main class="panel"><div class="mark">${Number(statusCode) === 404 ? "?" : "&#9670;"}</div><p class="eyebrow">${kicker}</p><h1>${title}</h1><p>${copy}</p>${action}<a href="/">返回首页</a></main></body></html>`;
+}
+
+function sendWikistStatus(req, res, { statusCode = 500, error, title, copy, kicker, retryAfter = 0, code } = {}) {
+  if (requestPrefersHtml(req)) {
+    sendText(res, statusCode, systemStatusDocument({ statusCode, title, copy, kicker, retryAfter }), "text/html; charset=utf-8");
+    return;
+  }
+  sendJson(res, statusCode, { error: error || title || "请求未能完成。", retryAfter: Math.max(0, Number(retryAfter) || 0), code });
+}
+
+function firewallBlockDocument(result = {}) {
+  const retryAfter = Math.max(0, Number(result.retryAfter) || 0);
+  const title = Number(result.statusCode) === 413 ? "请求内容需要精简" : "请求保护已启用";
+  const copy = Number(result.statusCode) === 413
+    ? "这次提交超过了站点当前允许的大小。请移除不必要内容后再提交。"
+    : (retryAfter ? `为保持知识库稳定，请在 ${retryAfter} 秒后再继续操作。` : "为保持知识库稳定，请稍后再继续操作。");
+  const action = retryAfter ? `<p class="countdown">冷却时间 <strong>${retryAfter}s</strong></p>` : "";
+  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title><style>:root{color-scheme:dark light}*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px;background:#07100e;background-image:linear-gradient(rgba(56,232,255,.07) 1px,transparent 1px),linear-gradient(90deg,rgba(56,232,255,.07) 1px,transparent 1px);background-size:44px 44px;color:#eaf7f0;font:16px/1.6 system-ui,-apple-system,"Segoe UI",sans-serif}.panel{width:min(540px,100%);padding:32px;border:1px solid rgba(255,209,102,.48);border-radius:10px;background:rgba(11,23,20,.94);box-shadow:0 22px 70px rgba(0,0,0,.4)}.mark{display:grid;width:48px;height:48px;place-items:center;border:1px solid #ffd166;border-radius:50%;color:#ffd166;font-size:24px}.eyebrow{margin:18px 0 4px;color:#ffd166;font:700 12px/1.2 ui-monospace,Consolas,monospace;letter-spacing:.08em}h1{margin:0;font-size:clamp(26px,5vw,38px);letter-spacing:0}p{color:#abc4ba}.countdown{padding:10px 12px;border:1px solid rgba(56,232,255,.28);border-radius:7px;background:rgba(56,232,255,.06);color:#cde5dc}.countdown strong{color:#38e8ff;font:700 20px ui-monospace,Consolas,monospace}a{display:inline-flex;align-items:center;justify-content:center;min-height:42px;margin-top:10px;padding:0 18px;border:1px solid #7cffb4;border-radius:7px;color:#eaf7f0;text-decoration:none;background:rgba(124,255,180,.08)}a:hover{background:rgba(124,255,180,.16)}</style></head><body><main class="panel"><div class="mark">&#9670;</div><p class="eyebrow">WIKIST REQUEST PROTECTION</p><h1>${title}</h1><p>${copy}</p>${action}<a href="/">返回首页</a></main></body></html>`;
+}
+
+function sendFirewallBlock(req, res, result) {
+  if (requestPrefersHtml(req)) {
+    sendText(res, result.statusCode || 429, firewallBlockDocument(result), "text/html; charset=utf-8");
+    return;
+  }
+  sendJson(res, result.statusCode || 429, {
+    error: result.reason || "请求保护已启用。",
+    retryAfter: result.retryAfter || 0,
+    code: Number(result.statusCode) === 413 ? "body_too_large" : "rate_limited",
+  });
+}
+
 function createWikistServer(options) {
   const rootDir = options.rootDir;
   const publicDir = path.join(rootDir, "public");
@@ -741,7 +783,7 @@ function createWikistServer(options) {
       const firewallResult = firewall.evaluate(req, pathname);
       firewall.applyHeaders(res, firewallResult);
       if (!firewallResult.allowed) {
-        sendJson(res, firewallResult.statusCode || 429, { error: firewallResult.reason, retryAfter: firewallResult.retryAfter || 0 });
+        sendFirewallBlock(req, res, firewallResult);
         return;
       }
       const session = passport ? passport.authenticate(req) : null;
@@ -3005,6 +3047,17 @@ function createWikistServer(options) {
         return;
       }
 
+      if (pathname.startsWith("/api/")) {
+        sendWikistStatus(req, res, {
+          statusCode: 404,
+          error: "未找到该 API 入口。",
+          title: "未找到这个接口",
+          copy: "该接口可能已迁移、拼写有误，或当前版本尚未提供。",
+          kicker: "404 / WIKIST API",
+          code: "api_not_found",
+        });
+        return;
+      }
 
       if (pathname.startsWith("/plugins/")) {
         const pluginAssetPath = safeJoin(path.join(rootDir, "plugins"), stripPrefix(pathname, "/plugins/"));
@@ -3012,6 +3065,17 @@ function createWikistServer(options) {
         const allowed = new Set([".js", ".mjs", ".css", ".svg", ".png", ".jpg", ".jpeg", ".webp"]);
         if (!pluginAssetPath || !allowed.has(ext)) {
           sendText(res, 403, "禁止访问");
+          return;
+        }
+        if (!fs.existsSync(pluginAssetPath)) {
+          sendWikistStatus(req, res, {
+            statusCode: 404,
+            error: "插件资源不存在。",
+            title: "未找到插件资源",
+            copy: "该插件资源可能尚未安装、已被移除，或地址已经改变。",
+            kicker: "404 / PLUGIN ASSET",
+            code: "plugin_asset_not_found",
+          });
           return;
         }
         const pluginCache = /\.(css|m?js)$/i.test(pluginAssetPath)
@@ -3037,6 +3101,17 @@ function createWikistServer(options) {
           sendText(res, 403, "禁止访问");
           return;
         }
+        if (!fs.existsSync(uploadPath)) {
+          sendWikistStatus(req, res, {
+            statusCode: 404,
+            error: "上传资源不存在。",
+            title: "未找到上传资源",
+            copy: "该图片或站点资源可能已被删除，或地址已经改变。",
+            kicker: "404 / UPLOAD ASSET",
+            code: "upload_not_found",
+          });
+          return;
+        }
         serveStatic(res, uploadPath, { req, cacheControl: "public, max-age=86400, must-revalidate" });
         return;
       }
@@ -3045,6 +3120,17 @@ function createWikistServer(options) {
         const assetPath = safeJoin(publicDir, pathname);
         if (!assetPath) {
           sendText(res, 403, "禁止访问");
+          return;
+        }
+        if (!fs.existsSync(assetPath)) {
+          sendWikistStatus(req, res, {
+            statusCode: 404,
+            error: "站点资源不存在。",
+            title: "未找到站点资源",
+            copy: "资源可能尚未同步完成，或当前页面仍引用旧版本文件。",
+            kicker: "404 / WIKIST ASSET",
+            code: "asset_not_found",
+          });
           return;
         }
         const versioned = url.searchParams.has("v");
@@ -3064,9 +3150,24 @@ function createWikistServer(options) {
         return;
       }
 
-      sendText(res, 404, "Wikist 缺少 public/index.html。");
+      sendWikistStatus(req, res, {
+        statusCode: 404,
+        error: "Wikist 缺少 public/index.html。",
+        title: "站点入口尚未就绪",
+        copy: "没有找到前端入口文件。请检查安装或更新是否完整。",
+        kicker: "404 / SITE BOOT",
+        code: "site_entry_missing",
+      });
     } catch (error) {
-      sendJson(res, error.statusCode || 500, { error: error.message || "服务器内部错误。" });
+      const statusCode = error.statusCode || 500;
+      sendWikistStatus(req, res, {
+        statusCode,
+        error: error.message || "服务器内部错误。",
+        title: statusCode === 404 ? "未找到这个入口" : "服务暂时中断",
+        copy: error.message || "服务器内部错误。",
+        kicker: `WIKIST ERROR / ${statusCode}`,
+        code: statusCode === 404 ? "not_found" : "server_error",
+      });
     }
   });
 }

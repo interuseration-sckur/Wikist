@@ -1,5 +1,25 @@
 # Changelog
 
+## 2026-07-12 - Responsive Protection States
+
+- Extended the off-canvas navigation and balanced topbar control layout through the tablet transition range, so the sidebar no longer consumes the workspace before compact navigation takes over.
+- Rebuilt article header actions as full-width responsive grids at constrained widths, using the complete action area for quality, favorite, follow, knowledge, collaboration, and rating controls.
+- Replaced in-app rate-limit feedback with a full-screen Wikist protection state that locks the current route, shows a live cooldown, and only permits reconnection after the window ends.
+- Added cinematic route error states in the SPA plus styled direct-browser 404 responses for unknown API, plugin, upload, and core asset paths.
+- Bumped the framework package to `0.12.3` with frontend asset version `wikist-core-20260712-96`.
+
+## 2026-07-12 - Health Probe And Restart Resilience
+
+- Assigned the lightweight public health probe to its own high-threshold firewall scope, so normal maintenance checks do not contend with reader API traffic.
+- Updated `run-wikist-server.cmd --restart` to verify a running Wikist through `/api/health` first, with a legacy site-check fallback, so a rate-limited content API cannot prevent an in-place restart.
+- Bumped the framework package to `0.12.2` with frontend asset version `wikist-core-20260712-95`.
+
+## 2026-07-12 - Request Protection Feedback
+
+- Replaced raw browser-facing rate-limit JSON with a Wikist-styled protection page for direct navigation, including a clear cooldown indicator and return action.
+- Added a shared SPA protection notice with live countdown; all API callers now receive concise, actionable retry text rather than serialized error payloads.
+- Bumped the framework package to `0.12.1` with frontend asset version `wikist-core-20260712-94`.
+
 ## 2026-07-12 - Runtime Reliability, Backup Rehearsal, And Request Protection
 
 - Upgraded Passport SQLite startup to WAL with foreign keys, a configurable busy timeout, normal synchronous mode, automatic WAL checkpoints, health inspection, and consistent `VACUUM INTO` snapshots for live backup downloads.
