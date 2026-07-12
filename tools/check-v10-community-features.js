@@ -134,6 +134,43 @@ try {
     readerDenied = error.statusCode === 403;
   }
 
+  const quotaOwner = register(passport, "v10_quota_owner");
+  const quotaMember = register(passport, "v10_quota_member");
+  const quotaHost = register(passport, "v10_quota_host");
+  const quotaOwnerSession = { user: passport.getUserProfile(quotaOwner.id) };
+  const quotaMemberSession = { user: passport.getUserProfile(quotaMember.id) };
+  const quotaHostSession = { user: passport.getUserProfile(quotaHost.id) };
+  const ownedQuotaOrganizations = [1, 2, 3].map((index) => passport.createOrganization(quotaOwnerSession, {
+    slug: `quota-owned-${index}`,
+    name: `Quota Owned ${index}`,
+  }));
+  const hostedQuotaOrganizations = [1, 2, 3].map((index) => passport.createOrganization(quotaHostSession, {
+    slug: `quota-hosted-${index}`,
+    name: `Quota Hosted ${index}`,
+  }));
+  let createLimitDenied = false;
+  try {
+    passport.createOrganization(quotaOwnerSession, { slug: "quota-owned-4", name: "Quota Owned 4" });
+  } catch (error) {
+    createLimitDenied = error.statusCode === 409;
+  }
+  [...ownedQuotaOrganizations, ...hostedQuotaOrganizations.slice(0, 2)].forEach((item) => {
+    passport.joinOrganization(quotaMemberSession, item.slug, {});
+  });
+  let membershipLimitDenied = false;
+  try {
+    passport.joinOrganization(quotaMemberSession, hostedQuotaOrganizations[2].slug, {});
+  } catch (error) {
+    membershipLimitDenied = error.statusCode === 409;
+  }
+  let membershipLimitBlocksCreation = false;
+  try {
+    passport.createOrganization(quotaMemberSession, { slug: "quota-member-owned", name: "Quota Member Owned" });
+  } catch (error) {
+    membershipLimitBlocksCreation = error.statusCode === 409;
+  }
+  const quotaSnapshot = passport.organizationQuota(quotaMember.id);
+
   const checks = {
     ownerAndRolesPersist: passport.organizationMembership(organization.id, owner.id)?.role === "owner"
       && joinedReviewer.membership.status === "active"
@@ -156,7 +193,9 @@ try {
     organizationHeroAndMemberSearchPersist: updatedOrganization.heroImage === "/uploads/organization/algebra-cover.webp" && updatedOrganization.avatarImage === "/uploads/organization/algebra-avatar.webp"
       && searchedMembers.length === 1 && searchedMembers[0].username === reviewer.username && searchedMemberCount === 1,
     organizationAdminManagementPersists: adminOrganizations.total === 1 && adminOrganizations.items[0].slug === organization.slug
-      && disabledOrganization.status === "disabled" && passport.organizationAdminStats().total === 2,
+      && disabledOrganization.status === "disabled" && passport.organizationAdminStats().total === 8,
+    organizationQuotasAreEnforced: createLimitDenied && membershipLimitDenied && membershipLimitBlocksCreation
+      && quotaSnapshot.created === 0 && quotaSnapshot.memberships === 5 && !quotaSnapshot.canCreate && !quotaSnapshot.canJoin,
     pageConsensusCreatesStableRevision: !pageVoteOne.reachedDecision && pageVoteTwo.reachedDecision === "approve" && pageFinal.finalized && pageFinal.review.isCurrentStable,
     translationConsensusPublishes: !translationVoteOne.reachedDecision && translationVoteTwo.reachedDecision === "approve" && translationFinal.finalized && translationFinal.translation.status === "published",
     communityReviewerCanInspectDraft: reviewerDraft?.id === translation.id,

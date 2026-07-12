@@ -129,23 +129,39 @@ class SearchIndex {
     return settings?.plugins?.advancedSearch || settings?.advancedSearch || {};
   }
 
-  buildDocuments() {
-    const pages = this.pageStore.listPages();
-    const key = pages.map((page) => `${page.slug}|${page.updatedAt || ""}|${page.bytes || 0}`).join("\n");
-    if (key === this.cacheKey) {
-      this.lastBuildCacheHit = true;
-      return this.documents;
-    }
-    this.lastBuildCacheHit = false;
-    this.cacheKey = key;
-    this.documents = pages.map((page) => ({
+  documentForPage(page) {
+    return {
+      signature: `${page.updatedAt || ""}|${page.bytes || 0}`,
       page,
       text: normalizeText(`${page.title}\n${page.summary}\n${page.body}\n${(page.categories || []).join(" ")}`),
       titleTokens: tokenize(page.title),
       summaryTokens: tokenize(page.summary),
       bodyTokens: tokenize(page.body),
       categoryTokens: tokenize((page.categories || []).join(" ")),
-    }));
+    };
+  }
+
+  buildDocuments() {
+    const summaries = typeof this.pageStore.listPageSummaries === "function"
+      ? this.pageStore.listPageSummaries()
+      : this.pageStore.listPages();
+    const key = summaries.map((page) => `${page.slug}|${page.updatedAt || ""}|${page.bytes || 0}`).join("\n");
+    if (key === this.cacheKey) {
+      this.lastBuildCacheHit = true;
+      return this.documents;
+    }
+    this.lastBuildCacheHit = false;
+    this.cacheKey = key;
+    const existing = new Map(this.documents.map((document) => [document.page.slug, document]));
+    this.documents = summaries.map((summary) => {
+      const signature = `${summary.updatedAt || ""}|${summary.bytes || 0}`;
+      const cached = existing.get(summary.slug);
+      if (cached?.signature === signature) return cached;
+      const page = typeof this.pageStore.getPageSearchDocument === "function"
+        ? this.pageStore.getPageSearchDocument(summary.slug)
+        : (typeof this.pageStore.getPage === "function" ? this.pageStore.getPage(summary.slug) : summary);
+      return this.documentForPage(page);
+    });
     return this.documents;
   }
 
@@ -178,7 +194,10 @@ class SearchIndex {
       error.statusCode = 409;
       throw error;
     }
-    const status = this.persistentIndex.rebuild(this.pageStore.listPages());
+    const summaries = typeof this.pageStore.listPageSummaries === "function" ? this.pageStore.listPageSummaries() : this.pageStore.listPages();
+    const status = this.persistentIndex.rebuild(summaries.map((page) => (
+      typeof this.pageStore.getPageSearchDocument === "function" ? this.pageStore.getPageSearchDocument(page.slug) : page
+    )).filter(Boolean));
     this.cacheKey = "";
     return status;
   }
@@ -189,7 +208,10 @@ class SearchIndex {
       error.statusCode = 409;
       throw error;
     }
-    const status = this.persistentIndex.recover(this.pageStore.listPages());
+    const summaries = typeof this.pageStore.listPageSummaries === "function" ? this.pageStore.listPageSummaries() : this.pageStore.listPages();
+    const status = this.persistentIndex.recover(summaries.map((page) => (
+      typeof this.pageStore.getPageSearchDocument === "function" ? this.pageStore.getPageSearchDocument(page.slug) : page
+    )).filter(Boolean));
     this.cacheKey = "";
     return status;
   }

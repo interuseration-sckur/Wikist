@@ -290,6 +290,72 @@ select {
   pointer-events: none;
 }
 
+.wikist-route-loader {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 8px;
+  color: var(--text);
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
+  backdrop-filter: blur(8px);
+  pointer-events: none;
+}
+
+.wikist-route-loader[hidden] {
+  display: none;
+}
+
+.wikist-route-loader-core {
+  position: relative;
+  width: 88px;
+  height: 88px;
+  display: grid;
+  place-items: center;
+  margin-bottom: 8px;
+}
+
+.wikist-route-loader-core i {
+  position: absolute;
+  inset: 5px;
+  border: 1px solid color-mix(in srgb, var(--cyan) 70%, transparent);
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: wikist-route-orbit 1.05s linear infinite;
+}
+
+.wikist-route-loader-core i:nth-child(2) {
+  inset: 16px;
+  border-color: color-mix(in srgb, var(--green) 72%, transparent);
+  border-bottom-color: transparent;
+  animation-direction: reverse;
+  animation-duration: .72s;
+}
+
+.wikist-route-loader-core span {
+  font: 800 1.05rem/1 system-ui, sans-serif;
+  color: var(--cyan);
+  text-shadow: 0 0 18px color-mix(in srgb, var(--cyan) 55%, transparent);
+}
+
+.wikist-route-loader > strong {
+  font-size: .96rem;
+}
+
+.wikist-route-loader > small {
+  color: var(--muted);
+}
+
+@keyframes wikist-route-orbit {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wikist-route-loader-core i { animation: none; }
+}
+
 .article-head {
   display: grid;
   gap: 18px;

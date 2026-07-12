@@ -50,6 +50,8 @@ const ORGANIZATION_MEMBER_ROLES = ["member", "writer", "translator", "reviewer",
 const ORGANIZATION_ROLE_RANK = Object.fromEntries(ORGANIZATION_MEMBER_ROLES.map((role, index) => [role, index]));
 const ORGANIZATION_TASK_TYPES = ["write", "translate", "review"];
 const ORGANIZATION_TASK_STATUSES = ["open", "claimed", "ready", "closed"];
+const ORGANIZATION_CREATE_LIMIT = 3;
+const ORGANIZATION_MEMBERSHIP_LIMIT = 5;
 
 function nowIso() {
   return new Date().toISOString();
@@ -3322,8 +3324,33 @@ class PassportStore {
     return { total: Number(row.total || 0), active: Number(row.active || 0), disabled: Number(row.disabled || 0) };
   }
 
+  organizationQuota(userId) {
+    const id = Number(userId);
+    const created = Number(this.db.prepare(`
+      SELECT count(*) AS n FROM writing_organizations
+      WHERE created_by = ? AND status = 'active'
+    `).get(id)?.n || 0);
+    const memberships = Number(this.db.prepare(`
+      SELECT count(*) AS n
+      FROM organization_members m
+      JOIN writing_organizations o ON o.id = m.organization_id
+      WHERE m.user_id = ? AND m.status IN ('active', 'pending') AND o.status = 'active'
+    `).get(id)?.n || 0);
+    return {
+      created,
+      createLimit: ORGANIZATION_CREATE_LIMIT,
+      memberships,
+      membershipLimit: ORGANIZATION_MEMBERSHIP_LIMIT,
+      canCreate: created < ORGANIZATION_CREATE_LIMIT && memberships < ORGANIZATION_MEMBERSHIP_LIMIT,
+      canJoin: memberships < ORGANIZATION_MEMBERSHIP_LIMIT,
+    };
+  }
+
   createOrganization(session, input = {}) {
     if (!session?.user) throw accessError('请先登录后创建协作组织。', 401);
+    const quota = this.organizationQuota(session.user.id);
+    if (quota.created >= quota.createLimit) throw accessError(`每名用户最多创建 ${quota.createLimit} 个活跃协作组织。`, 409);
+    if (quota.memberships >= quota.membershipLimit) throw accessError(`每名用户最多加入 ${quota.membershipLimit} 个活跃或待审核组织，请先退出一个组织。`, 409);
     const slug = normalizeOrganizationSlug(input.slug || input.name);
     const name = cleanText(input.name || slug, 90);
     if (!name) throw accessError('组织名称不能为空。', 400);
@@ -3380,13 +3407,19 @@ class PassportStore {
     if (!session?.user) throw accessError('请先登录后加入协作组织。', 401);
     const organization = this.organizationBySlug(slug);
     if (!organization || organization.status !== 'active') throw accessError('协作组织不存在或已停用。', 404);
+    const existing = this.organizationMembership(organization.id, session.user.id);
+    if (existing && ['active', 'pending'].includes(existing.status)) {
+      return { organization, membership: existing, quota: this.organizationQuota(session.user.id) };
+    }
+    const quota = this.organizationQuota(session.user.id);
+    if (quota.memberships >= quota.membershipLimit) throw accessError(`每名用户最多加入 ${quota.membershipLimit} 个活跃或待审核组织，请先退出一个组织。`, 409);
     const intro = cleanText(input.intro, 500);
     const status = organization.visibility === 'request' ? 'pending' : 'active';
     const now = nowIso();
     this.db.prepare(`
       INSERT INTO organization_members (organization_id, user_id, role, status, intro, joined_at, updated_at)
       VALUES (?, ?, 'member', ?, ?, ?, ?)
-      ON CONFLICT(organization_id, user_id) DO UPDATE SET intro = excluded.intro, updated_at = excluded.updated_at
+      ON CONFLICT(organization_id, user_id) DO UPDATE SET role = 'member', status = excluded.status, intro = excluded.intro, joined_at = excluded.joined_at, updated_at = excluded.updated_at
     `).run(organization.id, session.user.id, status, intro, now, now);
     const membership = this.organizationMembership(organization.id, session.user.id);
     if (status === 'pending') {
@@ -3410,7 +3443,7 @@ class PassportStore {
         sourceLabel: '查看组织首页',
       });
     }
-    return { organization, membership };
+    return { organization, membership, quota: this.organizationQuota(session.user.id) };
   }
 
   updateOrganizationMember(session, slug, userId, input = {}) {
@@ -3420,6 +3453,10 @@ class PassportStore {
     if (!member) throw accessError('组织成员不存在。', 404);
     const nextRole = normalizeOrganizationRole(input.role || member.role, member.role);
     const nextStatus = ['active', 'pending', 'removed'].includes(input.status) ? input.status : member.status;
+    if (member.status === 'removed' && ['active', 'pending'].includes(nextStatus)) {
+      const quota = this.organizationQuota(userId);
+      if (quota.memberships >= quota.membershipLimit) throw accessError(`该用户已达到 ${quota.membershipLimit} 个组织身份上限。`, 409);
+    }
     if (nextRole === 'owner' && actor.membership.role !== 'owner') throw accessError('只有组织所有者可以授予所有者角色。', 403);
     if (member.role === 'owner' && nextRole !== 'owner') {
       const ownerCount = Number(this.db.prepare("SELECT count(*) AS n FROM organization_members WHERE organization_id = ? AND role = 'owner' AND status = 'active'").get(organization.id).n || 0);

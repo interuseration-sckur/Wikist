@@ -219,8 +219,8 @@ function serveIndexHtml(req, res, indexPath, config) {
   const icon = siteIconUrl(config);
   const siteName = configuredSiteName(config);
   const html = fs.readFileSync(indexPath, "utf8")
-    .replace(/href="\/assets\/styles\.css\?v=wikist-core-20260712-98"/g, `href="${escapeHtml(assetUrl(config, "/assets/styles.css?v=wikist-core-20260712-98"))}"`)
-    .replace(/src="\/assets\/app\.js\?v=wikist-core-20260712-98"/g, `src="${escapeHtml(assetUrl(config, "/assets/app.js?v=wikist-core-20260712-98"))}"`)
+    .replace(/href="\/assets\/styles\.css\?v=wikist-core-20260712-100"/g, `href="${escapeHtml(assetUrl(config, "/assets/styles.css?v=wikist-core-20260712-100"))}"`)
+    .replace(/src="\/assets\/app\.js\?v=wikist-core-20260712-100"/g, `src="${escapeHtml(assetUrl(config, "/assets/app.js?v=wikist-core-20260712-100"))}"`)
     .replace(/href="\/assets\/wikist-emblem\.svg"/g, `href="${escapeHtml(icon)}"`)
     .replace(/src="\/assets\/wikist-emblem\.svg"/g, `src="${escapeHtml(icon)}"`)
     .replace(/<title>Wikist<\/title>/, `<title>${escapeHtml(siteName)}</title>`)
@@ -646,7 +646,7 @@ function pageWithAlias(page, requestedSlug, alias) {
 }
 
 function knowledgeSnapshot(passport, pages, config) {
-  return passport.knowledgeSnapshot(pages.listPages(), { defaultSlug: config.defaultPage || "home" });
+  return passport.knowledgeSnapshot(pages.listPageSummaries(), { defaultSlug: config.defaultPage || "home" });
 }
 
 function knowledgeWrite(passport, page, session, options = {}) {
@@ -1052,7 +1052,7 @@ function createWikistServer(options) {
           limit: pagination.limit,
           offset: pagination.offset,
         });
-        const allPages = pages.listPages();
+        const allPages = pages.listPageSummaries();
         const pageMap = new Map(allPages.map((page) => [page.slug, page]));
         const enriched = items.map((watch) => {
           const page = watch.targetType === "page" ? pageMap.get(watch.targetKey) : null;
@@ -1133,7 +1133,10 @@ function createWikistServer(options) {
         }
         const pagination = readPagination(url, 12, 60);
         const result = passport.listOrganizations({ query: url.searchParams.get("q") || "", limit: pagination.limit, offset: pagination.offset });
-        sendJson(res, 200, paginationPayload(result.items, result.total, pagination));
+        sendJson(res, 200, {
+          ...paginationPayload(result.items, result.total, pagination),
+          quota: session?.user ? passport.organizationQuota(session.user.id) : null,
+        });
         return;
       }
 
@@ -1144,7 +1147,7 @@ function createWikistServer(options) {
         }
         const organization = passport.createOrganization(session, await readJsonBody(req));
         recordAudit(passport, req, session, { action: "organization.create", targetType: "organization", targetId: organization.slug, targetLabel: organization.name, summary: "创建协作组织" });
-        sendJson(res, 200, { organization });
+        sendJson(res, 200, { organization, quota: passport.organizationQuota(session.user.id) });
         return;
       }
 
@@ -1166,6 +1169,7 @@ function createWikistServer(options) {
           membership: member,
           members: passport.listOrganizationMembers(organization.id, { limit: 8, offset: 0 }),
           memberCount: passport.countOrganizationMembers(organization.id),
+          quota: session?.user ? passport.organizationQuota(session.user.id) : null,
         });
         return;
       }
@@ -1847,7 +1851,7 @@ function createWikistServer(options) {
         requireDashboard(passport, session);
         const pagination = readPagination(url, 20, 100);
         const query = String(url.searchParams.get("q") || "").trim().toLowerCase();
-        const allPages = pages.listPages().map((page) => ({
+        const allPages = pages.listPageSummaries().map((page) => ({
           slug: page.slug, title: page.title, summary: page.summary, categories: page.categories,
           difficulty: page.difficulty, status: page.status, quality: page.quality, author: page.author,
           updatedAt: page.updatedAt, bytes: page.bytes, permissions: passport.getPagePermissions(page.slug),
@@ -1866,7 +1870,7 @@ function createWikistServer(options) {
         const pagination = readPagination(url, 20, 100);
         const mode = String(url.searchParams.get("mode") || "needs-review");
         const query = String(url.searchParams.get("q") || "").trim().toLowerCase();
-        const all = pages.listPages().map((page) => ({
+        const all = pages.listPageSummaries().map((page) => ({
           slug: page.slug,
           title: page.title,
           summary: page.summary,
@@ -1904,7 +1908,7 @@ function createWikistServer(options) {
         const pagination = readPagination(url, 20, 100);
         const mode = String(url.searchParams.get("mode") || "pending");
         const query = String(url.searchParams.get("q") || "").trim().toLowerCase();
-        const allPages = pages.listPages();
+        const allPages = pages.listPageSummaries();
         const reviews = passport.getPageReviewStates(allPages);
         const reviewBySlug = new Map(reviews.map((review) => [review.pageSlug, review]));
         const all = allPages.map((page) => ({
@@ -2188,7 +2192,7 @@ function createWikistServer(options) {
 
       if (pathname === "/api/knowledge" && req.method === "GET") {
         if (!passport) {
-          sendJson(res, 200, { stats: { pages: pages.listPages().length, links: 0, backlinks: 0, missing: 0, orphans: 0, aliases: 0, categories: 0 }, missing: [], orphans: [], categories: [] });
+          sendJson(res, 200, { stats: { pages: pages.listPageSummaries().length, links: 0, backlinks: 0, missing: 0, orphans: 0, aliases: 0, categories: 0 }, missing: [], orphans: [], categories: [] });
           return;
         }
         const snapshot = knowledgeSnapshot(passport, pages, config);
@@ -2225,7 +2229,7 @@ function createWikistServer(options) {
       }
 
       if (pathname === "/api/pages" && req.method === "GET") {
-        sendJson(res, 200, pages.listPages().map((page) => ({
+        const items = pages.listPageSummaries().map((page) => ({
           slug: page.slug,
           title: page.title,
           summary: page.summary,
@@ -2237,7 +2241,13 @@ function createWikistServer(options) {
           citationStats: page.citationStats,
           updatedAt: page.updatedAt,
           bytes: page.bytes,
-        })));
+        }));
+        if (url.searchParams.has("page") || url.searchParams.has("limit")) {
+          const pagination = readPagination(url, 200, 500);
+          sendJson(res, 200, paginationPayload(items.slice(pagination.offset, pagination.offset + pagination.limit), items.length, pagination));
+        } else {
+          sendJson(res, 200, items);
+        }
         return;
       }
 
@@ -2264,7 +2274,7 @@ function createWikistServer(options) {
           outgoingPage: Math.max(1, Number(url.searchParams.get("outgoingPage")) || 1),
         };
         const knowledge = passport
-          ? passport.pageKnowledge(resolved.page.slug, pages.listPages(), linkOptions)
+          ? passport.pageKnowledge(resolved.page.slug, pages.listPageSummaries(), linkOptions)
           : {
             pageSlug: resolved.page.slug,
             outgoing: [],
@@ -2975,7 +2985,7 @@ function createWikistServer(options) {
           });
           editEvent = audit.event;
           setCookieHeader(res, audit.cookie);
-          if (managesAliases) passport.syncPageAliases(session, page, body.aliases, pages.listPages().map((item) => item.slug));
+          if (managesAliases) passport.syncPageAliases(session, page, body.aliases, pages.listPageSummaries().map((item) => item.slug));
           knowledge = knowledgeWrite(passport, page, session, {
             action: existing ? "update" : "create",
             senderName: body.author || "",
@@ -3008,7 +3018,7 @@ function createWikistServer(options) {
       }
 
       if (pathname === "/api/categories" && req.method === "GET") {
-        const pageList = pages.listPages();
+        const pageList = pages.listPageSummaries();
         const requested = url.searchParams.get("name") || "";
         const query = String(url.searchParams.get("q") || "").trim().toLocaleLowerCase();
         if (requested) {
@@ -3034,7 +3044,7 @@ function createWikistServer(options) {
       }
 
       if (pathname === "/api/topics" && req.method === "GET") {
-        const pageList = pages.listPages();
+        const pageList = pages.listPageSummaries();
         const requested = url.searchParams.get("name") || "";
         if (requested) sendJson(res, 200, topicDetail(pageList, requested));
         else sendJson(res, 200, { topics: categorySnapshot(pageList).rootTopicItems });

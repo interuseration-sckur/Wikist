@@ -40,9 +40,17 @@ const PROTECTED_PATHS = [
   "public/uploads",
 ];
 
-function bin(name) {
-  if (process.platform === "win32" && name === "npm") return "npm.cmd";
-  return name;
+function npmInvocation(args) {
+  if (process.platform !== "win32") return { command: "npm", args };
+  const candidates = [path.join(path.dirname(process.execPath), "node_modules", "npm", "bin", "npm-cli.js")];
+  try {
+    const npmCommand = childProcess.execFileSync("where.exe", ["npm.cmd"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] })
+      .split(/\r?\n/).map((item) => item.trim()).find(Boolean);
+    if (npmCommand) candidates.push(path.join(path.dirname(npmCommand), "node_modules", "npm", "bin", "npm-cli.js"));
+  } catch (_error) {}
+  const npmCli = candidates.find((candidate) => fs.existsSync(candidate));
+  if (!npmCli) throw new Error("Unable to locate npm-cli.js beside the active Windows Node.js installation.");
+  return { command: process.execPath, args: [npmCli, ...args] };
 }
 
 function gitArgs(args) {
@@ -286,20 +294,16 @@ function updateFromLocal(options) {
 function installDependencies(options) {
   if (!options.install) return;
   if (!fs.existsSync(path.join(rootDir, "package.json"))) return;
-  run(bin("npm"), ["install", "--omit=dev"], options);
+  const invocation = npmInvocation(["install", "--omit=dev"]);
+  run(invocation.command, invocation.args, options);
 }
 
 function runChecks(options) {
   if (!options.check) return;
-  run(bin("npm"), ["run", "check"], options);
-  run(bin("npm"), ["run", "check:search"], options);
-  run(bin("npm"), ["run", "check:hooks"], options);
-  run(bin("npm"), ["run", "check:knowledge"], options);
-  run(bin("npm"), ["run", "check:citations"], options);
-  run(bin("npm"), ["run", "check:reviews"], options);
-  run(bin("npm"), ["run", "check:v08"], options);
-  run(bin("npm"), ["run", "check:v09"], options);
-  run(bin("npm"), ["run", "check:v10"], options);
+  for (const script of ["check", "check:performance", "check:search", "check:hooks", "check:knowledge", "check:citations", "check:reviews", "check:v08", "check:v09", "check:v10"]) {
+    const invocation = npmInvocation(["run", script]);
+    run(invocation.command, invocation.args, options);
+  }
 }
 
 function assertConfirmation(options) {

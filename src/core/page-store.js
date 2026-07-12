@@ -1,7 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 const { parseFrontMatter, serializeFrontMatter } = require("./frontmatter");
-const { normalizeReferences } = require("./citations");
+const { normalizeReferences, referenceQuality } = require("./citations");
 const { renderMarkdown } = require("./markdown");
 const { revisionIdFromDate } = require("./revision-review");
 const { fileNameToSlug, normalizeSlug, slugToFileName } = require("./slug");
@@ -80,6 +80,35 @@ function normalizeTopic(value) {
   return String(value || "").trim().replace(/\s*\/\s*/g, "/").replace(/^\/+|\/+$/g, "").slice(0, 180);
 }
 
+function lightweightCitationStats(body, references) {
+  const referenceList = Array.isArray(references) ? references : [];
+  const known = new Set(referenceList.map((reference) => reference.id));
+  const cited = new Set();
+  const unresolved = new Set();
+  for (const group of String(body || "").matchAll(/\[([^\]\n]*@[a-z0-9][a-z0-9._:-]*[^\]\n]*)\]/gi)) {
+    for (const match of group[1].matchAll(/@([a-z0-9][a-z0-9._:-]*)/gi)) {
+      const id = String(match[1] || "").toLowerCase();
+      if (known.has(id)) cited.add(id);
+      else unresolved.add(id);
+    }
+  }
+  const qualities = referenceList.map((reference) => ({ id: reference.id, ...referenceQuality(reference) }));
+  const complete = qualities.filter((item) => !item.issues.length).length;
+  const total = referenceList.length;
+  return {
+    total,
+    cited: cited.size,
+    uncited: Math.max(0, total - cited.size),
+    verifiable: qualities.filter((item) => item.verifiable).length,
+    complete,
+    completeness: total ? Math.round((complete / total) * 100) : 0,
+    qualityScore: total ? Math.round(qualities.reduce((sum, item) => sum + item.score, 0) / total) : 0,
+    unresolved: [...unresolved],
+    citationNeeded: (String(body || "").match(/\{\{(?:cite-needed|citation needed)(?:\|[^}]*)?\}\}/gi) || []).length,
+    issues: qualities.filter((item) => item.issues.length).map((item) => ({ id: item.id, issues: item.issues, score: item.score })),
+  };
+}
+
 function walkMarkdownFiles(rootDir, currentDir = rootDir, results = []) {
   if (!fs.existsSync(currentDir)) return results;
 
@@ -103,6 +132,12 @@ class PageStore {
     this.reviewedDir = path.join(rootDir, "content", "reviewed");
     this.deletedDir = path.join(rootDir, "content", "deleted");
     this.cache = new Map();
+    this.summaryCache = new Map();
+    this.searchSourceCache = new Map();
+    this.summarySnapshot = [];
+    this.summaryExpiresAt = 0;
+    this.catalogTtlMs = Math.max(500, Number(options.catalogTtlMs) || 5000);
+    this.pageStatTtlMs = Math.max(100, Number(options.pageStatTtlMs) || 1000);
     this.changeListeners = new Set();
     this.config = options;
     this.hiddenPages = new Set((options.hiddenPages || []).map((slug) => normalizeSlug(slug)));
@@ -114,6 +149,10 @@ class PageStore {
 
   clearCache() {
     this.cache.clear();
+    this.summaryCache.clear();
+    this.searchSourceCache.clear();
+    this.summarySnapshot = [];
+    this.summaryExpiresAt = 0;
   }
 
   onChange(listener) {
@@ -123,6 +162,9 @@ class PageStore {
   }
 
   emitChange(type, page) {
+    this.summaryExpiresAt = 0;
+    if (page?.slug) this.searchSourceCache.delete(page.slug);
+    if (type === "delete" && page?.slug) this.summaryCache.delete(page.slug);
     for (const listener of this.changeListeners) {
       try { listener({ type, page }); } catch (_error) {}
     }
@@ -153,9 +195,11 @@ class PageStore {
       return null;
     }
 
-    const stat = fs.statSync(filePath);
     const cached = this.cache.get(normalized);
+    if (cached && Date.now() - Number(cached.checkedAt || 0) < this.pageStatTtlMs) return cached.page;
+    const stat = fs.statSync(filePath);
     if (cached && cached.mtimeMs === stat.mtimeMs) {
+      cached.checkedAt = Date.now();
       return cached.page;
     }
 
@@ -212,8 +256,138 @@ class PageStore {
       meta: parsed.data,
     };
 
-    this.cache.set(normalized, { mtimeMs: stat.mtimeMs, page });
+    this.cache.set(normalized, { mtimeMs: stat.mtimeMs, checkedAt: Date.now(), page });
+    this.summaryCache.set(normalized, { mtimeMs: stat.mtimeMs, summary: this.pageSummaryFromPage(page) });
     return page;
+  }
+
+  pageSummaryFromPage(page) {
+    if (!page) return null;
+    return {
+      slug: page.slug,
+      title: page.title,
+      summary: page.summary,
+      categories: page.categories || [],
+      difficulty: page.difficulty,
+      status: page.status,
+      quality: page.quality,
+      author: page.author,
+      heroImage: page.heroImage || "",
+      importSource: page.importSource || "",
+      importTitle: page.importTitle || "",
+      importLang: page.importLang || "",
+      importRevision: page.importRevision || "",
+      importUrl: page.importUrl || "",
+      importFetchedAt: page.importFetchedAt || "",
+      importLicense: page.importLicense || "",
+      aliases: page.aliases || [],
+      redirectTarget: page.redirectTarget || "",
+      isDisambiguation: Boolean(page.isDisambiguation),
+      disambiguationTargets: page.disambiguationTargets || [],
+      prerequisites: page.prerequisites || [],
+      relatedPages: page.relatedPages || [],
+      canonicalNames: page.canonicalNames || [],
+      notation: page.notation || [],
+      classifications: page.classifications || [],
+      topic: page.topic || "",
+      references: page.references || [],
+      citationStats: page.citationStats,
+      createdAt: page.createdAt,
+      updatedAt: page.updatedAt,
+      revisionId: page.revisionId,
+      bytes: page.bytes,
+    };
+  }
+
+  pageSummaryFromParsed(slug, parsed, stat) {
+    const data = parsed.data || {};
+    const references = normalizeReferences(data.references);
+    return {
+      slug,
+      title: data.title || slug,
+      summary: data.summary || "",
+      categories: Array.isArray(data.categories) ? data.categories : data.categories ? [data.categories] : [],
+      difficulty: data.difficulty || "未分级",
+      status: data.status || "draft",
+      quality: data.quality || "C",
+      author: data.author || "Wikist",
+      heroImage: data.heroImage || data.hero_image || "",
+      importSource: data.importSource || "",
+      importTitle: data.importTitle || "",
+      importLang: data.importLang || "",
+      importRevision: data.importRevision ? String(data.importRevision) : "",
+      importUrl: data.importUrl || "",
+      importFetchedAt: data.importFetchedAt || "",
+      importLicense: data.importLicense || "",
+      aliases: toStringList(data.aliases),
+      redirectTarget: data.redirectTarget || data.redirect_to || "",
+      isDisambiguation: data.disambiguation === true || data.disambiguation === "true",
+      disambiguationTargets: normalizeDisambiguationTargets(data.disambiguationTargets || data.disambiguation_targets),
+      prerequisites: normalizeSlugList(data.prerequisites),
+      relatedPages: normalizeSlugList(data.relatedPages || data.related_pages),
+      canonicalNames: normalizeTextList(data.canonicalNames || data.canonical_names),
+      notation: normalizeNotation(data.notation),
+      classifications: normalizeTextList(data.classifications || data.classification, 24, 100),
+      topic: normalizeTopic(data.topic),
+      references,
+      citationStats: lightweightCitationStats(parsed.body, references),
+      createdAt: data.createdAt || stat.birthtime.toISOString(),
+      updatedAt: data.updatedAt || stat.mtime.toISOString(),
+      revisionId: revisionIdFromDate(data.updatedAt || stat.mtime.toISOString()),
+      bytes: stat.size,
+    };
+  }
+
+  getPageSummary(slug, knownPath = "") {
+    const normalized = normalizeSlug(slug);
+    if (this.hiddenPages.has(normalized)) return null;
+    const filePath = knownPath || this.pagePath(normalized);
+    if (!fs.existsSync(filePath)) return null;
+    const stat = fs.statSync(filePath);
+    const pageCached = this.cache.get(normalized);
+    if (pageCached && pageCached.mtimeMs === stat.mtimeMs) return this.pageSummaryFromPage(pageCached.page);
+    const cached = this.summaryCache.get(normalized);
+    if (cached && cached.mtimeMs === stat.mtimeMs) return cached.summary;
+    const parsed = parseFrontMatter(fs.readFileSync(filePath, "utf8"));
+    const summary = this.pageSummaryFromParsed(normalized, parsed, stat);
+    this.summaryCache.set(normalized, { mtimeMs: stat.mtimeMs, summary });
+    return summary;
+  }
+
+  getPageSearchDocument(slug) {
+    const normalized = normalizeSlug(slug);
+    if (this.hiddenPages.has(normalized)) return null;
+    const filePath = this.pagePath(normalized);
+    if (!fs.existsSync(filePath)) return null;
+    const stat = fs.statSync(filePath);
+    const pageCached = this.cache.get(normalized);
+    if (pageCached && pageCached.mtimeMs === stat.mtimeMs) {
+      return { ...this.pageSummaryFromPage(pageCached.page), body: pageCached.page.body || "" };
+    }
+    const cached = this.searchSourceCache.get(normalized);
+    if (cached && cached.mtimeMs === stat.mtimeMs) return cached.document;
+    const parsed = parseFrontMatter(fs.readFileSync(filePath, "utf8"));
+    const document = { ...this.pageSummaryFromParsed(normalized, parsed, stat), body: parsed.body || "" };
+    this.searchSourceCache.set(normalized, { mtimeMs: stat.mtimeMs, document });
+    this.summaryCache.set(normalized, { mtimeMs: stat.mtimeMs, summary: { ...document, body: undefined } });
+    return document;
+  }
+
+  listPageSummaries() {
+    const now = Date.now();
+    if (this.summarySnapshot.length && now < this.summaryExpiresAt) return this.summarySnapshot.slice();
+    const liveSlugs = new Set();
+    const summaries = walkMarkdownFiles(this.pagesDir).map((filePath) => {
+      const slug = fileNameToSlug(path.relative(this.pagesDir, filePath));
+      liveSlugs.add(slug);
+      return this.getPageSummary(slug, filePath);
+    }).filter(Boolean).sort((a, b) => a.title.localeCompare(b.title, "zh-CN"));
+    for (const slug of this.summaryCache.keys()) {
+      if (!liveSlugs.has(slug)) this.summaryCache.delete(slug);
+    }
+    this.summarySnapshot = summaries;
+    this.summaryExpiresAt = now + this.catalogTtlMs;
+    return summaries.slice();
   }
 
   listPages() {
@@ -228,7 +402,7 @@ class PageStore {
   }
 
   getRecent(limit = 12) {
-    return this.listPages()
+    return this.listPageSummaries()
       .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt))
       .slice(0, limit)
       .map((page) => ({

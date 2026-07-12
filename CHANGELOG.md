@@ -1,5 +1,25 @@
 # Changelog
 
+## 2026-07-12 - Scalable Page Catalog And Route Loading
+
+- Split lightweight page metadata from full Markdown rendering. List, recent, category, topic, knowledge-link, watchlist, review-queue, and alias operations now reuse a five-second incremental metadata catalog instead of rendering every article.
+- Added one-second hot-page stat suppression and per-source search caches. Fallback search incrementally reuses unchanged tokenized documents, while FTS5 rebuild and recovery read source documents without generating article HTML.
+- Made `/api/pages` optionally server-paginated; the browser boot path requests at most 200 summaries plus the true total instead of blocking first paint on an unbounded payload.
+- Added a native theme-aware route loader that works before optional client plugins load, preventing an empty content surface during slow startup or navigation.
+- Added `npm run check:performance`, including a 120-page cold/warm catalog and fallback-search regression fixture. Bumped the framework to `0.13.0` and frontend assets to `wikist-core-20260712-100`.
+
+## 2026-07-12 - Collaboration Organization Quotas
+
+- Limited each account to three active organizations created and five active or pending organization memberships in total, including organizations the account owns.
+- Enforced quotas on creation, joining, removed-member reactivation, and request-based memberships; repeated joins are idempotent and no longer emit duplicate organization messages.
+- Added live quota usage to the Collaboration Community creation panel and disabled the form when either limit is reached.
+- Extended community regression coverage to 18 checks.
+
+## 2026-07-12 - Windows Local Updater Launch
+
+- Fixed the local updater's Windows command execution so `npm.cmd install` and validation scripts run through the platform shell instead of failing with `execFileSync EINVAL` on Node.js 24.
+- Kept all local-strategy runtime protections intact; this correction is included in `0.13.0`.
+
 ## 2026-07-12 - MathJax Display Delimiter Alignment
 
 - Fixed the browser MathJax configuration so server-rendered `\\[...\\]` blocks are recognized and typeset instead of remaining visible inside `.math-block` elements.
