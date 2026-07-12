@@ -9,7 +9,7 @@
 Wikist 是一个面向中文数学与科学知识共同体的轻量级 Wiki 框架。它以 Markdown 文件为核心内容格式，以 SQLite 承载账号、评论、权限、审计与协作数据，目标是在保持可迁移、可审查、可部署的基础上，提供比传统 Wiki 更适合数学表达、可视化建模和现代浏览器交互的知识平台。
 
 发布日期：2026-07-10
-最近更新：2026-07-11
+最近更新：2026-07-12
 
 ### 项目定位
 
@@ -957,7 +957,7 @@ node import-bundle.cjs --root=/opt/wikist --author=admin --yes
 Wikist is a lightweight wiki framework for Chinese-first mathematics and science knowledge communities. It uses Markdown files as the primary article format and SQLite for accounts, comments, permissions, audit logs, and collaboration data. The goal is to keep a wiki portable, inspectable, and easy to deploy while making mathematical writing, visual modeling, and modern browser interaction feel native.
 
 Release date: 2026-07-10
-Last updated: 2026-07-11
+Last updated: 2026-07-12
 
 ### Project Positioning
 
