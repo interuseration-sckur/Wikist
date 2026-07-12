@@ -439,14 +439,16 @@ server {
         proxy_pass http://127.0.0.1:8899;
         proxy_http_version 1.1;
 
-        proxy_set_header Host $host;
-        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header Host $http_host;
+        proxy_set_header X-Forwarded-Host $http_host;
         proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-For $remote_addr;
         proxy_set_header X-Real-IP $remote_addr;
     }
 }
 ```
+
+安装器会校验浏览器 `Origin` 与外部访问主机。Wikist 会在同机回环代理或已显式信任的代理连接上识别 `X-Forwarded-Host`，同时拒绝公网客户端伪造该头。使用非标准端口时，`$http_host` 也会保留端口，避免安装来源误判。
 
 启用：
 
@@ -1233,14 +1235,16 @@ server {
         proxy_pass http://127.0.0.1:8899;
         proxy_http_version 1.1;
 
-        proxy_set_header Host $host;
-        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header Host $http_host;
+        proxy_set_header X-Forwarded-Host $http_host;
         proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-For $remote_addr;
         proxy_set_header X-Real-IP $remote_addr;
     }
 }
 ```
+
+The installer compares the browser `Origin` with the public request authority. Wikist accepts `X-Forwarded-Host` only from a loopback proxy or a proxy explicitly marked as trusted, while rejecting forwarded-host spoofing from public clients. `$http_host` also preserves nonstandard ports.
 
 ```bash
 sudo ln -sf /etc/nginx/sites-available/wikist /etc/nginx/sites-enabled/wikist

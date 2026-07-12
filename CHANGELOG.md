@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-07-12 - Proxy-aware Installer Protection
+
+- Fixed installer origin validation behind same-host reverse proxies by accepting normalized `X-Forwarded-Host` / `Forwarded` authority only from loopback or explicitly trusted proxy connections.
+- Kept direct-origin validation and rejected forwarded-host spoofing from untrusted clients.
+- Raised the default installer allowance from 8 to 60 requests per ten minutes, reduced the protection cooldown from 900 to 60 seconds, and transparently migrated the exact legacy default policy at load time.
+- Bumped the framework package to `0.12.6`; frontend asset version remains `wikist-core-20260712-97` because no browser asset changed.
+
 ## 2026-07-12 - Canonical News Routing
 
 - Removed the duplicate `#/news` news-shell route in favor of the canonical article route `#/page/news`.

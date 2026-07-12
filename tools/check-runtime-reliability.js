@@ -55,6 +55,30 @@ try {
   const ticket = firewall.issueInstallToken(request);
   const installRequest = { method: "POST", headers: { "x-wikist-install-token": ticket.token }, socket: request.socket };
   assert(firewall.verifyInstallRequest(installRequest, "localhost:8899").ok, "installer challenge must validate");
+  const proxiedRequest = {
+    method: "POST",
+    headers: {
+      host: "127.0.0.1:8899",
+      origin: "https://wiki.example.com",
+      "x-forwarded-host": "wiki.example.com",
+    },
+    socket: { remoteAddress: "127.0.0.1" },
+  };
+  const proxyTicket = firewall.issueInstallToken(proxiedRequest);
+  proxiedRequest.headers["x-wikist-install-token"] = proxyTicket.token;
+  assert(firewall.verifyInstallRequest(proxiedRequest, proxiedRequest.headers.host).ok, "same-host reverse proxy installation must validate");
+  const spoofedRequest = {
+    method: "POST",
+    headers: {
+      host: "wiki.example.com",
+      origin: "https://attacker.example",
+      "x-forwarded-host": "attacker.example",
+    },
+    socket: { remoteAddress: "203.0.113.80" },
+  };
+  const spoofedTicket = firewall.issueInstallToken(spoofedRequest);
+  spoofedRequest.headers["x-wikist-install-token"] = spoofedTicket.token;
+  assert(!firewall.verifyInstallRequest(spoofedRequest, spoofedRequest.headers.host).ok, "untrusted clients must not spoof the forwarded host");
   assert(!JSON.stringify(metrics.snapshot()).includes("203.0.113.42"), "metrics must not retain client address data");
 
   const manifest = cleanManifest({
@@ -69,7 +93,7 @@ try {
   assert(validated.valid && validated.value.interval === 9 && validated.value.__wikistConfigVersion === 2, "declarative plugin migration and schema validation must apply");
   assert.strictEqual(pluginRuntimeStatus(manifest).executable, false, "declared server modules must remain non-executable");
 
-  console.log(JSON.stringify({ ok: true, checks: 14, wal: dbHealth.journalMode, fts: recovered.documents, metrics: metrics.snapshot().search.count }, null, 2));
+  console.log(JSON.stringify({ ok: true, checks: 16, wal: dbHealth.journalMode, fts: recovered.documents, metrics: metrics.snapshot().search.count }, null, 2));
 } finally {
   try { passport?.closeDatabase(); } catch (_error) {}
   fs.rmSync(root, { recursive: true, force: true, maxRetries: 8, retryDelay: 80 });

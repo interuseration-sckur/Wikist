@@ -46,7 +46,7 @@ const defaults = {
       api: { points: 120, windowSeconds: 60, blockSeconds: 90 },
       write: { points: 48, windowSeconds: 60, blockSeconds: 120 },
       auth: { points: 16, windowSeconds: 60, blockSeconds: 300 },
-      install: { points: 8, windowSeconds: 600, blockSeconds: 900 },
+      install: { points: 60, windowSeconds: 600, blockSeconds: 60 },
     },
   },
   mail: {
@@ -227,7 +227,16 @@ function loadConfig(rootDir) {
   const configPath = siteConfigPath(rootDir);
   if (!fs.existsSync(configPath)) return defaults;
   const userConfig = JSON.parse(fs.readFileSync(configPath, "utf8").replace(/^\uFEFF/, ""));
-  return mergeDeep(defaults, userConfig);
+  const config = mergeDeep(defaults, userConfig);
+  const legacyInstallPolicy = userConfig.security?.firewall?.install;
+  if (
+    Number(legacyInstallPolicy?.points) === 8
+    && Number(legacyInstallPolicy?.windowSeconds) === 600
+    && Number(legacyInstallPolicy?.blockSeconds) === 900
+  ) {
+    config.security.firewall.install = { ...defaults.security.firewall.install };
+  }
+  return config;
 }
 
 module.exports = {

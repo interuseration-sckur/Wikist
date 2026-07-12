@@ -10,7 +10,7 @@ const DEFAULT_FIREWALL = Object.freeze({
   api: { points: 120, windowSeconds: 60, blockSeconds: 90 },
   write: { points: 48, windowSeconds: 60, blockSeconds: 120 },
   auth: { points: 16, windowSeconds: 60, blockSeconds: 300 },
-  install: { points: 8, windowSeconds: 600, blockSeconds: 900 },
+  install: { points: 60, windowSeconds: 600, blockSeconds: 60 },
 });
 
 function clampInteger(value, fallback, min, max) {
@@ -64,6 +64,37 @@ function requestClientAddress(req, trustedProxy = false) {
     if (forwarded) return forwarded;
   }
   return String(req?.socket?.remoteAddress || "unknown");
+}
+
+function isLoopbackAddress(value) {
+  const address = String(value || "").trim().toLowerCase();
+  return address === "::1"
+    || address === "0:0:0:0:0:0:0:1"
+    || address === "127.0.0.1"
+    || address === "::ffff:127.0.0.1"
+    || /^127\./.test(address);
+}
+
+function normalizedAuthority(value) {
+  const raw = String(value || "").split(",")[0].trim();
+  if (!raw) return "";
+  try {
+    const parsed = new URL(raw.includes("://") ? raw : `http://${raw}`);
+    const hostname = String(parsed.hostname || "").toLowerCase().replace(/^\[|\]$/g, "").replace(/\.$/, "");
+    if (!hostname) return "";
+    const port = ["80", "443"].includes(parsed.port) ? "" : parsed.port;
+    const host = hostname.includes(":") ? `[${hostname}]` : hostname;
+    return port ? `${host}:${port}` : host;
+  } catch (_error) {
+    return "";
+  }
+}
+
+function forwardedAuthority(req) {
+  const forwardedHost = String(req?.headers?.["x-forwarded-host"] || "").split(",")[0].trim();
+  if (forwardedHost) return forwardedHost;
+  const forwarded = String(req?.headers?.forwarded || "").split(",")[0];
+  return forwarded.match(/(?:^|;)\s*host=(?:"([^"]+)"|([^;\s]+))/i)?.slice(1).find(Boolean) || "";
 }
 
 function networkPrefix(address) {
@@ -289,14 +320,23 @@ class RequestFirewall {
     if (!config.enabled) return { ok: true };
     const origin = String(req?.headers?.origin || "").trim();
     if (origin) {
-      try {
-        if (new URL(origin).host !== String(host || "").replace(/^https?:\/\//, "")) {
-          this.metrics?.observeFirewall("installRejected");
-          return { ok: false, reason: "安装请求来源不受信任。" };
-        }
-      } catch (_error) {
+      const originAuthority = normalizedAuthority(origin);
+      if (!originAuthority) {
         this.metrics?.observeFirewall("installRejected");
         return { ok: false, reason: "安装请求来源无效。" };
+      }
+      const acceptedAuthorities = new Set([
+        normalizedAuthority(host),
+        normalizedAuthority(req?.headers?.host),
+      ].filter(Boolean));
+      const proxySourceTrusted = config.trustedProxy || isLoopbackAddress(req?.socket?.remoteAddress);
+      if (proxySourceTrusted) {
+        const proxyAuthority = normalizedAuthority(forwardedAuthority(req));
+        if (proxyAuthority) acceptedAuthorities.add(proxyAuthority);
+      }
+      if (!acceptedAuthorities.has(originAuthority)) {
+        this.metrics?.observeFirewall("installRejected");
+        return { ok: false, reason: "安装请求来源不受信任。" };
       }
     }
     const client = this.clientKey(req, config);
