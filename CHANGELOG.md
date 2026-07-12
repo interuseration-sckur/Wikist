@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-07-12 - Canonical News Routing
+
+- Removed the duplicate `#/news` news-shell route in favor of the canonical article route `#/page/news`.
+- Updated navigation and homepage news links, and made legacy `#/news` plus accidental `#/pages/<slug>` URLs normalize to `#/page/<slug>`.
+- Bumped the framework package to `0.12.5` with frontend asset version `wikist-core-20260712-97`.
+
 ## 2026-07-12 - Upgrade Check Fixture Reliability
 
 - Replaced the v0.8 knowledge-navigation self-check's display-text CAPTCHA parser with a deterministic isolated CAPTCHA fixture, while retaining registration and CAPTCHA verification coverage.

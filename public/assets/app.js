@@ -1,6 +1,6 @@
 const THEME_KEY = "wikist-theme";
 const LANG_KEY = "wikist-language";
-const CORE_ASSET_VERSION = "wikist-core-20260712-96";
+const CORE_ASSET_VERSION = "wikist-core-20260712-97";
 const VDITOR_VERSION = "3.11.2";
 const VDITOR_CDN = `https://cdn.jsdelivr.net/npm/vditor@${VDITOR_VERSION}`;
 const SWEETALERT_VERSION = "11.26.25";
@@ -1471,7 +1471,7 @@ function renderTopQuickNav() {
 
 function functionalNavigationLinks() {
   return [
-    { label: "资讯", href: "#/news" },
+    { label: "资讯", href: "#/page/news" },
     { label: "知识网络", href: "#/knowledge" },
     { label: "分类目录", href: "#/category" },
     { label: "协作社区", href: "#/community" },
@@ -2171,7 +2171,7 @@ function renderHomePortal(page) {
   const progress = Array.isArray(homeText.progressItems) ? homeText.progressItems : [];
   const modules = [
     homeConfig.showFeatured ? `<article class="wiki-box sci-box sci-box-feature"><h2>特色词条</h2>${featured.length ? featured.map((item) => pageCard(item, item.quality || "词条")).join("") : "<p>暂无特色词条。</p>"}</article>` : "",
-    homeConfig.showNews ? `<article class="wiki-box sci-box sci-box-news"><h2>${escapeHtml(homeText.newsTitle)}</h2>${newsItems.length ? `<div class="wiki-news-list">${newsItems.map((item) => `<a href="${escapeHtml(item.href || "#/news")}"><span>${escapeHtml(item.date || item.tag || "资讯")}</span>${escapeHtml(item.title)}${item.body ? `<small>${escapeHtml(item.body)}</small>` : ""}</a>`).join("")}</div>` : (news ? `<a class="wiki-news-link" href="#/page/news"><strong>${escapeHtml(news.title)}</strong><span>${escapeHtml(news.summary)}</span></a>` : `<p>${escapeHtml(homeText.newsEmpty)}</p>`)}<div class="wiki-news-list">${state.recent.slice(0, 4).map((item) => `<a href="#/page/${encodeSlug(item.slug)}"><span>${fmtDate(item.updatedAt)}</span>${escapeHtml(item.title)}</a>`).join("")}</div></article>` : "",
+    homeConfig.showNews ? `<article class="wiki-box sci-box sci-box-news"><h2>${escapeHtml(homeText.newsTitle)}</h2>${newsItems.length ? `<div class="wiki-news-list">${newsItems.map((item) => `<a href="${escapeHtml(item.href || "#/page/news")}"><span>${escapeHtml(item.date || item.tag || "资讯")}</span>${escapeHtml(item.title)}${item.body ? `<small>${escapeHtml(item.body)}</small>` : ""}</a>`).join("")}</div>` : (news ? `<a class="wiki-news-link" href="#/page/news"><strong>${escapeHtml(news.title)}</strong><span>${escapeHtml(news.summary)}</span></a>` : `<p>${escapeHtml(homeText.newsEmpty)}</p>`)}<div class="wiki-news-list">${state.recent.slice(0, 4).map((item) => `<a href="#/page/${encodeSlug(item.slug)}"><span>${fmtDate(item.updatedAt)}</span>${escapeHtml(item.title)}</a>`).join("")}</div></article>` : "",
     homeConfig.showPath ? `<article class="wiki-box sci-box sci-box-path"><h2>${escapeHtml(homeText.pathTitle)}</h2><div class="wiki-link-grid"><a href="#/page/markup-guide">标记规范</a><a href="#/page/tutorial">教程</a><a href="#/page/protocol">协议</a><a href="#/page/contribution-guide">贡献规范</a></div></article>` : "",
     homeConfig.showProgress ? `<article class="wiki-box sci-box sci-box-progress"><h2>${escapeHtml(homeText.progressTitle)}</h2>${progress.map((item) => `<a class="progress-item" href="${escapeHtml(item.href)}" target="_blank" rel="noreferrer"><span>${escapeHtml(item.tag)}</span><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.body)}</small></a>`).join("")}</article>` : "",
     homeConfig.showStable ? `<article class="wiki-box sci-box sci-box-stable"><h2>稳定内容</h2>${stable.length ? stable.map((item) => pageCard(item, item.quality || "稳定")).join("") : "<p>暂无稳定词条。</p>"}</article>` : "",
@@ -2190,7 +2190,7 @@ function renderHomePortal(page) {
           <span class="system-kicker">${escapeHtml(homeText.heroKicker)}</span>
           ${cosmicHeroTitleHtml(homeHeroTitle)}
           <p>${escapeHtml(homeText.heroSummary)}</p>
-          <div class="sci-hero-actions"><a href="#/search/群">${escapeHtml(homeText.heroSearch)}</a><a href="#/community">${escapeHtml(homeText.heroContribute)}</a><a href="#/news">${escapeHtml(homeText.heroNews)}</a></div>
+          <div class="sci-hero-actions"><a href="#/search/群">${escapeHtml(homeText.heroSearch)}</a><a href="#/community">${escapeHtml(homeText.heroContribute)}</a><a href="#/page/news">${escapeHtml(homeText.heroNews)}</a></div>
         </div>
         <aside class="cosmic-orbital-stage" aria-label="Wikist 宇宙数据概览">
           <div class="cosmic-ring ring-1" aria-hidden="true"></div>
@@ -6827,7 +6827,14 @@ async function route() {
     else if (name === "knowledge") await renderKnowledge(value);
     else if (name === "category") await renderCategory(value);
     else if (name === "topic") await renderTopic(value);
-    else if (name === "news") await renderNews();
+    else if (name === "news") {
+      location.hash = "#/page/news";
+      return;
+    }
+    else if (name === "pages") {
+      location.hash = `#/page/${value || state.site.defaultPage || "home"}`;
+      return;
+    }
     else if (name === "import-export" || name === "imports") await renderImportExport();
     else if (name === "archive") await renderArchive(value);
     else if (name === "admin") await renderAdmin(value || "overview");
