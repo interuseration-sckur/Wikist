@@ -10,7 +10,7 @@
 
 安装器会写入 `config/site.config.json`。用户、会话、评论、评分和审计日志存放在该配置指定的 SQLite 文件中，默认是 `data/wikist.sqlite`。
 
-通过同机 Nginx 反向代理安装时，应转发 `Host $http_host` 与 `X-Forwarded-Host $http_host`。安装器会识别来自回环代理的外部主机名，但不会信任公网客户端自行伪造的转发头。默认安装保护允许十分钟内 60 次安装页/API 请求，触发后冷却 60 秒。
+通过反向代理安装时建议转发 `Host $http_host` 与 `X-Forwarded-Host $http_host`，但安装校验不依赖外部域名与内部 Host 相等，因此兼容 Docker、面板代理和隧道。安全边界由短时安装令牌、客户端绑定与浏览器跨站标记承担。默认安装保护允许十分钟内 60 次安装页/API 请求，触发后冷却 60 秒。
 
 ## 迁移
 

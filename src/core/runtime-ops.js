@@ -66,37 +66,6 @@ function requestClientAddress(req, trustedProxy = false) {
   return String(req?.socket?.remoteAddress || "unknown");
 }
 
-function isLoopbackAddress(value) {
-  const address = String(value || "").trim().toLowerCase();
-  return address === "::1"
-    || address === "0:0:0:0:0:0:0:1"
-    || address === "127.0.0.1"
-    || address === "::ffff:127.0.0.1"
-    || /^127\./.test(address);
-}
-
-function normalizedAuthority(value) {
-  const raw = String(value || "").split(",")[0].trim();
-  if (!raw) return "";
-  try {
-    const parsed = new URL(raw.includes("://") ? raw : `http://${raw}`);
-    const hostname = String(parsed.hostname || "").toLowerCase().replace(/^\[|\]$/g, "").replace(/\.$/, "");
-    if (!hostname) return "";
-    const port = ["80", "443"].includes(parsed.port) ? "" : parsed.port;
-    const host = hostname.includes(":") ? `[${hostname}]` : hostname;
-    return port ? `${host}:${port}` : host;
-  } catch (_error) {
-    return "";
-  }
-}
-
-function forwardedAuthority(req) {
-  const forwardedHost = String(req?.headers?.["x-forwarded-host"] || "").split(",")[0].trim();
-  if (forwardedHost) return forwardedHost;
-  const forwarded = String(req?.headers?.forwarded || "").split(",")[0];
-  return forwarded.match(/(?:^|;)\s*host=(?:"([^"]+)"|([^;\s]+))/i)?.slice(1).find(Boolean) || "";
-}
-
 function networkPrefix(address) {
   const raw = String(address || "unknown").trim();
   const v4 = raw.match(/(?:\d{1,3}\.){3}\d{1,3}/)?.[0];
@@ -315,28 +284,22 @@ class RequestFirewall {
     return { token, expiresAt: new Date(expiresAt).toISOString() };
   }
 
-  verifyInstallRequest(req, host) {
+  verifyInstallRequest(req, _host) {
     const config = this.config();
     if (!config.enabled) return { ok: true };
+    const fetchSite = String(req?.headers?.["sec-fetch-site"] || "").trim().toLowerCase();
+    if (fetchSite === "cross-site") {
+      this.metrics?.observeFirewall("installRejected");
+      return { ok: false, reason: "安装请求来源不受信任。" };
+    }
     const origin = String(req?.headers?.origin || "").trim();
     if (origin) {
-      const originAuthority = normalizedAuthority(origin);
-      if (!originAuthority) {
+      try {
+        const parsedOrigin = new URL(origin);
+        if (!["http:", "https:"].includes(parsedOrigin.protocol)) throw new Error("unsupported origin protocol");
+      } catch (_error) {
         this.metrics?.observeFirewall("installRejected");
         return { ok: false, reason: "安装请求来源无效。" };
-      }
-      const acceptedAuthorities = new Set([
-        normalizedAuthority(host),
-        normalizedAuthority(req?.headers?.host),
-      ].filter(Boolean));
-      const proxySourceTrusted = config.trustedProxy || isLoopbackAddress(req?.socket?.remoteAddress);
-      if (proxySourceTrusted) {
-        const proxyAuthority = normalizedAuthority(forwardedAuthority(req));
-        if (proxyAuthority) acceptedAuthorities.add(proxyAuthority);
-      }
-      if (!acceptedAuthorities.has(originAuthority)) {
-        this.metrics?.observeFirewall("installRejected");
-        return { ok: false, reason: "安装请求来源不受信任。" };
       }
     }
     const client = this.clientKey(req, config);

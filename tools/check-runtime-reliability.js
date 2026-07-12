@@ -66,19 +66,20 @@ try {
   };
   const proxyTicket = firewall.issueInstallToken(proxiedRequest);
   proxiedRequest.headers["x-wikist-install-token"] = proxyTicket.token;
-  assert(firewall.verifyInstallRequest(proxiedRequest, proxiedRequest.headers.host).ok, "same-host reverse proxy installation must validate");
-  const spoofedRequest = {
+  assert(firewall.verifyInstallRequest(proxiedRequest, proxiedRequest.headers.host).ok, "reverse proxy installation must validate independently of its internal host");
+  const crossSiteRequest = {
     method: "POST",
     headers: {
       host: "wiki.example.com",
       origin: "https://attacker.example",
       "x-forwarded-host": "attacker.example",
+      "sec-fetch-site": "cross-site",
     },
     socket: { remoteAddress: "203.0.113.80" },
   };
-  const spoofedTicket = firewall.issueInstallToken(spoofedRequest);
-  spoofedRequest.headers["x-wikist-install-token"] = spoofedTicket.token;
-  assert(!firewall.verifyInstallRequest(spoofedRequest, spoofedRequest.headers.host).ok, "untrusted clients must not spoof the forwarded host");
+  const crossSiteTicket = firewall.issueInstallToken(crossSiteRequest);
+  crossSiteRequest.headers["x-wikist-install-token"] = crossSiteTicket.token;
+  assert(!firewall.verifyInstallRequest(crossSiteRequest, crossSiteRequest.headers.host).ok, "browser-declared cross-site installation must be rejected");
   assert(!JSON.stringify(metrics.snapshot()).includes("203.0.113.42"), "metrics must not retain client address data");
 
   const manifest = cleanManifest({
