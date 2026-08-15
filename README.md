@@ -9,11 +9,15 @@
 Wikist 是一个面向中文数学与科学知识共同体的轻量级 Wiki 框架。它以 Markdown 文件为核心内容格式，以 SQLite 承载账号、评论、权限、审计与协作数据，目标是在保持可迁移、可审查、可部署的基础上，提供比传统 Wiki 更适合数学表达、可视化建模和现代浏览器交互的知识平台。
 
 发布日期：2026-07-10
-最近更新：2026-07-12
+最近更新：2026-08-15
+
+> 后端迁移状态：Wikist 已进入 **Webman + Node 混合迁移阶段**。Webman 是公开入口和唯一 Passport 认证中心；Node 仅作为内网兼容服务承载尚未迁移的业务 API。原 `project_template` 只用于审计旧 Passport 的设计，提取完成后已删除；旧用户只通过可选的一次性导入工具迁入 Wikist 数据库。详见 [Webman 迁移说明](docs/WEBMAN_MIGRATION.md)。
+
+> 当前稳定版本：`1.0.0`；核心前端资源：`wikist-core-20260815-191`。
 
 ### 项目定位
 
-Wikist 不是问答社区，也不是松散笔记系统。它更像一个为严肃知识写作重新设计的轻量 Wiki 内核：词条要能被长期维护，公式要能稳定渲染，证明与定义要有清晰结构，讨论和权限要能被审计，整站也要能直接复制、备份和迁移。
+Wikist 不是把问答、聊天和笔记并排堆放的门户。它以可长期维护的 Wiki 为知识核心，让问答产生知识、讨论完善知识、聊天协作知识，再把成熟结论连同来源回流词条。
 
 适合场景：
 
@@ -24,7 +28,7 @@ Wikist 不是问答社区，也不是松散笔记系统。它更像一个为严�
 
 ### 核心特色
 
-- **轻量化内核**：后端使用 Node.js 标准 HTTP 服务，不依赖 Express 等大型框架；核心逻辑集中，便于审查和二次开发。
+- **渐进式高性能内核**：Webman/Workerman 负责公开 HTTP、Passport、权限和实时入口；Node 以仅监听回环地址的兼容服务承接尚未迁移的内容模块，浏览器 API 地址保持不变。
 - **安装即配置**：首次部署访问 `/install.html`，通过网页写入 `config/site.config.json`，配置站点身份、SQLite 路径、编辑策略和 SMTP。
 - **内容可迁移**：词条以 Markdown 文件存放在 `content/pages/`，修订记录存放在 `content/revisions/`，便于备份、迁移、版本比较和人工维护。
 - **数学优先**：内置 TeX 公式、结构化定义/定理/证明块、脚注、定义列表、表格、任务列表、MediaWiki 风格图片语法和知识链接。
@@ -32,14 +36,19 @@ Wikist 不是问答社区，也不是松散笔记系统。它更像一个为严�
 - **可视化建模能力**：除函数图像外，还内置 JSXGraph 几何板和 Chart.js 数据曲线建模，可在词条中展示可拖拽几何构造、数列、统计图和实验数据。
 - **现代化编辑体验**：前端是单页应用，提供词条阅读、编辑、翻译、评论、权限、历史、收藏、消息、后台管理等路由；写作过程围绕 Markdown 源文和即时渲染结果展开。
 - **插件化宇宙科幻界面**：首页和 Wikist Passport 使用原生 Canvas 星空、星云、旋臂、跃迁光线、轨道环和星际接入控制台；`cosmicExperience` 插件进一步提供全屏星际穿梭开场、鼠标视差星云、登录黑洞吸积盘、首页标题粒子聚合、路由加载进度 HUD，并用真实用户数、词条数、最近更新替代装饰性假代码；浅色 / 暗黑主题都会同步切换动画底色、HUD 面板和粒子颜色。
-- **内置 Passport 身份层**：支持注册、登录、HttpOnly 会话、验证码、密码修改、邮箱验证、找回密码、TOTP 二次验证、公开用户主页和贡献身份记录。
+- **内置 Webman Passport 身份层**：独立的响应式通行证页面完整提供注册、登录、由服务端随机分配的滑块拼图 / 按序点选验证码、场景主题、HttpOnly 会话、密码修改、邮箱验证、找回密码、扫码启用 TOTP 二次验证、公开用户主页和贡献身份记录；旧 SPA 登录地址保持兼容。
 - **知识网络与关注列表**：保存词条时增量维护 Wiki 链接索引，提供反向链接、缺失词条、孤立词条、别名重定向，以及词条 / 分类 / 译文语言三级关注；消息只发送给实际订阅者。
 - **知识导航与安全移动**：分类和主题路径会自动生成轻量目录页；分类根目录、子分类和直接词条均支持服务端检索与分页，词条内反向链接和正文链接独立按页加载。资深编辑移动词条时会迁移修订、稳定快照、协作数据、译文和关注，并修复相关 Wiki 链接。
 - **数学元数据与译文审核**：可选前置知识、相关词条、规范名称、记号约定、MSC/ACM 标识和主题均随 Markdown 导入导出；译文经草稿、待审、需修改、已发布状态流转，未发布内容不会暴露给普通读者。
 - **翻译质量层**：已发布译文才会进入本地翻译记忆；源文变更会标记到段落级，社区术语表提供可审阅的推荐译法、记法和避免用语，不依赖外部翻译服务。
 - **协作组织与社区审阅**：可创建面向学科或语言的协作组织，分配写作者、译者、审阅者与协调者，认领词条任务并以可追溯的社区共识形成稳定版本或发布译文。每个账号最多创建 3 个活跃组织，并最多持有 5 个活跃或待审核的组织身份（包含自己创建的组织）。
-- **学术身份与组织论坛**：组织身份自动同步到通行证与公开主页；组织工作区分为带可选顶部大图的 Markdown 首页、任务、论坛和成员四个分页区域，成员可检索，论坛支持主题检索、状态、置顶、关注、收藏、回复分页和词条关联，讨论可自然转化为写作任务与审阅工作。后台另提供协作社区的分页查询与状态管理。
-- **可选持久搜索**：在既有轻量字段搜索之上复用 SQLite FTS5；词条变更只更新一条索引记录，管理员可按需回填历史词条，FTS5 不可用或未完成回填时自动回退，无需 Elasticsearch。
+- **学术身份与组织论坛**：组织身份自动同步到通行证与公开主页；组织工作区分为带可选顶部大图的 Markdown 首页、任务、论坛和成员四个分页区域，成员可检索，论坛支持主题检索、状态、置顶、关注、收藏、回复分页和词条关联。主题与回复复用问答、通信的知识引用组件，可引用词条、修订、问题、回答、组织和用户，并同步进入全局关系图。讨论可自然转化为写作任务与审阅工作，后台另提供协作社区的分页查询与状态管理。
+- **统一实时通信**：Webman `MessagingService` 在 Wikist 自有数据库中统一保存私信、组织群聊、系统通知、已读游标、回复、附件、@ 提及与知识对象引用；撤回仅限发送者五分钟内操作，删除采用按用户软隐藏。封禁或已删除账号不能继续接收私信，失败消息会在本地显示红色感叹号且不会写入数据库；通知中心和全站公告保持只读，新注册用户会以注册时间为历史公告已读基线，不复制逐用户状态。组织成员折叠分页，全站广播不公开用户名单；成员身份与定时禁言使用不透底、自动避让视口的顶层操作浮窗。全员禁言和解除会保存为居中的会话时间线事件，并通过现有实时频道同步。在线状态合并标签页级活动租约与 Centrifugo presence，页面隐藏、离开或关窗会主动释放，异常断线最多保留 40 秒；禁言或角色调整不会重建订阅，也不会把在线成员误判为离线。Passport 是唯一身份源，组织权限直接复用既有成员角色；未启用 Centrifugo 时自动使用有界 API 同步。会话筛选与选择在工作台内异步完成，置顶会话单独分组，不触发整页加载。
+- **Wikist Native Community**：问题、回答、评论、邀请回答、采纳与取消采纳、质量投票、Reaction、收藏、关注、标签、修订/Diff、Activity、Reputation、Badge、举报和审核全部由 Webman 执行并写入 Wikist 自有数据库。问题会持久记录词条、正文划词或协作组织来源，并可在问答页筛选；内容软删除会同步失效其关注、收藏、投票、反应和待处理邀请，个人列表还会自动清理历史残留。Passport 是唯一身份源，组织空间直接复用既有成员与角色，私有内容在详情、列表、搜索、预览、关系和通知层分别授权。全局 Object ID 把词条、修订、划词、问答、用户、组织与聊天连成可反向查询的关系层；词条可显示相关问题，划词可提问或引用到回答，优质回答可整理为带来源关系的 Wiki 草稿。系统不再包含或运行独立 Go 问答服务。详见 [原生 Community 架构](docs/NATIVE_COMMUNITY.md)。
+- **全站成长与成就**：兼容原有问答徽章数据，并把词条编辑、收藏关注、组织协作、翻译、正文批注、通信和问答贡献纳入统一成长进度。新成就进入站内通知；账户中心的“成就”分页展示解锁进度、贡献分类和可分页的成长时间线。
+- **通信隐私与群聊治理**：私信默认关闭完全开放模式，非互相关注用户在收到回复前只能发送 1 条请求；对方真实回复后，Centrifugo 事件或有界 API 回退会立即重取策略并开放输入区。账户中心可管理开放私信和离线自动回复。词条可直接转发到最近私信联系人或组织群聊，也可继续搜索目标。组织群聊复用现有组织成员，提供群主、管理员、成员角色以及单人定时禁言和全体禁言；成员操作集中在每行右侧菜单中，权限由 Webman 服务端统一校验并保留可回放的治理记录。
+- **正文划词与批注**：正文选区可复制、搜索、喜欢、批注或引用到评论、帖子和聊天；喜欢与已发布批注进入个人划词页。批注支持分页和单层 `@用户` 回复，个人记录可深链返回来源词条并自动定位原文，删除操作遵循创建者权限且与取消喜欢相互独立。
+- **可选持久搜索**：在既有轻量字段搜索之上复用 SQLite FTS5；词条变更只更新一条索引记录，管理员可按需回填历史词条，FTS5 不可用或未完成回填时自动回退，无需 Elasticsearch。标题、slug、别名、规范名与分类另有增量前缀缓存，为初始页、顶部栏、正式搜索页和协作任务提供支持单字与输入法的异步建议。
 - **可扩展读取路径**：词条目录、最近更新、分类、主题和知识链接复用增量元数据目录，不再为了列表渲染全部 Markdown；热词条、搜索源文与词元文档分别缓存，前端启动只读取有界摘要与真实总数。
 - **协作审计完整**：编辑事件、访客身份、评论、评分、收藏、全站消息、权限调整、备份回档和后台操作可写入 SQLite 供追溯。
 - **高可自定义**：站点名称、语言、导航、首页模块、首页文案、插件启停、CDN 地址、自定义 CSS/JS、SMTP、安全策略等都可通过配置或后台维护。
@@ -53,7 +62,7 @@ Wikist 不是问答社区，也不是松散笔记系统。它更像一个为严�
 
 | 维度 | Wikist | MediaWiki |
 | :--- | :--- | :--- |
-| 技术栈 | Node.js + 文件 Markdown + SQLite | PHP + MySQL/MariaDB，通常需要 Web 服务器栈 |
+| 技术栈 | Webman/Workerman + Node 兼容层 + 文件 Markdown + SQLite | PHP + MySQL/MariaDB，通常需要 Web 服务器栈 |
 | 部署复杂度 | 单项目目录，启动后通过 `/install.html` 配置 | 依赖较多，生产部署通常需要 PHP-FPM、数据库、扩展和缓存组件 |
 | 内容存储 | 词条是 Markdown 文件，易复制、审查、Git 化和人工迁移 | 页面主要存于数据库，导出迁移通常依赖专门工具 |
 | 数学表达 | TeX、结构块、函数图、几何板、数据图表面向数学写作内置 | 可通过扩展支持数学公式，但可视化建模通常需要额外扩展或模板体系 |
@@ -72,10 +81,12 @@ Wikist 不是问答社区，也不是松散笔记系统。它更像一个为严�
 本仓库是最小化、安装优先的公开发布包，包含：
 
 - `src/`：Node.js 服务端核心。
+- `webman-backend/`：Wikist 的 Webman 主后端、Passport、迁移、实时进程和兼容层入口。
 - `public/`：浏览器界面、安装器、样式和本地前端资源。
 - `plugins/`：可信插件清单与客户端模块。
 - `docs/`：真实运行架构、安装迁移、Passport、评论权限、内容质量、代码级升级日志和下一阶段路线图。
 - `tools/`：启动脚本和功能检查脚本。
+- `update.php`：仅限命令行的数据库预检、备份、迁移与升级报告入口。
 - `config/site.config.example.json`：站点配置示例。
 - `content/*/.gitkeep`：空内容目录占位。
 
@@ -91,18 +102,27 @@ Wikist 不是问答社区，也不是松散笔记系统。它更像一个为严�
 
 ### 环境要求
 
-- 本地语法检查需要 Node.js 18 或更高版本。
+- PHP 8.1 或更高版本，并安装 PDO、mbstring、OpenSSL、cURL 与 GD；首次安装依赖需要 Composer。Windows 本地运行时可放在 `.runtime/php` 与 `.runtime/composer`，无需修改系统 `PATH`。
+- Node.js 18 或更高版本，用于迁移期兼容服务；云端推荐 Node.js 24 LTS。
 - 云端生产部署推荐 Node.js 24 LTS，最低应使用包含 `node:sqlite` 的 Node.js 22.5.0 或更新版本。
 - Windows、Linux 或 macOS 终端环境。
 
-Wikist Passport 当前使用 Node.js 的 `node:sqlite`。如果部署环境的 Node 构建不包含该模块，可将 `src/core/passport-store.js` 替换为 `better-sqlite3`、PostgreSQL 或 MySQL 适配层，并保持相同接口。
+迁移期 Webman 与 Node 必须指向同一个 Wikist SQLite 文件。旧 Node scrypt 密码由受内部令牌保护的回环 KDF 桥完成一次校验，登录成功后立即升级为 PHP 密码哈希；浏览器不能访问该内部接口，Node 也不会创建账号或 Session。待数据库相关 Node API 全部迁移后，再执行 MySQL 切换。
 
 ### 首次安装
 
-启动服务：
+首次启用原生 Community 与实时通信时，先执行一次幂等初始化：
 
 ```powershell
-node server.js
+npm run setup:stack
+```
+
+初始化器只创建 Centrifugo 配置和独立密钥；Community 数据表由 Webman 迁移直接建立在 Wikist 数据库中。`npm start` 在缺少配置时也会自动完成这一步。
+
+随后使用统一入口启动全部模块：
+
+```powershell
+npm start
 ```
 
 Windows 也可以使用：
@@ -110,6 +130,14 @@ Windows 也可以使用：
 ```powershell
 .\run-wikist-server.cmd
 ```
+
+Windows 启动器在缺少栈配置时会自动执行初始化。统一入口会安装缺失的 Webman Composer 依赖、执行幂等数据库迁移，并只启动 Webman、Node 兼容层和 Centrifugo：
+
+| 模块 | 默认地址 | 边界 |
+| --- | --- | --- |
+| Webman / Workerman | `http://127.0.0.1:8899` | 唯一公开入口、Passport、权限与业务编排 |
+| Node 兼容层 | `http://127.0.0.1:8900` | 仅回环访问，承载尚未迁移的 API |
+| Centrifugo | `ws://127.0.0.1:8902/connection/websocket` | 实时连接与事件分发，不保存业务数据 |
 
 然后打开：
 
@@ -124,7 +152,17 @@ http://127.0.0.1:8899/install.html
 - 开放编辑、登录编辑或令牌编辑策略。
 - 可选 SMTP，用于邮箱验证和找回密码。
 
-安装成功后重启服务，使新配置生效。
+安装成功后重启服务，使新配置生效。`node server.js` 仅保留为迁移期的旧后端应急启动方式，不是推荐入口。
+
+整组状态检查、停止或 Windows 原位重启：
+
+```powershell
+npm run status
+npm stop
+.\run-wikist-server.cmd --restart
+```
+
+也可统一使用 `run-wikist-server.cmd --setup|--status|--stop|--restart`。停止操作会同时结束 Webman、Node 与 Centrifugo，不需要逐个寻找进程。
 
 ### 常用命令
 
@@ -137,7 +175,7 @@ npm run check:v09
 npm run check:v10
 ```
 
-`npm run check` 执行核心 JavaScript 语法检查；`npm run check:knowledge` 会在临时目录验证链接索引、缺失/孤立词条、别名、关注与定向消息；`npm run check:v08` 验证数学元数据、层级分类/主题、安全移动、链接分页和译文审核；`npm run check:v09` 验证审核门控的翻译记忆、术语表、源文变更提示与移动迁移；`npm run check:v10` 验证协作组织、任务认领、讨论、社区审阅共识和越权边界。`npm run check:search` 验证 FTS5 的中英文检索、单词条更新与删除同步；`npm run check:runtime` 验证 WAL、快照、索引恢复、脱敏指标、安装防护、配置 Schema 迁移与服务端 Hook 边界。`tools/` 中还保留了 Markdown、评论评分、备份、收藏、数学建模、消息优先级和安全邮件等功能检查脚本。
+`npm run check` 执行核心 JavaScript 语法检查；`npm run check:knowledge` 会在临时目录验证链接索引、缺失/孤立词条、别名、关注与定向消息；`npm run check:v08` 验证数学元数据、层级分类/主题、安全移动、链接分页和译文审核；`npm run check:v09` 验证审核门控的翻译记忆、术语表、源文变更提示与移动迁移；`npm run check:v10` 验证协作组织、任务认领、讨论、社区审阅共识和越权边界。`npm run check:search` 验证 FTS5 的中英文检索、单词条更新与删除同步，以及单字符、slug、别名建议和正式搜索结果的一致性；`npm run check:runtime` 验证 WAL、快照、索引恢复、脱敏指标、安装防护、配置 Schema 迁移与服务端 Hook 边界。`tools/` 中还保留了 Markdown、评论评分、备份、收藏、数学建模、消息优先级和安全邮件等功能检查脚本。
 
 ### 本地运行与调试
 
@@ -262,7 +300,7 @@ plugins/
 node tools/sync-vendor-plugins.js
 ```
 
-内置 `cosmicExperience` 是可配置的可信客户端插件，默认启用。它只使用浏览器原生 Canvas 和 CSS，不新增 npm 前端依赖，并会遵守系统“减少动态效果”设置。插件会跟随站点浅色 / 暗黑主题切换：首页宇宙面板、Passport 黑洞吸积盘、跃迁开场、路由加载 HUD 和粒子标题都会使用对应主题的背景与粒子颜色。需要调低视觉强度或关闭时，可在后台进入“插件管理”，编辑 `cosmicExperience` 配置：
+内置 `cosmicExperience` 是可配置的可信客户端插件，默认启用。它只使用浏览器原生 Canvas 和 CSS，不新增 npm 前端依赖，并会遵守系统“减少动态效果”设置。插件会跟随站点浅色 / 暗黑主题切换：首页宇宙面板、Passport 黑洞吸积盘、“连接知识核心”开场和粒子标题都会使用对应主题的背景与粒子颜色。页面切换统一使用核心提供的“接入知识节点”圆形加载器，避免多套加载界面重叠；首页不注册鼠标跟随视觉层。需要调低视觉强度或关闭时，可在后台进入“插件管理”，编辑 `cosmicExperience` 配置：
 
 浅色主题下，人机验证 SVG 会自动改用浅色底图与深色算式文字；正文代码块、翻译预览和后台 JSON / CSS / JS 代码区域也会切换到浅色可读配色。如果更新后仍看到黑色验证码或代码块白字，请先确认浏览器加载的是 `wikist-core-20260712-101` 或更新版本，并清理 CDN / 浏览器缓存。
 
@@ -272,10 +310,8 @@ node tools/sync-vendor-plugins.js
   "intensity": "balanced",
   "intro": true,
   "introOnce": true,
-  "parallaxNebula": true,
   "authBlackHole": true,
   "titleParticles": true,
-  "routeLoader": true,
   "maxDpr": 1.5
 }
 ```
@@ -283,8 +319,8 @@ node tools/sync-vendor-plugins.js
 云端更新后如果看不到星际穿梭开场、登录页黑洞吸积盘、首页标题粒子聚合，或浅色主题下仍出现深色动画黑块，先确认浏览器拿到的是新版资源和插件模块：
 
 ```bash
-curl https://你的域名/assets/app.js?v=wikist-core-20260712-101
-curl https://你的域名/plugins/wikist-cosmic-experience/cosmic.mjs?v=wikist-core-20260712-101
+curl https://你的域名/assets/app.js?v=wikist-core-20260809-105
+curl https://你的域名/plugins/wikist-cosmic-experience/cosmic.mjs
 ```
 
 如果你使用 CDN，还需要把 `/plugins/wikist-cosmic-experience/cosmic.mjs` 同步到 CDN，并清理旧缓存。
@@ -528,11 +564,14 @@ sudo tar -czf "$BACKUP_DIR/wikist-$(date +%F).tar.gz" \
 
 #### 10. 更新
 
-Wikist 提供类似 MediaWiki `update.php` 思路的维护脚本：
+Wikist 1.0 提供两层升级入口：
 
 ```bash
 node tools/update.js --help
+php update.php --help
 ```
+
+`tools/update.js` 负责代码与运行环境编排；根目录 `update.php` 仅在 CLI 中运行，负责数据库结构维护。日常升级应优先使用前者，它会在安装依赖后自动调用后者。
 
 它会按顺序执行：
 
@@ -540,6 +579,7 @@ node tools/update.js --help
 - 生成升级前备份到 `data/backups/`。
 - 按策略同步最新核心代码。
 - 执行 `npm install --omit=dev`。
+- 执行 `update.php`，应用尚未执行的 Webman 数据库迁移。
 - 执行 `npm run check`。
 - 写入升级报告到 `data/updates/latest.json`。
 - 可选重新启动 systemd 服务。
@@ -563,7 +603,21 @@ cd "$APP_DIR"
 sudo node tools/update.js --strategy=git --remote=origin --branch=main --service=wikist --yes
 ```
 
-升级到 `0.13.1` 或更新版本后，核心前端资源版本应变为 `wikist-core-20260712-101`。如果你使用了 CDN、对象存储或浏览器强缓存，更新后建议清理 CDN 缓存，或在浏览器开发者工具 Network 面板确认 `/assets/app.js?v=wikist-core-20260712-101` 和 `/assets/styles.css?v=wikist-core-20260712-101` 已返回新内容。
+升级到 `1.0.0` 后，核心前端资源版本应为 `wikist-core-20260815-191`。如果使用 CDN、对象存储或浏览器强缓存，请清理缓存，或在浏览器 Network 面板确认 `/assets/app.js?v=wikist-core-20260815-191` 与 `/assets/styles.css?v=wikist-core-20260815-191` 已返回新内容。
+
+只检查数据库差异而不修改：
+
+```bash
+php update.php --dry-run
+```
+
+只在代码已经就位、且不需要重新拉取仓库时执行数据库维护：
+
+```bash
+php update.php
+```
+
+SQLite 会先在 `data/backups/` 创建校验快照；MySQL 站点须先完成外部备份，再使用 `php update.php --no-backup`。完整版本矩阵、迁移清单和回滚方法见 [Wikist 1.0 发布说明](docs/RELEASE_1.0.md)。
 
 先预演不改文件：
 
@@ -948,6 +1002,8 @@ node import-bundle.cjs --root=/opt/wikist --author=admin --yes
 - [轻量译文审核](docs/TRANSLATION_REVIEW.md)
 - [翻译质量层](docs/TRANSLATION_QUALITY.md)
 - [协作组织与社区审阅](docs/WRITING_COMMONS.md)
+- [统一实时通信架构](docs/REALTIME_MESSAGING.md)
+- [Wikist 设计系统与布局护栏](docs/design-system.md)
 - [代码级升级日志](docs/UPGRADE_CHANGELOG.md)
 - [下一阶段路线图](docs/ROADMAP.md)
 
@@ -962,7 +1018,9 @@ node import-bundle.cjs --root=/opt/wikist --author=admin --yes
 Wikist is a lightweight wiki framework for Chinese-first mathematics and science knowledge communities. It uses Markdown files as the primary article format and SQLite for accounts, comments, permissions, audit logs, and collaboration data. The goal is to keep a wiki portable, inspectable, and easy to deploy while making mathematical writing, visual modeling, and modern browser interaction feel native.
 
 Release date: 2026-07-10
-Last updated: 2026-07-12
+Last updated: 2026-08-15
+
+Current stable release: `1.0.0`; core frontend assets: `wikist-core-20260815-191`.
 
 ### Project Positioning
 
@@ -977,20 +1035,22 @@ Good fits include:
 
 ### Core Strengths
 
-- **Lightweight core**: the backend uses Node.js standard HTTP APIs without Express or other large server frameworks. The core is compact and easier to audit or customize.
+- **Progressive Webman core**: Webman/Workerman is the public HTTP, Passport, permission, messaging, and Community runtime. Node remains a loopback-only compatibility layer for modules still being migrated.
 - **Install-first configuration**: visit `/install.html` on first run to generate `config/site.config.json` with site identity, SQLite path, editing policy, and SMTP settings.
 - **Portable content**: articles are Markdown files in `content/pages/`; revisions live in `content/revisions/`, making backup, migration, diffing, and manual maintenance straightforward.
 - **Math-first writing**: Wikist includes TeX formulas, structured definition/theorem/proof blocks, footnotes, definition lists, tables, task lists, MediaWiki-style images, and wiki links.
 - **Innovative function-plot integration**: write `::: function-plot` blocks directly inside articles to render interactive function graphs with pan, zoom, special functions, and implicit expressions.
 - **Visual modeling**: JSXGraph geometry boards and Chart.js data charts are built in, allowing draggable geometric constructions, sequences, statistics, and experimental data to live inside articles.
 - **Modern editing experience**: the frontend is a single-page app with routes for reading, editing, translation, comments, permissions, history, favorites, messages, and administration. Writing centers on Markdown source and rendered output.
-- **Pluginized cosmic sci-fi UI**: the homepage and Wikist Passport use native Canvas starfields, nebula glow, spiral arms, warp streaks, orbital rings, and an interstellar access-console feel. The `cosmicExperience` plugin adds a full-screen warp intro, mouse-parallax nebula, login black-hole accretion disk, homepage title particle assembly, route-loading HUD, and live site metrics instead of decorative fake code. Light and dark themes switch the animation background, HUD panels, and particle colors together.
-- **Built-in Passport identity layer**: registration, login, HttpOnly sessions, CAPTCHA, password changes, email verification, password recovery, TOTP, public user pages, and contribution attribution are included.
+- **Pluginized cosmic sci-fi UI**: the homepage and Wikist Passport use native Canvas starfields, nebula glow, spiral arms, warp streaks, orbital rings, and an interstellar access-console feel. The `cosmicExperience` plugin adds the knowledge-core intro, mouse-parallax nebula, login black-hole accretion disk, homepage title particle assembly, and live site metrics instead of decorative fake code. Page transitions share one native circular knowledge-node loader, and light/dark themes switch the visuals together.
+- **Built-in Webman Passport identity layer**: a responsive standalone Passport UI includes registration, login, server-randomized slider/click-word CAPTCHA, scene themes, HttpOnly sessions, password changes, email verification, password recovery, QR-assisted TOTP enrollment, public user pages, and contribution attribution. Legacy SPA auth routes remain compatible.
 - **Knowledge network and watchlists**: every article save incrementally maintains wiki-link indexes, backlinks, missing pages, orphan reports, aliases, redirects, and page/category/language subscriptions. Matching subscribers receive one direct inbox update per save, without duplicating article data.
 - **Knowledge navigation and safe moves**: category/topic paths become lightweight directory pages with server-side search and pagination for roots, child paths, and direct articles, while backlinks and outgoing links paginate independently inside an article. A privileged article move carries revisions, reviewed snapshots, collaboration records, translations, watches, and repaired wiki links.
 - **Mathematical metadata and translation review**: optional prerequisites, related pages, canonical names, notation, MSC/ACM labels, and topic paths remain portable in Markdown. Translations move through draft, review, changes-requested, and published states without exposing unfinished work to readers.
 - **Lightweight stable revisions**: every save becomes the current revision and enters the pending-review queue when needed; senior editors can open the line diff directly, paginate auditable review notes, withdraw their own decision safely, and promote an approved snapshot to the reviewed stable version.
-- **Academic organization workspace**: Passport-synced organizations provide a Markdown charter, optional cover image, task queue, forum, and searchable member directory. Each account may create up to three active organizations and hold up to five active or pending memberships in total. Senior editors can inspect organizations from the dashboard; administrators can apply a narrow active/disabled lifecycle without taking over coordinator-owned content.
+- **Academic organization workspace**: Passport-synced organizations provide a Markdown charter, optional cover image, task queue, forum, and searchable member directory. Forum topics and replies reuse the Q&A/Messaging knowledge-reference picker and synchronize entry, revision, question, answer, organization, and user links into the global relation graph. Each account may create up to three active organizations and hold up to five active or pending memberships in total. Senior editors can inspect organizations from the dashboard; administrators can apply a narrow active/disabled lifecycle without taking over coordinator-owned content.
+- **Unified realtime messaging**: Webman's `MessagingService` stores direct messages, organization conversations, system notifications, read cursors, replies, withdrawals, attachments, mentions, and typed knowledge references in Wikist's database. Member roles and timed mutes use an opaque top-layer action popover; enabling or disabling an organization-wide mute creates a centered, replayable timeline event. Presence merges tab-scoped Webman leases with Centrifugo presence so governance updates do not rebuild subscriptions or incorrectly mark members offline. Passport is the only identity source; Centrifugo transports short-lived signed events and never owns business data or permissions.
+- **Wikist Native Community**: questions, answers, comments, answer invitations, acceptance/revocation, quality votes, reactions, collections, follows, tags, revisions and diffs, activity, reputation, badges, reports, and review queues are implemented by Webman and stored in Wikist's own database. Organization spaces reuse Passport memberships and enforce visibility across detail, feed, search, preview, relation, and notification paths. Wikist no longer bundles or runs a separate Go Q&A service. See the [Native Community architecture](docs/NATIVE_COMMUNITY.md).
 - **Auditable collaboration**: edit events, visitor identity, comments, ratings, favorites, broadcasts, permission changes, backup restores, and admin actions can be written to SQLite for review.
 - **Highly customizable**: site name, languages, navigation, home modules, home copy, plugin settings, CDN URLs, custom CSS/JS, SMTP, and security policies can be configured through files or the admin UI.
 - **Plugin-oriented extension model**: plugins are declared with `plugins/*/plugin.json`; trusted core logic, trusted client modules, manifest-only entries, and reviewed upstream source caches are separated by design.
@@ -1000,7 +1060,7 @@ Good fits include:
 
 | Dimension | Wikist | MediaWiki |
 | :--- | :--- | :--- |
-| Technology stack | Node.js + Markdown files + SQLite | PHP + MySQL/MariaDB, usually with a web server stack |
+| Technology stack | Webman/Workerman + loopback Node compatibility layer + Markdown files + SQLite | PHP + MySQL/MariaDB, usually with a web server stack |
 | Deployment complexity | Single project directory; configure through `/install.html` after startup | More dependencies; production usually involves PHP-FPM, database services, extensions, and cache components |
 | Content storage | Articles are Markdown files, easy to copy, inspect, Git-track, and manually migrate | Pages mostly live in a database; export and migration usually need dedicated tooling |
 | Mathematical writing | TeX, structured blocks, function plots, geometry boards, and charts are built around math writing | Formula support is available through extensions, but visual modeling usually depends on extra extensions or templates |
@@ -1023,6 +1083,7 @@ This repository is a minimal, install-first public release. It includes:
 - `plugins/`: trusted plugin manifests and client modules.
 - `docs/`: architecture, installation, Passport, comments and permissions, content quality, and roadmap docs.
 - `tools/`: startup and feature check scripts.
+- `update.php`: CLI-only database preflight, backup, migration, and update-report entry point.
 - `config/site.config.example.json`: example site configuration.
 - `content/*/.gitkeep`: empty runtime directory placeholders.
 
@@ -1038,18 +1099,26 @@ This repository intentionally excludes local deployment data:
 
 ### Requirements
 
-- Local syntax checks require Node.js 18 or newer.
-- Production deployments should use Node.js 24 LTS, or at least Node.js 22.5.0 or newer with `node:sqlite`.
+- PHP 8.1 or newer with PDO, mbstring, OpenSSL, cURL, and GD; Composer is needed for the first dependency install.
+- Node.js 18 or newer for the migration compatibility service; Node.js 24 LTS is recommended for production.
 - Windows, Linux, or macOS terminal access.
 
-Wikist Passport currently uses Node.js `node:sqlite`. If your Node build does not include that module, replace `src/core/passport-store.js` with a `better-sqlite3`, PostgreSQL, or MySQL adapter while preserving the same interface.
+During the hybrid migration Webman and Node must use the same Wikist SQLite file. Webman is the only Passport authority; Node listens on loopback solely for APIs that have not moved yet.
 
 ### First Install
 
-Start the server:
+Initialize Native Community and the realtime stack once:
 
 ```powershell
-node server.js
+npm run setup:stack
+```
+
+The idempotent setup creates only Centrifugo configuration and private secrets. Webman migrations create Native Community tables directly in the Wikist database. `npm start` also runs setup automatically when configuration is missing.
+
+Then start every module through one entry point:
+
+```powershell
+npm start
 ```
 
 On Windows, you can also use:
@@ -1057,6 +1126,8 @@ On Windows, you can also use:
 ```powershell
 .\run-wikist-server.cmd
 ```
+
+The Windows launcher runs setup automatically when stack state is missing. A normal start launches Webman on `8899`, the loopback Node compatibility layer on `8900`, and Centrifugo on `8902`. Only Webman is the public application endpoint.
 
 Then open:
 
@@ -1072,6 +1143,14 @@ The installer writes `config/site.config.json`, including:
 - Optional SMTP for email verification and password recovery.
 
 Restart the server after installation so the new configuration is loaded.
+
+Manage the whole process group with:
+
+```powershell
+npm run status
+npm stop
+.\run-wikist-server.cmd --restart
+```
 
 ### Common Command
 
@@ -1199,7 +1278,7 @@ Sync third-party vendor source:
 node tools/sync-vendor-plugins.js
 ```
 
-The built-in `cosmicExperience` plugin is enabled by default. It uses only native Canvas and CSS, adds no frontend npm dependency, and respects the system reduced-motion preference. It follows the site light/dark theme: the home cosmic panel, Passport black-hole disk, warp intro, route-loading HUD, and particle title all switch backgrounds and particle colors with the current theme. To lower the visual intensity or disable parts of the experience, open Admin -> Plugins and edit the `cosmicExperience` JSON:
+The built-in `cosmicExperience` plugin is enabled by default. It uses only native Canvas and CSS, adds no frontend npm dependency, and respects the system reduced-motion preference. It follows the site light/dark theme: the home cosmic panel, Passport black-hole disk, knowledge-core intro, and particle title all switch backgrounds and particle colors with the current theme. Page transitions use the single native circular knowledge-node loader, avoiding overlapping loading systems, and the homepage registers no pointer-follow visual layer. To lower the visual intensity or disable parts of the experience, open Admin -> Plugins and edit the `cosmicExperience` JSON:
 
 In light mode, the human-verification SVG is recolored to a light panel with dark formula text, and article code blocks, translation previews, and admin JSON / CSS / JS code areas use readable light-theme text colors. If a cloud site still shows a black captcha or white code text after updating, verify that the browser is loading `wikist-core-20260712-101` or later and purge CDN / browser cache.
 
@@ -1209,10 +1288,8 @@ In light mode, the human-verification SVG is recolored to a light panel with dar
   "intensity": "balanced",
   "intro": true,
   "introOnce": true,
-  "parallaxNebula": true,
   "authBlackHole": true,
   "titleParticles": true,
-  "routeLoader": true,
   "maxDpr": 1.5
 }
 ```
@@ -1220,8 +1297,8 @@ In light mode, the human-verification SVG is recolored to a light panel with dar
 After a cloud update, verify the new plugin module if the warp intro, login black hole, title particles, or light-theme cosmic adaptation do not appear:
 
 ```bash
-curl https://your-domain/assets/app.js?v=wikist-core-20260712-101
-curl https://your-domain/plugins/wikist-cosmic-experience/cosmic.mjs?v=wikist-core-20260712-101
+curl https://your-domain/assets/app.js?v=wikist-core-20260809-105
+curl https://your-domain/plugins/wikist-cosmic-experience/cosmic.mjs
 ```
 
 If you use a CDN, also sync `/plugins/wikist-cosmic-experience/cosmic.mjs` to the CDN and purge old cache entries.
@@ -1458,7 +1535,10 @@ Wikist includes a maintenance updater inspired by MediaWiki's update workflow:
 
 ```bash
 node tools/update.js --help
+php update.php --help
 ```
+
+`tools/update.js` coordinates code, dependencies, backups, checks, and services. The CLI-only root `update.php` owns database inspection and migrations; the main updater invokes it automatically.
 
 It performs:
 
@@ -1466,6 +1546,7 @@ It performs:
 - Pre-update backup into `data/backups/`.
 - Core code synchronization according to the selected strategy.
 - `npm install --omit=dev`.
+- Pending Webman database migrations through `update.php`.
 - `npm run check`.
 - Update report writing to `data/updates/latest.json`.
 - Optional systemd service start.
@@ -1489,7 +1570,7 @@ cd "$APP_DIR"
 sudo node tools/update.js --strategy=git --remote=origin --branch=main --service=wikist --yes
 ```
 
-After updating to `0.13.1` or later, the core frontend asset version should be `wikist-core-20260712-101`. If you use a CDN, object storage, or aggressive browser caching, purge the CDN cache or verify in the browser Network panel that `/assets/app.js?v=wikist-core-20260712-101` and `/assets/styles.css?v=wikist-core-20260712-101` are serving the new files.
+After updating to `1.0.0`, the core frontend asset version should be `wikist-core-20260815-191`. If you use a CDN, object storage, or aggressive browser caching, purge it or verify that `/assets/app.js?v=wikist-core-20260815-191` and `/assets/styles.css?v=wikist-core-20260815-191` are serving the new files. See [Wikist 1.0 release and upgrade guide](docs/RELEASE_1.0.md) for the migration matrix and rollback procedure.
 
 Dry run:
 
@@ -1698,6 +1779,8 @@ Upload a local archive to `...your-path...`, unzip it, install dependencies, and
 - [Runtime reliability, backup rehearsal, and request protection](docs/RUNTIME_RELIABILITY.md)
 - [Knowledge navigation, mathematical metadata, and article moves](docs/KNOWLEDGE_NAVIGATION.md)
 - [Lightweight translation review](docs/TRANSLATION_REVIEW.md)
+- [Unified realtime messaging architecture](docs/REALTIME_MESSAGING.md)
+- [Wikist Design System and layout invariants](docs/design-system.md)
 - [Code-level upgrade changelog](docs/UPGRADE_CHANGELOG.md)
 - [Next-stage roadmap](docs/ROADMAP.md)
 

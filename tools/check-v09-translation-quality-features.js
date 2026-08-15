@@ -98,6 +98,7 @@ try {
   } catch (error) {
     readerDenied = error.statusCode === 403;
   }
+  const leaveResult = passport.leaveTranslatorCommunity(translatorSession);
 
   const checks = {
     draftDoesNotEnterMemory: draft.status === "review" && memoryBeforeReview.total === 0,
@@ -107,7 +108,8 @@ try {
     assistantReusesMemoryAndGlossary: assistant.memory.length >= 2 && assistant.glossary.some((item) => item.targetTerm === "group"),
     ordinaryReaderCannotAccessQualityData: readerDenied,
     moveRekeysTranslationMemory: moveStorage.translationMemory >= 2 && movedMemory.items.every((item) => item.pageSlug === "quality/translation-quality"),
-    serverRoutesPresent: appSource.includes("/api/translation-memory") && appSource.includes("/api/translation-glossary") && appSource.includes("translationAssistant"),
+    translatorCanLeaveWithoutDeletingTranslations: leaveResult.left && passport.getTranslatorProfile(translator.id) === null && passport.getTranslation(moved.page.slug, "en")?.id === reviewed.id,
+    serverRoutesPresent: appSource.includes("/api/translation-memory") && appSource.includes("/api/translation-glossary") && appSource.includes("translationAssistant") && appSource.includes("leaveTranslatorCommunity"),
   };
   const failed = Object.entries(checks).filter(([, ok]) => !ok).map(([name]) => name);
   assert.deepStrictEqual(failed, [], `v0.9 translation quality checks failed: ${failed.join(", ")}`);

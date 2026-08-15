@@ -16,7 +16,7 @@ const defaults = {
     cdnBase: "",
     customCss: "",
     customJs: "",
-    siteIcon: "/assets/wikist-emblem.svg",
+    siteIcon: "/assets/wikist-icon.png",
   },
   editing: {
     open: true,
@@ -225,9 +225,13 @@ function writeInitialConfig(rootDir, input = {}, options = {}) {
 
 function loadConfig(rootDir) {
   const configPath = siteConfigPath(rootDir);
-  if (!fs.existsSync(configPath)) return defaults;
-  const userConfig = JSON.parse(fs.readFileSync(configPath, "utf8").replace(/^\uFEFF/, ""));
+  const userConfig = fs.existsSync(configPath)
+    ? JSON.parse(fs.readFileSync(configPath, "utf8").replace(/^\uFEFF/, ""))
+    : {};
   const config = mergeDeep(defaults, userConfig);
+  if (process.env.WIKIST_PASSPORT_DATABASE) {
+    config.passport.database = cleanDatabasePath(process.env.WIKIST_PASSPORT_DATABASE);
+  }
   const legacyInstallPolicy = userConfig.security?.firewall?.install;
   if (
     Number(legacyInstallPolicy?.points) === 8

@@ -23,8 +23,25 @@ const CODE_PATHS = [
   "public/index.html",
   "public/install.html",
   "server.js",
+  "update.php",
   "src",
   "tools",
+  "webman-backend/.gitignore",
+  "webman-backend/.env.example",
+  "webman-backend/README.md",
+  "webman-backend/app",
+  "webman-backend/config",
+  "webman-backend/database/migrations",
+  "webman-backend/database/schema",
+  "webman-backend/public",
+  "webman-backend/support",
+  "webman-backend/tools",
+  "webman-backend/composer.json",
+  "webman-backend/composer.lock",
+  "webman-backend/start.php",
+  "webman-backend/webman",
+  "webman-backend/windows.bat",
+  "webman-backend/windows.php",
 ];
 
 const PROTECTED_PATHS = [
@@ -296,6 +313,58 @@ function installDependencies(options) {
   if (!fs.existsSync(path.join(rootDir, "package.json"))) return;
   const invocation = npmInvocation(["install", "--omit=dev"]);
   run(invocation.command, invocation.args, options);
+  installWebmanDependencies(options);
+}
+
+function resolvePhp() {
+  const candidates = [
+    process.env.WIKIST_PHP,
+    process.platform === "win32" ? path.join(rootDir, ".runtime", "php", "php.exe") : "",
+    process.platform === "win32" ? path.join(rootDir, "runtime", "php", "php.exe") : "",
+    process.platform === "win32" ? "php.exe" : "php",
+  ].filter(Boolean);
+  return candidates.find((candidate) => {
+    const result = childProcess.spawnSync(candidate, ["-r", "echo PHP_VERSION_ID;"], { encoding: "utf8", windowsHide: true });
+    return !result.error && result.status === 0 && Number(result.stdout) >= 80100;
+  }) || "";
+}
+
+function resolveComposer(php) {
+  const pharCandidates = [
+    process.env.WIKIST_COMPOSER,
+    path.join(rootDir, ".runtime", "composer", "composer.phar"),
+    path.join(rootDir, "runtime", "composer", "composer.phar"),
+  ].filter(Boolean).filter((candidate) => candidate.endsWith(".phar") && fs.existsSync(candidate));
+  if (pharCandidates[0]) return { command: php, args: [pharCandidates[0]] };
+  for (const command of process.platform === "win32" ? ["composer.bat", "composer"] : ["composer"]) {
+    const result = childProcess.spawnSync(command, ["--version"], { encoding: "utf8", windowsHide: true });
+    if (!result.error && result.status === 0) return { command, args: [] };
+  }
+  return null;
+}
+
+function installWebmanDependencies(options) {
+  const backend = path.join(rootDir, "webman-backend");
+  if (!fs.existsSync(path.join(backend, "composer.json"))) return;
+  const php = resolvePhp();
+  if (!php) throw new Error("Webman 更新需要 PHP 8.1 或更高版本；可通过 WIKIST_PHP 指定路径。");
+  const composer = resolveComposer(php);
+  if (!composer) throw new Error("未找到 Composer；请安装 Composer 或通过 WIKIST_COMPOSER 指定 composer.phar。");
+  run(composer.command, [...composer.args, "install", "--no-dev", "--optimize-autoloader", "--no-interaction"], { ...options, cwd: backend });
+
+  const site = loadConfig(rootDir);
+  const database = path.resolve(rootDir, site.passport?.database || "data/wikist.sqlite");
+  if (!safeInside(rootDir, database)) throw new Error("Wikist 数据库路径越出项目目录。");
+  const updateScript = path.join(rootDir, "update.php");
+  if (!options.dryRun) {
+    childProcess.execFileSync(php, [updateScript, "--no-backup", "--skip-check"], {
+      cwd: rootDir,
+      env: { ...process.env, WIKIST_DB_DRIVER: process.env.WIKIST_DB_DRIVER || "sqlite", WIKIST_DB_DATABASE: process.env.WIKIST_DB_DATABASE || database },
+      stdio: "inherit",
+    });
+  } else {
+    log(`[dry-run] ${php} update.php --no-backup --skip-check`);
+  }
 }
 
 function runChecks(options) {

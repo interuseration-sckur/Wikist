@@ -71,6 +71,12 @@ store.deleteMessage(account.user.id, mentionMessages[0].id);
 const messagesAfterDelete = store.countMessages(account.user.id);
 const broadcast = store.broadcastMessage(adminSession, { title: "全站通知", body: "测试消息" });
 const adminMessages = store.listAdminMessages({ limit: 10, offset: 0, query: "全站" });
+const lateAccount = register(store, "late_user", "Late User", "late-user@example.com");
+store.db.prepare("UPDATE users SET created_at = ? WHERE id = ?")
+  .run(new Date(Date.now() + 1000).toISOString(), lateAccount.user.id);
+const lateBroadcastInbox = store.listMessages(lateAccount.user.id, { limit: 10, offset: 0 });
+const lateBroadcastUnread = store.unreadMessageCount(lateAccount.user.id);
+const lateBroadcastStates = store.db.prepare("SELECT count(*) AS n FROM site_message_states WHERE user_id = ?").get(lateAccount.user.id).n;
 const broadcastInbox = store.listMessages(account.user.id, { limit: 10, offset: 0 });
 const broadcastUnread = store.unreadMessageCount(account.user.id);
 store.markMessageRead(account.user.id, broadcastInbox[0].id);
@@ -103,6 +109,7 @@ const checks = {
   unreadReadDelete: unreadBeforeRead === 1 && unreadAfterRead === 0 && messagesAfterDelete === 0,
   broadcastSent: broadcast.count === 2 && adminMessages.length === 1 && adminMessages[0].deliveryCount === 2,
   broadcastUserState: broadcastInbox.length === 1 && broadcastInbox[0].id < 0 && broadcastUnread === 1 && broadcastRead === 0 && broadcastDeleted === 0,
+  historicalBroadcastReadBaseline: lateBroadcastInbox.length === 1 && lateBroadcastInbox[0].status === "read" && lateBroadcastUnread === 0 && lateBroadcastStates === 0,
   broadcastRecalled: recalledMessages.length === 1 && store.countMessages(adminAccount.user.id) === 0,
   ratingDeduped: rating.count === 1 && rating.average === 3,
   guestPreserved: guest.display_name === guestBeforeRating.display_name && guest.email === guestBeforeRating.email && guest.display_name !== "访客评分",

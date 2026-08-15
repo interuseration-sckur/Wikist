@@ -1,3 +1,4 @@
+const crypto = require("crypto");
 const fs = require("fs");
 const http = require("http");
 const path = require("path");
@@ -211,7 +212,10 @@ function assetUrl(config, urlPath) {
 }
 
 function siteIconUrl(config) {
-  const icon = cleanAssetUrl(config.assets?.siteIcon || "/assets/wikist-emblem.svg", "/assets/wikist-emblem.svg");
+  const configured = config.assets?.siteIcon === "/assets/wikist-emblem.svg"
+    ? "/assets/wikist-icon.png"
+    : config.assets?.siteIcon;
+  const icon = cleanAssetUrl(configured || "/assets/wikist-icon.png", "/assets/wikist-icon.png");
   return icon.startsWith("/") ? assetUrl(config, icon) : icon;
 }
 
@@ -219,10 +223,11 @@ function serveIndexHtml(req, res, indexPath, config) {
   const icon = siteIconUrl(config);
   const siteName = configuredSiteName(config);
   const html = fs.readFileSync(indexPath, "utf8")
-    .replace(/href="\/assets\/styles\.css\?v=wikist-core-20260712-101"/g, `href="${escapeHtml(assetUrl(config, "/assets/styles.css?v=wikist-core-20260712-101"))}"`)
-    .replace(/src="\/assets\/app\.js\?v=wikist-core-20260712-101"/g, `src="${escapeHtml(assetUrl(config, "/assets/app.js?v=wikist-core-20260712-101"))}"`)
-    .replace(/href="\/assets\/wikist-emblem\.svg"/g, `href="${escapeHtml(icon)}"`)
-    .replace(/src="\/assets\/wikist-emblem\.svg"/g, `src="${escapeHtml(icon)}"`)
+    .replace(/href="(\/assets\/styles\.css\?v=[^"]+)"/g, (_match, url) => `href="${escapeHtml(assetUrl(config, url))}"`)
+    .replace(/href="(\/assets\/design-system\.css\?v=[^"]+)"/g, (_match, url) => `href="${escapeHtml(assetUrl(config, url))}"`)
+    .replace(/src="(\/assets\/app\.js\?v=[^"]+)"/g, (_match, url) => `src="${escapeHtml(assetUrl(config, url))}"`)
+    .replace(/href="\/assets\/wikist-(?:emblem\.svg|icon\.png)"/g, `href="${escapeHtml(icon)}"`)
+    .replace(/src="\/assets\/wikist-(?:emblem\.svg|icon\.png)"/g, `src="${escapeHtml(icon)}"`)
     .replace(/<title>Wikist<\/title>/, `<title>${escapeHtml(siteName)}</title>`)
     .replace(/<strong id="siteName">Wikist<\/strong>/, `<strong id="siteName">${escapeHtml(siteName)}</strong>`)
     .replace(/id="breadcrumbs">Wikist<\//, `id="breadcrumbs">${escapeHtml(siteName)}</`);
@@ -396,7 +401,9 @@ function siteSettingsPayload(config) {
     license: config.license || "CC BY-SA 4.0",
     mathCdn: config.math?.cdn || "",
     cdnBase: config.assets?.cdnBase || "",
-    siteIcon: config.assets?.siteIcon || "/assets/wikist-emblem.svg",
+    siteIcon: config.assets?.siteIcon === "/assets/wikist-emblem.svg"
+      ? "/assets/wikist-icon.png"
+      : (config.assets?.siteIcon || "/assets/wikist-icon.png"),
     customCss: config.assets?.customCss || "",
     customJs: config.assets?.customJs || "",
     mail: {
@@ -487,7 +494,7 @@ function sanitizeSiteSettings(input, current = {}) {
     assets: {
       ...(current.assets || {}),
       cdnBase: cleanSettingText(source.cdnBase ?? current.assets?.cdnBase ?? "", 500),
-      siteIcon: cleanAssetUrl(source.siteIcon ?? current.assets?.siteIcon ?? "/assets/wikist-emblem.svg", "/assets/wikist-emblem.svg"),
+      siteIcon: cleanAssetUrl(source.siteIcon ?? current.assets?.siteIcon ?? "/assets/wikist-icon.png", "/assets/wikist-icon.png"),
       customCss: String(source.customCss ?? current.assets?.customCss ?? "").slice(0, 20000),
       customJs: String(source.customJs ?? current.assets?.customJs ?? "").slice(0, 20000),
     },
@@ -649,6 +656,62 @@ function knowledgeSnapshot(passport, pages, config) {
   return passport.knowledgeSnapshot(pages.listPageSummaries(), { defaultSlug: config.defaultPage || "home" });
 }
 
+function pageRecommendations(currentPage, pageList = [], knowledge = {}, limit = 6, options = {}) {
+  if (!currentPage) return [];
+  const currentSlug = normalizeSlug(currentPage.slug);
+  const defaultSlug = normalizeSlug(options.defaultSlug || "home");
+  const excludedSlugs = new Set([currentSlug]);
+  const qualityRank = (value) => ({ A: 3, B: 2, C: 1 })[String(value || "").toUpperCase()] || 0;
+  if (currentSlug !== defaultSlug) excludedSlugs.add(defaultSlug);
+  const pagesBySlug = new Map(pageList.map((page) => [normalizeSlug(page.slug), page]));
+  const ranked = new Map();
+  const add = (value, score, reason) => {
+    const rawSlug = value?.slug || value || "";
+    if (!rawSlug) return;
+    const slug = normalizeSlug(rawSlug);
+    const page = pagesBySlug.get(slug);
+    if (!page || excludedSlugs.has(slug) || page.redirectTarget) return;
+    const entry = ranked.get(slug) || { page, score: 0, reasons: new Set() };
+    entry.score += Number(score) || 0;
+    if (reason) entry.reasons.add(reason);
+    ranked.set(slug, entry);
+  };
+
+  for (const slug of currentPage.relatedPages || []) add(slug, 12, "关联词条");
+  for (const slug of currentPage.prerequisites || []) add(slug, 10, "前置知识");
+  for (const item of knowledge.outgoing || []) if (item.exists !== false) add(item.slug, 8, "正文链接");
+  for (const item of knowledge.backlinks || []) if (item.exists !== false) add(item.slug, 7, "反向链接");
+
+  const currentCategories = new Set((currentPage.categories || []).map((item) => String(item).trim()).filter(Boolean));
+  for (const page of pageList) {
+    if (normalizeSlug(page.slug) === currentSlug) continue;
+    if ((page.relatedPages || []).some((slug) => normalizeSlug(slug) === currentSlug)) add(page, 9, "互相关联");
+    if ((page.prerequisites || []).some((slug) => normalizeSlug(slug) === currentSlug)) add(page, 7, "后续知识");
+    const sharedCategories = (page.categories || []).filter((category) => currentCategories.has(String(category).trim()));
+    if (sharedCategories.length) add(page, Math.min(6, sharedCategories.length * 2), `同类：${sharedCategories[0]}`);
+    if (currentPage.topic && page.topic && String(page.topic) === String(currentPage.topic)) add(page, 5, "同一主题");
+  }
+
+  if (ranked.size < limit) {
+    const fallback = pageList
+      .filter((page) => !excludedSlugs.has(normalizeSlug(page.slug)) && !page.redirectTarget)
+      .sort((left, right) => qualityRank(right.quality) - qualityRank(left.quality) || new Date(right.updatedAt || 0) - new Date(left.updatedAt || 0));
+    for (const page of fallback) {
+      if (ranked.size >= Math.max(limit * 2, 12)) break;
+      add(page, 1, page.quality === "A" ? "优质词条" : "近期更新");
+    }
+  }
+
+  return [...ranked.values()]
+    .map((entry) => ({
+      ...entry,
+      priorityScore: entry.score + qualityRank(entry.page.quality) * 2 + (entry.page.status === "stable" ? 1 : 0),
+    }))
+    .sort((left, right) => right.priorityScore - left.priorityScore || new Date(right.page.updatedAt || 0) - new Date(left.page.updatedAt || 0))
+    .slice(0, Math.max(1, Math.min(Number(limit) || 6, 12)))
+    .map(({ page, priorityScore, reasons }) => ({ ...pagePreviewPayload(page), score: priorityScore, reasons: [...reasons].slice(0, 3) }));
+}
+
 function knowledgeWrite(passport, page, session, options = {}) {
   if (!passport || !page) return { links: [], notifications: 0 };
   const linkSync = passport.syncPageLinks(page);
@@ -780,14 +843,58 @@ function createWikistServer(options) {
       const pathname = decodeURIComponent(url.pathname);
       observedPathname = pathname;
       firewall.applySecurityHeaders(res);
-      const firewallResult = firewall.evaluate(req, pathname);
+      const internalToken = String(process.env.WIKIST_INTERNAL_TOKEN || "");
+      const remoteAddress = String(req.socket?.remoteAddress || "");
+      const internalRequest = Boolean(
+        internalToken
+        && ["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(remoteAddress)
+        && String(req.headers["x-wikist-internal-token"] || "") === internalToken
+      );
+      const firewallResult = internalRequest
+        ? { allowed: true, statusCode: 200, retryAfter: 0, policy: "internal-webman", remaining: 0 }
+        : firewall.evaluate(req, pathname);
       firewall.applyHeaders(res, firewallResult);
       if (!firewallResult.allowed) {
         sendFirewallBlock(req, res, firewallResult);
         return;
       }
-      const session = passport ? passport.authenticate(req) : null;
-      const installerAsset = pathname === "/assets/install.css" || pathname === "/assets/install.js" || pathname === "/assets/wikist-emblem.svg";
+      if (pathname === "/api/internal/passport/verify-legacy-password" && req.method === "POST") {
+        if (!internalRequest) {
+          sendJson(res, 404, { error: "Not found." });
+          return;
+        }
+        const body = await readJsonBody(req, 4 * 1024);
+        const password = String(body.password || "");
+        const salt = String(body.salt || "");
+        const expected = String(body.expected || "");
+        if (password.length > 1024 || !salt || salt.length > 256 || !/^[A-Za-z0-9_-]{80,100}$/.test(expected)) {
+          sendJson(res, 422, { error: "Invalid legacy credential payload." });
+          return;
+        }
+        const actual = crypto.scryptSync(password, salt, 64, {
+          N: 16384,
+          r: 8,
+          p: 1,
+          maxmem: 64 * 1024 * 1024,
+        }).toString("base64url");
+        const actualBytes = Buffer.from(actual);
+        const expectedBytes = Buffer.from(expected);
+        sendJson(res, 200, {
+          ok: true,
+          valid: actualBytes.length === expectedBytes.length && crypto.timingSafeEqual(actualBytes, expectedBytes),
+        });
+        return;
+      }
+      const cookieSession = passport ? passport.authenticate(req) : null;
+      const bridgedUserId = internalRequest ? Number(req.headers["x-wikist-user-id"] || 0) : 0;
+      const bridgedUser = bridgedUserId > 0 && passport ? passport.getUserProfile(bridgedUserId) : null;
+      const session = bridgedUser ? { user: bridgedUser, bridged: true } : cookieSession;
+      const installerAsset = pathname === "/assets/install.css"
+        || pathname === "/assets/install.js"
+        || pathname === "/assets/wikist-emblem.svg"
+        || pathname === "/assets/wikist-icon.png"
+        || pathname === "/assets/wikist-logo.png"
+        || pathname === "/passport/assets/passport-cn.ttf";
       const installerRequest = pathname === "/install.html" || pathname.startsWith("/api/install/") || pathname === "/api/install" || installerAsset;
 
       if (pathname === "/api/health" && (req.method === "GET" || req.method === "HEAD")) {
@@ -1123,6 +1230,17 @@ function createWikistServer(options) {
         }
         const translator = passport.joinTranslatorCommunity(session, await readJsonBody(req));
         sendJson(res, 200, { translator });
+        return;
+      }
+
+      if (pathname === "/api/passport/translation/join" && req.method === "DELETE") {
+        if (!passport || !session?.user) {
+          sendJson(res, 401, { error: "请先登录后退出翻译社区。" });
+          return;
+        }
+        const result = passport.leaveTranslatorCommunity(session);
+        recordAudit(passport, req, session, { action: "translation.leave", targetType: "user", targetId: String(session.user.id), targetLabel: session.user.username, summary: "退出翻译社区" });
+        sendJson(res, 200, result);
         return;
       }
 
@@ -1578,6 +1696,47 @@ function createWikistServer(options) {
         const messages = passport.listAdminMessages(options);
         const payload = paginationPayload(messages, passport.countAdminMessages(options), pagination);
         sendJson(res, 200, { ...payload, messages });
+        return;
+      }
+
+      if (pathname === "/api/admin/overview" && req.method === "GET") {
+        requireDashboard(passport, session);
+        const pageItems = pages.listPageSummaries();
+        const organizationStats = passport.organizationAdminStats();
+        const reviewStates = passport.getPageReviewStates(pageItems);
+        const quality = pageItems.reduce((result, page) => {
+          const key = ["A", "B", "C"].includes(String(page.quality || "").toUpperCase())
+            ? String(page.quality).toUpperCase()
+            : "draft";
+          result[key] += 1;
+          return result;
+        }, { A: 0, B: 0, C: 0, draft: 0 });
+        const recentPages = [...pageItems]
+          .sort((left, right) => String(right.updatedAt || "").localeCompare(String(left.updatedAt || "")))
+          .slice(0, 6)
+          .map((page) => ({
+            slug: page.slug,
+            title: page.title,
+            quality: page.quality || "C",
+            status: page.status || "draft",
+            author: page.author || "",
+            updatedAt: page.updatedAt,
+          }));
+        const canSeeUsers = session?.user?.role === "admin" || session?.user?.capabilities?.manageUsers === true;
+        sendJson(res, 200, {
+          stats: {
+            users: canSeeUsers ? Number(passport.countUsers("") || 0) : null,
+            pages: pageItems.length,
+            organizations: organizationStats.total,
+            comments: Number(passport.countAllComments({ status: "all" }) || 0),
+            stable: reviewStates.filter((item) => item.isCurrentStable).length,
+            pending: reviewStates.filter((item) => item.pending).length,
+          },
+          quality,
+          organizations: organizationStats,
+          recentActivity: passport.listAuditLogs({ limit: 8, offset: 0 }),
+          recentPages,
+        });
         return;
       }
 
@@ -2259,6 +2418,22 @@ function createWikistServer(options) {
         return;
       }
 
+      const pageRecommendationsMatch = pathname.match(/^\/api\/pages\/(.+)\/recommendations$/);
+      if (pageRecommendationsMatch && req.method === "GET") {
+        const resolved = resolveLivePage(pages, passport, decodePathPart(pageRecommendationsMatch[1]));
+        if (!resolved.page) {
+          sendJson(res, 404, { error: "词条不存在。", slug: resolved.requestedSlug });
+          return;
+        }
+        const limit = Math.max(3, Math.min(Number(url.searchParams.get("limit")) || 6, 12));
+        const pageList = pages.listPageSummaries();
+        const knowledge = passport
+          ? passport.pageKnowledge(resolved.page.slug, pageList, { defaultSlug: config.defaultPage || "home", linkLimit: 24, backlinksPage: 1, outgoingPage: 1 })
+          : { outgoing: [], backlinks: [] };
+        sendJson(res, 200, { slug: resolved.page.slug, items: pageRecommendations(resolved.page, pageList, knowledge, limit, { defaultSlug: config.defaultPage || "home" }) });
+        return;
+      }
+
       const pageLinksMatch = pathname.match(/^\/api\/pages\/(.+)\/links$/);
       if (pageLinksMatch && req.method === "GET") {
         const resolved = resolveLivePage(pages, passport, decodePathPart(pageLinksMatch[1]));
@@ -2273,8 +2448,9 @@ function createWikistServer(options) {
           backlinksPage: Math.max(1, Number(url.searchParams.get("backlinksPage")) || 1),
           outgoingPage: Math.max(1, Number(url.searchParams.get("outgoingPage")) || 1),
         };
+        const pageList = pages.listPageSummaries();
         const knowledge = passport
-          ? passport.pageKnowledge(resolved.page.slug, pages.listPageSummaries(), linkOptions)
+          ? passport.pageKnowledge(resolved.page.slug, pageList, linkOptions)
           : {
             pageSlug: resolved.page.slug,
             outgoing: [],
@@ -2284,6 +2460,7 @@ function createWikistServer(options) {
             aliases: [],
             stats: {},
           };
+        knowledge.recommendations = pageRecommendations(resolved.page, pageList, knowledge, 12, { defaultSlug: config.defaultPage || "home" });
         sendJson(res, 200, knowledge);
         return;
       }
@@ -2903,7 +3080,15 @@ function createWikistServer(options) {
           return;
         }
         const review = passport ? passport.getPageReview(page.slug, page.revisionId) : null;
-        sendJson(res, 200, { ...page, review, versionMode: "current" });
+        const authorIdentity = passport ? passport.pageAuthorIdentity(page.slug, page.author) : null;
+        sendJson(res, 200, {
+          ...page,
+          authorUsername: authorIdentity?.username || "",
+          authorDisplayName: authorIdentity?.displayName || page.author || "",
+          authorAvatarUrl: authorIdentity?.avatarUrl || "",
+          review,
+          versionMode: "current",
+        });
         return;
       }
 
@@ -2993,6 +3178,15 @@ function createWikistServer(options) {
         }
         const review = passport ? passport.getPageReview(page.slug, page.revisionId) : null;
         sendJson(res, 200, { ...page, editEvent, knowledge, review });
+        return;
+      }
+
+      if (pathname === "/api/search/suggest" && req.method === "GET") {
+        const result = search.suggest(url.searchParams.get("q") || "", {
+          limit: Math.max(1, Math.min(Number(url.searchParams.get("limit")) || 8, 12)),
+        });
+        runtimeMetrics.observeSearch(search.lastTelemetry);
+        sendJson(res, 200, result);
         return;
       }
 

@@ -1,5 +1,10 @@
 ﻿node_modules/
 
+# Local PHP/Composer runtimes. They are deployment artifacts, not source.
+.runtime/
+webman-backend/vendor/
+runtime/
+
 # Runtime data
 data/
 logs/
@@ -13,9 +18,11 @@ config/site.config.json
 content/pages/*
 content/revisions/*
 content/deleted/*
+content/reviewed/*
 !content/pages/.gitkeep
 !content/revisions/.gitkeep
 !content/deleted/.gitkeep
+!content/reviewed/.gitkeep
 
 # Upstream source caches, re-synced and reviewed locally.
 plugins/vendor/
@@ -25,6 +32,9 @@ public/uploads/*
 !public/uploads/.gitkeep
 
 # Local scratch artifacts.
+.agents/
+output/
+tmp/
 *.tmp
 *.bak
 Thumbs.db

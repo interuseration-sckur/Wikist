@@ -1,0 +1,55 @@
+{
+  "http_server": {
+    "address": "127.0.0.1",
+    "port": 8000
+  },
+  "client": {
+    "token": {
+      "hmac_secret_key": "replace-with-the-same-value-as-CENTRIFUGO_TOKEN_HMAC_SECRET"
+    },
+    "allowed_origins": [
+      "https://wiki.example.com",
+      "http://127.0.0.1:8899"
+    ],
+    "user_connection_limit": 8,
+    "channel_limit": 32
+  },
+  "channel": {
+    "history_meta_ttl": "24h",
+    "namespaces": [
+      {
+        "name": "conversation",
+        "presence": true,
+        "join_leave": true,
+        "force_push_join_leave": true,
+        "history_size": 100,
+        "history_ttl": "5m",
+        "force_recovery": true
+      },
+      {
+        "name": "personal",
+        "history_size": 30,
+        "history_ttl": "2m",
+        "force_recovery": true
+      },
+      {
+        "name": "organization",
+        "history_size": 30,
+        "history_ttl": "2m",
+        "force_recovery": true
+      },
+      {
+        "name": "system",
+        "history_size": 30,
+        "history_ttl": "2m",
+        "force_recovery": true
+      }
+    ]
+  },
+  "http_api": {
+    "key": "replace-with-the-same-value-as-CENTRIFUGO_API_KEY"
+  },
+  "log": {
+    "level": "info"
+  }
+}

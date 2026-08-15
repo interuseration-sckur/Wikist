@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#f6fbfa" />
+    <script>
+      try {
+        const saved = localStorage.getItem("wikist-theme");
+        document.documentElement.dataset.theme = saved === "dark" || saved === "light" ? saved : "light";
+      } catch (_) {
+        document.documentElement.dataset.theme = "light";
+      }
+    </script>
+    <title>通行证 - Wikist</title>
+    <link id="passportFavicon" rel="icon" href="/assets/wikist-icon.png" />
+    <link rel="stylesheet" href="/assets/vendor/sweetalert2/sweetalert2.min.css?v=11.26.25" />
+    <link rel="stylesheet" href="/passport/passport.css?v=wikist-passport-20260809-8" />
+  </head>
+  <body>
+    <div class="scene-image" aria-hidden="true"></div>
+    <div class="scene-shade" aria-hidden="true"></div>
+    <div class="passport-app">
+      <header class="passport-topbar">
+        <a class="passport-brand" href="/" aria-label="返回 Wiki">
+          <img id="passportBrandIcon" src="/assets/wikist-icon.png" alt="" width="42" height="42" />
+          <span><strong id="passportSiteName">Wikist</strong><small id="passportSiteTagline">开放知识通行证</small></span>
+        </a>
+        <nav class="passport-actions" aria-label="页面工具">
+          <button class="tool-button" id="themeToggle" type="button" title="切换深浅主题" aria-label="切换深浅主题">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v2m0 14v2M3 12h2m14 0h2M5.6 5.6 7 7m10 10 1.4 1.4M18.4 5.6 17 7M7 17l-1.4 1.4M16 12a4 4 0 1 1-8 0 4 4 0 0 1 8 0Z"/></svg>
+            <span>主题</span>
+          </button>
+          <button class="tool-button" id="sceneButton" type="button" title="选择背景" aria-label="选择背景">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v14H4zM4 16l4-4 3 3 3-4 6 7M15.5 9a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Z"/></svg>
+            <span>场景</span>
+          </button>
+          <a class="tool-button" href="/" title="返回 Wiki">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m10 17-5-5 5-5M5 12h14"/></svg>
+            <span>返回 Wiki</span>
+          </a>
+        </nav>
+      </header>
+
+      <main class="passport-stage">
+        <section class="passport-intro" aria-labelledby="passportHeading">
+          <span class="system-kicker">UNIFIED KNOWLEDGE IDENTITY</span>
+          <h1 id="passportHeading"><span id="introSiteName">Wikist</span><br />知识通行证</h1>
+          <p id="passportIntro">使用同一账户参与词条、协作、消息与审阅。</p>
+          <div class="identity-map" aria-hidden="true">
+            <span class="identity-line line-a"></span>
+            <span class="identity-line line-b"></span>
+            <span class="identity-line line-c"></span>
+            <span class="identity-core"><img src="/assets/wikist-icon.png" alt="" /></span>
+            <i class="node node-a"></i><i class="node node-b"></i><i class="node node-c"></i><i class="node node-d"></i>
+          </div>
+        </section>
+
+        <section class="passport-panel" aria-live="polite">
+          <header class="panel-heading">
+            <span class="system-kicker">PASSPORT ACCESS</span>
+            <div><h2 id="formTitle">登录</h2></div>
+            <p id="formSubtitle">验证身份后继续进入知识网络。</p>
+          </header>
+          <div id="signedInNotice" class="signed-in-notice" hidden></div>
+          <nav class="passport-tabs" id="passportTabs" aria-label="通行证操作">
+            <button type="button" data-mode="login">登录</button>
+            <button type="button" data-mode="register">注册</button>
+          </nav>
+          <div id="formMount"></div>
+        </section>
+      </main>
+
+      <footer class="passport-footer">
+        <span id="footerSiteName">Wikist Passport</span>
+      </footer>
+    </div>
+
+    <dialog class="scene-dialog" id="sceneDialog">
+      <form method="dialog" class="dialog-surface">
+        <header><div><span class="system-kicker">VISUAL PROFILE</span><h2>通行证场景</h2></div><button class="icon-close" value="cancel" aria-label="关闭">×</button></header>
+        <div class="scene-grid" id="sceneGrid"></div>
+        <section class="custom-scene">
+          <label><span>自定义背景 URL</span><input id="customSceneUrl" type="url" placeholder="https://example.com/background.jpg" /></label>
+          <label><span>强调色</span><input id="customAccent" type="color" value="#38e8ff" /></label>
+          <button id="applyCustomScene" class="primary-button compact" type="button">应用自定义场景</button>
+        </section>
+      </form>
+    </dialog>
+
+    <dialog class="notice-dialog" id="noticeDialog">
+      <form method="dialog" class="notice-surface">
+        <span class="notice-code" id="noticeCode">PASSPORT</span>
+        <h2 id="noticeTitle">提示</h2>
+        <p id="noticeMessage"></p>
+        <button class="primary-button" value="ok">知道了</button>
+      </form>
+    </dialog>
+
+    <script src="/assets/vendor/sweetalert2/sweetalert2.all.min.js?v=11.26.25"></script>
+    <script src="/passport/passport.js?v=wikist-passport-20260809-9" defer></script>
+  </body>
+</html>

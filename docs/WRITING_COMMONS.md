@@ -1,6 +1,6 @@
 # Collaboration Commons And Community Review
 
-## Academic Identity And Forum (v0.11.1)
+## Academic Identity And Forum (Wikist 1.0)
 
 - Every active organization membership is part of a Passport academic identity. The account center and public profile show organization, role, active task count, and topic contribution count. Pending memberships remain private to the member.
 - `#/organizations` is the paginated personal identity directory. `#/organizations?user=<username>` exposes only a user's active public memberships.
@@ -8,6 +8,8 @@
 - `#/organization/<slug>` is a paged workspace rather than one long overview: **首页** renders the public Markdown charter, facts, and an optional cover image, **协作任务** has its own filters and pagination, **学术论坛** owns topic/reply pagination, and **成员** owns applications, role changes, search, and pagination. The horizontal sub-navigation remains scrollable on narrow screens.
 - `#/admin/organizations` uses the existing dashboard permission boundary. Senior editors can search and inspect organizations; administrators can change only their active/disabled state, while organization coordinators continue to own day-to-day content and membership management.
 - A topic may link to an article and an optional language. New topics notify active organization members through the existing inbox; replies, resolution, and locking notify only the author and topic followers. Members can follow or favorite a topic without creating a second social data store.
+- Topic and reply editors reuse the Native Community/Messaging knowledge picker. The saved Markdown contains canonical `{{ref:type|id|label}}` tokens, while the reader renders compact Wikist reference cards for entries, revisions, questions, answers, organizations and users.
+- Forum topics and replies are indexed as `question` and `answer` knowledge objects. `belongs_to`, `answers` and `references` relations make organization discussions discoverable from the same reverse-relation layer without copying them into the public Q&A tables.
 - Replies are a paginated flat floor stream. Replying to a member inserts an `@username` mention in Markdown rather than creating an unbounded second-level tree. Topic/reply authors, coordinators, and administrators can remove public content with an auditable soft delete.
 - Joining a request-only organization notifies active coordinators. Approval, removal, and role changes notify the affected member. Task publication, claim, and status changes are also directed to the relevant organization members, creators, and assignees.
 - Article pages render a paginated organization-task context for writing, translation, and review tasks. Review consensus remains scoped to the exact page or translation snapshot.
@@ -51,6 +53,8 @@ An article page shows a compact collaboration panel for linked tasks. Review tas
 Active organization members can create Markdown discussion threads and reply to them. Coordinators can publish announcements or decisions, pin useful discussions, and mark a thread resolved or reopen it.
 
 Threads are intentionally scoped to an organization. They can optionally reference a page slug and target language. New organization discussions and final consensus events reuse the existing direct-message inbox for active members, so notifications are not implemented as an unrelated system.
+
+Knowledge references are inserted through the shared picker and remain portable Markdown tokens. A one-time `0016_organization_forum_knowledge.php` migration indexes pre-1.0 topics and replies; later writes update their graph records incrementally.
 
 ## Community Review Consensus
 

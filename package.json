@@ -1,15 +1,23 @@
 {
   "name": "wikist",
-  "version": "0.13.1",
+  "version": "1.0.0",
   "private": true,
   "description": "A fast, open, math-first wiki framework.",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",
-    "dev": "node server.js",
+    "start": "node tools/start-hybrid.js",
+    "setup:stack": "node tools/setup-community-stack.js",
+    "stop": "node tools/start-hybrid.js --stop",
+    "restart": "node tools/start-hybrid.js --restart",
+    "status": "node tools/start-hybrid.js --status",
+    "start:node": "node server.js",
+    "dev": "node tools/start-hybrid.js",
     "update": "node tools/update.js",
     "plugins:sync": "node tools/sync-vendor-plugins.js",
-    "check": "node --check server.js && node --check src/server/app.js && node --check src/core/config.js && node --check src/core/http.js && node --check src/core/markdown.js && node --check src/core/citations.js && node --check src/core/revision-review.js && node --check src/core/plugin-registry.js && node --check src/core/page-store.js && node --check src/core/import-export.js && node --check src/core/backup.js && node --check src/core/fts-index.js && node --check src/core/runtime-ops.js && node --check src/core/knowledge-navigation.js && node --check src/core/translation-quality.js && node --check public/assets/app.js && node --check public/assets/install.js && node --check plugins/wikist-geometry-board/geometry.mjs && node --check plugins/wikist-math-chart/chart.mjs && node --check plugins/wikist-cosmic-experience/cosmic.mjs && node --check plugins/wikist-plugin-hooks/hooks.mjs && node --check tools/check-plugin-hooks.js && node --check tools/check-runtime-reliability.js && node --check tools/check-page-performance-features.js && node --check tools/check-v08-knowledge-features.js && node --check tools/check-v09-translation-quality-features.js && node --check tools/check-v10-community-features.js && node --check tools/update.js",
+    "realtime:sync": "node tools/sync-realtime-assets.js",
+    "check": "node --check server.js && node --check tools/start-hybrid.js && node --check tools/setup-community-stack.js && node --check tools/check-webman.js && node --check tools/sync-realtime-assets.js && node --check src/server/app.js && node --check src/core/config.js && node --check src/core/http.js && node --check src/core/markdown.js && node --check src/core/citations.js && node --check src/core/revision-review.js && node --check src/core/plugin-registry.js && node --check src/core/page-store.js && node --check src/core/messaging-bridge.js && node --check src/core/import-export.js && node --check src/core/backup.js && node --check src/core/fts-index.js && node --check src/core/runtime-ops.js && node --check src/core/knowledge-navigation.js && node --check src/core/translation-quality.js && node --check public/assets/selection-toolbar.js && node --check public/assets/community-qa.js && node --check public/assets/app.js && node --check public/assets/install.js && node --check public/passport/passport.js && node --check plugins/wikist-geometry-board/geometry.mjs && node --check plugins/wikist-math-chart/chart.mjs && node --check plugins/wikist-cosmic-experience/cosmic.mjs && node --check plugins/wikist-plugin-hooks/hooks.mjs && node --check tools/check-plugin-hooks.js && node --check tools/check-runtime-reliability.js && node --check tools/check-page-performance-features.js && node --check tools/check-v08-knowledge-features.js && node --check tools/check-v09-translation-quality-features.js && node --check tools/check-v10-community-features.js && node --check tools/check-ui-layout.js && node --check tools/check-ui-copy.js && node --check tools/update.js && node tools/check-ui-layout.js && node tools/check-ui-copy.js && node tools/check-webman.js",
+    "check:webman": "node tools/check-webman.js",
+    "check:community": "node tools/check-native-community.js",
     "check:markdown": "node tools/check-markdown-features.js",
     "check:comments": "node tools/check-comment-rating-features.js",
     "check:search": "node tools/check-search-features.js",
@@ -27,12 +35,15 @@
     "check:performance": "node tools/check-page-performance-features.js",
     "check:v08": "node tools/check-v08-knowledge-features.js",
     "check:v09": "node tools/check-v09-translation-quality-features.js",
-    "check:v10": "node tools/check-v10-community-features.js"
+    "check:v10": "node tools/check-v10-community-features.js",
+    "check:copy": "node tools/check-ui-copy.js",
+    "check:ui": "node tools/check-ui-layout.js"
   },
   "engines": {
     "node": ">=18"
   },
   "dependencies": {
+    "centrifuge": "5.7.0",
     "nodemailer": "7.0.0"
   }
 }

@@ -1,0 +1,80 @@
+{
+  "name": "wikist/webman-backend",
+  "type": "project",
+  "keywords": [
+    "high performance",
+    "http service"
+  ],
+  "homepage": "https://github.com/interuseration-sckur/Wikist",
+  "license": "MIT",
+  "description": "Wikist Webman backend and Passport migration target.",
+  "authors": [
+    {
+      "name": "Wikist contributors",
+      "homepage": "https://github.com/interuseration-sckur/Wikist",
+      "role": "Maintainer"
+    }
+  ],
+  "support": {
+    "issues": "https://github.com/interuseration-sckur/Wikist/issues",
+    "source": "https://github.com/interuseration-sckur/Wikist"
+  },
+  "require": {
+    "php": ">=8.1",
+    "ext-gd": "*",
+    "ext-openssl": "*",
+    "workerman/webman-framework": "^2.2",
+    "monolog/monolog": "^2.0",
+    "webman/console": "^2.2",
+    "webman/database": "^2.1",
+    "webman/redis": "^2.1",
+    "webman/cache": "^2.1",
+    "webman/redis-queue": "^1.3",
+    "webman/validation": "^2.2",
+    "vlucas/phpdotenv": "^5.6",
+    "firebase/php-jwt": "^7.1",
+    "phpmailer/phpmailer": "^7.1",
+    "fastknife/ajcaptcha": "^2.1",
+    "bacon/bacon-qr-code": "^3.1",
+    "league/commonmark": "^2.8.3"
+  },
+  "suggest": {
+    "ext-event": "For better performance. "
+  },
+  "autoload": {
+    "psr-4": {
+      "app\\": "./app",
+      "support\\": "./support"
+    },
+    "exclude-from-classmap": [
+      "/vendor/workerman/webman-framework/src/support/Request.php",
+      "/vendor/workerman/webman-framework/src/support/Response.php",
+      "/vendor/workerman/webman-framework/src/support/exception/Handler.php"
+    ]
+  },
+  "scripts": {
+    "post-package-install": [
+      "support\\Plugin::install"
+    ],
+    "post-package-update": [
+      "support\\Plugin::install"
+    ],
+    "pre-package-uninstall": [
+      "support\\Plugin::uninstall"
+    ],
+    "post-create-project-cmd": [
+      "support\\Setup::run"
+    ],
+    "setup-webman": [
+      "support\\Setup::run"
+    ],
+    "check": [
+      "@php tools/check.php"
+    ],
+    "migrate": [
+      "@php tools/migrate.php"
+    ]
+  },
+  "minimum-stability": "dev",
+  "prefer-stable": true
+}

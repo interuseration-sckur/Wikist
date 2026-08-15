@@ -10,7 +10,7 @@
   },
   "assets": {
     "cdnBase": "",
-    "siteIcon": "/assets/wikist-emblem.svg",
+    "siteIcon": "/assets/wikist-icon.png",
     "customCss": "",
     "customJs": ""
   },
@@ -58,10 +58,8 @@
       "intensity": "balanced",
       "intro": true,
       "introOnce": true,
-      "parallaxNebula": true,
       "authBlackHole": true,
       "titleParticles": true,
-      "routeLoader": true,
       "maxDpr": 1.5
     }
   }

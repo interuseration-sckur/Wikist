@@ -42,13 +42,13 @@ async function loadStatus() {
       stateNode.textContent = state.forceMode ? "维护重配模式" : "可开始安装";
       stateNode.className = "install-status ready";
       noteNode.textContent = state.forceMode
-        ? "维护模式已开启。提交后将覆盖基础站点配置，原有 SQLite 数据不会自动删除。"
-        : "配置写入后请重启 Wikist 服务，新的数据库与站点参数才会被加载。";
+        ? "维护模式已开启。提交后将更新站点配置并保留现有数据。"
+        : "写入配置后，请重启 Wikist 服务。";
       installButton.disabled = false;
     } else {
       stateNode.textContent = "已完成配置";
       stateNode.className = "install-status locked";
-      noteNode.textContent = "当前站点已经配置完成。为保护现有用户与词条数据，安装器处于只读状态。需要重配时，请设置 WIKIST_INSTALL_MODE=1 后重启服务。";
+      noteNode.textContent = "站点已完成配置。如需重配，请设置 WIKIST_INSTALL_MODE=1 后重启服务。";
       installButton.disabled = true;
       form.querySelectorAll("input, textarea, select").forEach((control) => { control.disabled = true; });
     }
@@ -77,8 +77,8 @@ form.addEventListener("submit", async (event) => {
     const result = await request("/api/install", { method: "POST", body: JSON.stringify(values) });
     stateNode.textContent = "配置已写入";
     stateNode.className = "install-status ready";
-    noteNode.textContent = `已生成 ${result.site.name} 的配置，数据库路径为 ${result.site.database}。请停止并重新启动 Wikist 服务。`;
-    setStatus("安装配置已完成。重启服务后，访问首页即可继续创建管理员账号和词条。", "success");
+    noteNode.textContent = `${result.site.name} 已完成配置，请重启 Wikist 服务。`;
+    setStatus("重启后可创建管理员账号并进入站点。", "success");
   } catch (error) {
     installButton.disabled = false;
     setStatus(error.message, "error");
@@ -101,11 +101,11 @@ uninstallButton?.addEventListener("click", async () => {
       method: "POST",
       body: JSON.stringify({ confirm }),
     });
-    uninstallStatus.textContent = `配置已移至 ${result.backupPath}。请重启 Wikist 后重新进入安装器；词条、用户和数据库没有被删除。`;
+    uninstallStatus.textContent = `配置已备份至 ${result.backupPath}。重启后可重新安装，现有数据已保留。`;
     uninstallStatus.classList.add("success");
     stateNode.textContent = "配置已卸载，等待重启";
     stateNode.className = "install-status ready";
-    noteNode.textContent = "当前运行进程仍保留旧配置，请重启服务后再继续安装或回滚。";
+    noteNode.textContent = "请重启服务后继续安装或恢复配置。";
     form.querySelectorAll("input, textarea, select, button").forEach((control) => { control.disabled = true; });
   } catch (error) {
     uninstallButton.disabled = false;

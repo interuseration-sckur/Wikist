@@ -1,38 +1,22 @@
 let installed = false;
 let latestContext = null;
 let introRunning = false;
-let routeTimer = 0;
-let routeProgressTimer = 0;
-let routeProgress = 0;
-let pointerFrame = 0;
 const particleTitles = new WeakMap();
 
 const TEXT = {
   "zh-CN": {
-    introTitle: "星际跃迁",
-    introStatus: "正在校准知识星图",
-    introSub: "连接 Wikist 知识核心",
+    introTitle: "连接知识核心",
     introSkip: "点击跳过",
-    loaderTitle: "知识跃迁中",
-    loaderStatus: "正在同步词条、身份与可视化模块",
     blackHole: "引力核心",
   },
   "zh-TW": {
-    introTitle: "星際躍遷",
-    introStatus: "正在校準知識星圖",
-    introSub: "連接 Wikist 知識核心",
+    introTitle: "連接知識核心",
     introSkip: "點擊跳過",
-    loaderTitle: "知識躍遷中",
-    loaderStatus: "正在同步詞條、身份與視覺模組",
     blackHole: "引力核心",
   },
   en: {
-    introTitle: "Warp Jump",
-    introStatus: "Calibrating the knowledge atlas",
-    introSub: "Connecting to the Wikist core",
+    introTitle: "Connecting to the knowledge core",
     introSkip: "Click to skip",
-    loaderTitle: "Knowledge Jump",
-    loaderStatus: "Synchronizing pages, identity, and visual modules",
     blackHole: "Gravity Core",
   },
 };
@@ -66,6 +50,10 @@ function text(key) {
   return (TEXT[langKey()] || TEXT["zh-CN"])[key] || TEXT["zh-CN"][key] || key;
 }
 
+function siteName() {
+  return String(latestContext?.state?.site?.name || "Wikist").trim() || "Wikist";
+}
+
 function maxDpr() {
   const value = Number(settings().maxDpr || 1.5);
   return Math.max(1, Math.min(value, 2));
@@ -87,42 +75,6 @@ function ensureStyle() {
   const style = document.createElement("style");
   style.dataset.wikistCosmicExperience = "true";
   style.textContent = `
-    :root {
-      --wikist-cosmic-x: 52%;
-      --wikist-cosmic-y: 42%;
-      --wikist-cosmic-tilt-x: 0px;
-      --wikist-cosmic-tilt-y: 0px;
-    }
-
-    .wikist-cosmic-nebula-layer {
-      position: fixed;
-      inset: -8%;
-      z-index: 1;
-      pointer-events: none;
-      opacity: 0;
-      transition: opacity .42s ease;
-      background:
-        radial-gradient(circle at var(--wikist-cosmic-x) var(--wikist-cosmic-y), rgba(56, 232, 255, .18), transparent 24%),
-        radial-gradient(circle at calc(var(--wikist-cosmic-x) - 22%) calc(var(--wikist-cosmic-y) + 16%), rgba(124, 255, 180, .11), transparent 28%),
-        conic-gradient(from 132deg at calc(var(--wikist-cosmic-x) + 8%) calc(var(--wikist-cosmic-y) + 4%), transparent 0 28%, rgba(255, 209, 102, .09), transparent 46% 100%);
-      mix-blend-mode: screen;
-      transform: translate3d(var(--wikist-cosmic-tilt-x), var(--wikist-cosmic-tilt-y), 0) scale(1.02);
-      will-change: opacity, transform;
-    }
-
-    .wikist-cosmic-nebula-layer.active {
-      opacity: .78;
-    }
-
-    :root[data-theme="light"] .wikist-cosmic-nebula-layer {
-      opacity: 0;
-      mix-blend-mode: multiply;
-    }
-
-    :root[data-theme="light"] .wikist-cosmic-nebula-layer.active {
-      opacity: .18;
-    }
-
     .wikist-warp-intro {
       position: fixed;
       inset: 0;
@@ -160,6 +112,15 @@ function ensureStyle() {
       text-shadow: 0 0 28px rgba(56, 232, 255, .32);
     }
 
+    .wikist-warp-logo {
+      display: block;
+      width: 104px;
+      height: 104px;
+      margin: 0 auto 2px;
+      object-fit: contain;
+      filter: drop-shadow(0 0 24px rgba(56, 232, 255, .24));
+    }
+
     .wikist-warp-copy span {
       color: #7cffb4;
       font-size: .8rem;
@@ -169,7 +130,7 @@ function ensureStyle() {
     }
 
     .wikist-warp-copy strong {
-      font-size: clamp(2.4rem, 8vw, 6.8rem);
+      font-size: clamp(2.25rem, 7vw, 5.4rem);
       line-height: 1;
       letter-spacing: 0;
     }
@@ -183,18 +144,15 @@ function ensureStyle() {
       text-shadow: 0 0 24px rgba(0, 126, 167, .16);
     }
 
-    :root[data-theme="light"] .wikist-warp-copy span,
-    :root[data-theme="light"] .wikist-cosmic-route-loader strong {
+    :root[data-theme="light"] .wikist-warp-copy span {
       color: #007a68;
     }
 
-    :root[data-theme="light"] .wikist-warp-copy small,
-    :root[data-theme="light"] .wikist-cosmic-route-loader span {
+    :root[data-theme="light"] .wikist-warp-copy small {
       color: rgba(20, 49, 41, .68);
     }
 
-    .wikist-warp-progress,
-    .wikist-cosmic-route-meter {
+    .wikist-warp-progress {
       position: relative;
       overflow: hidden;
       height: 6px;
@@ -204,8 +162,7 @@ function ensureStyle() {
       box-shadow: 0 0 30px rgba(56, 232, 255, .16);
     }
 
-    .wikist-warp-progress i,
-    .wikist-cosmic-route-meter i {
+    .wikist-warp-progress i {
       display: block;
       width: var(--progress, 8%);
       height: 100%;
@@ -219,105 +176,6 @@ function ensureStyle() {
       opacity: 0;
       transform: scale(1.04);
       transition: opacity .36s ease, transform .36s ease;
-    }
-
-    .wikist-cosmic-route-loader {
-      position: fixed;
-      inset: 0;
-      z-index: 9999;
-      display: grid;
-      place-items: center;
-      padding: 24px;
-      background:
-        radial-gradient(circle at 50% 48%, rgba(56, 232, 255, .12), transparent 32%),
-        color-mix(in srgb, #010409 94%, transparent);
-      backdrop-filter: blur(10px);
-      color: #f2fdff;
-      opacity: 0;
-      pointer-events: none;
-      transition: opacity .2s ease;
-      overflow: hidden;
-    }
-
-    :root[data-theme="light"] .wikist-cosmic-route-loader {
-      background:
-        radial-gradient(circle at 50% 48%, rgba(0, 126, 167, .1), transparent 32%),
-        rgba(244, 251, 249, .94);
-      color: #143129;
-    }
-
-    .wikist-cosmic-route-loader::before {
-      content: "";
-      position: absolute;
-      inset: 0;
-      pointer-events: none;
-      background:
-        linear-gradient(rgba(56, 232, 255, .055) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(56, 232, 255, .055) 1px, transparent 1px);
-      background-size: 48px 48px;
-      mask-image: radial-gradient(circle at center, #000 0 24%, transparent 72%);
-      opacity: .5;
-    }
-
-    :root[data-theme="light"] .wikist-cosmic-route-loader::before {
-      background:
-        linear-gradient(rgba(0, 126, 167, .06) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(0, 126, 167, .06) 1px, transparent 1px);
-      background-size: 48px 48px;
-      opacity: .42;
-    }
-
-    .wikist-cosmic-route-loader.visible {
-      opacity: 1;
-    }
-
-    .wikist-cosmic-route-panel {
-      position: relative;
-      z-index: 1;
-      width: min(390px, calc(100vw - 42px));
-      padding: 28px;
-      border: 1px solid rgba(56, 232, 255, .28);
-      border-radius: 8px;
-      background: rgba(5, 15, 18, .86);
-      box-shadow: 0 18px 70px rgba(0, 0, 0, .32), inset 0 0 34px rgba(56, 232, 255, .045);
-    }
-
-    :root[data-theme="light"] .wikist-cosmic-route-panel {
-      border-color: rgba(0, 126, 167, .24);
-      background: rgba(255, 255, 255, .9);
-      box-shadow: 0 18px 70px rgba(25, 80, 68, .12), inset 0 0 34px rgba(0, 126, 167, .04);
-    }
-
-    .wikist-cosmic-route-mark {
-      display: grid;
-      width: 42px;
-      height: 42px;
-      place-items: center;
-      margin: 0 auto 16px;
-      border: 1px solid rgba(56, 232, 255, .42);
-      border-radius: 50%;
-      color: #38e8ff;
-      font-weight: 900;
-      box-shadow: 0 0 24px rgba(56, 232, 255, .14);
-    }
-
-    .wikist-cosmic-route-loader strong,
-    .wikist-cosmic-route-loader span {
-      display: block;
-      text-align: center;
-    }
-
-    .wikist-cosmic-route-loader strong {
-      color: #7cffb4;
-      font-size: .82rem;
-      font-weight: 900;
-      letter-spacing: .08em;
-    }
-
-    .wikist-cosmic-route-loader span {
-      margin: 9px 0 14px;
-      color: rgba(237, 247, 242, .78);
-      font-size: .94rem;
     }
 
     .wikist-black-hole {
@@ -426,7 +284,6 @@ function ensureStyle() {
     }
 
     @media (prefers-reduced-motion: reduce) {
-      .wikist-cosmic-nebula-layer,
       .wikist-black-hole::before {
         animation: none !important;
         transition: none !important;
@@ -434,32 +291,6 @@ function ensureStyle() {
     }
   `;
   document.head.appendChild(style);
-}
-
-function ensureNebula() {
-  if (settings().parallaxNebula === false || reducedMotion()) return;
-  let layer = document.querySelector(".wikist-cosmic-nebula-layer");
-  if (!layer) {
-    layer = document.createElement("div");
-    layer.className = "wikist-cosmic-nebula-layer";
-    layer.setAttribute("aria-hidden", "true");
-    document.body.appendChild(layer);
-  }
-  const active = Boolean(document.querySelector(".sci-home, .auth-cyber-layout"));
-  layer.classList.toggle("active", active);
-}
-
-function handlePointerMove(event) {
-  if (pointerFrame || settings().parallaxNebula === false || reducedMotion()) return;
-  pointerFrame = requestAnimationFrame(() => {
-    pointerFrame = 0;
-    const x = Math.max(0, Math.min(1, event.clientX / Math.max(1, window.innerWidth)));
-    const y = Math.max(0, Math.min(1, event.clientY / Math.max(1, window.innerHeight)));
-    document.documentElement.style.setProperty("--wikist-cosmic-x", `${Math.round(x * 100)}%`);
-    document.documentElement.style.setProperty("--wikist-cosmic-y", `${Math.round(y * 100)}%`);
-    document.documentElement.style.setProperty("--wikist-cosmic-tilt-x", `${((x - .5) * 18).toFixed(2)}px`);
-    document.documentElement.style.setProperty("--wikist-cosmic-tilt-y", `${((y - .5) * 14).toFixed(2)}px`);
-  });
 }
 
 function setupCanvas(canvas) {
@@ -489,12 +320,14 @@ function showIntro() {
   overlay.innerHTML = `
     <canvas aria-hidden="true"></canvas>
     <div class="wikist-warp-copy">
-      <span data-cosmic-text="introStatus">${text("introStatus")}</span>
+      <img class="wikist-warp-logo" src="/assets/wikist-logo.png" alt="">
+      <span data-cosmic-site-name></span>
       <strong data-cosmic-text="introTitle">${text("introTitle")}</strong>
       <div class="wikist-warp-progress" aria-hidden="true"><i></i></div>
-      <small data-cosmic-text="introSub">${text("introSub")} · ${text("introSkip")}</small>
+      <small data-cosmic-text="introSkip">${text("introSkip")}</small>
     </div>`;
   document.body.appendChild(overlay);
+  updateLocalizedText();
 
   const canvas = overlay.querySelector("canvas");
   const lines = [];
@@ -570,52 +403,11 @@ function showIntro() {
 function updateLocalizedText() {
   document.querySelectorAll("[data-cosmic-text]").forEach((node) => {
     const key = node.dataset.cosmicText;
-    if (key === "introSub") node.textContent = `${text("introSub")} · ${text("introSkip")}`;
-    else node.textContent = text(key);
+    node.textContent = text(key);
   });
-}
-
-function showRouteLoader() {
-  if (settings().routeLoader === false || reducedMotion()) return;
-  document.documentElement.setAttribute("data-wikist-route-loader-provider", "cosmic");
-  let loader = document.querySelector(".wikist-cosmic-route-loader");
-  if (!loader) {
-    loader = document.createElement("div");
-    loader.className = "wikist-cosmic-route-loader";
-    loader.innerHTML = `
-      <div class="wikist-cosmic-route-panel">
-        <b class="wikist-cosmic-route-mark" aria-hidden="true">W</b>
-        <strong data-cosmic-text="loaderTitle">${text("loaderTitle")}</strong>
-        <span data-cosmic-text="loaderStatus">${text("loaderStatus")}</span>
-        <div class="wikist-cosmic-route-meter" aria-hidden="true"><i></i></div>
-      </div>`;
-    document.body.appendChild(loader);
-  }
-  routeProgress = 12;
-  loader.style.setProperty("--progress", `${routeProgress}%`);
-  loader.classList.add("visible");
-  window.clearInterval(routeProgressTimer);
-  routeProgressTimer = window.setInterval(() => {
-    routeProgress = Math.min(86, routeProgress + Math.random() * 12 + 3);
-    loader.style.setProperty("--progress", `${Math.round(routeProgress)}%`);
-  }, 180);
-}
-
-function hideRouteLoader() {
-  window.clearTimeout(routeTimer);
-  routeTimer = 0;
-  window.clearInterval(routeProgressTimer);
-  routeProgressTimer = 0;
-  const loader = document.querySelector(".wikist-cosmic-route-loader");
-  if (document.documentElement.getAttribute("data-wikist-route-loader-provider") === "cosmic") {
-    document.documentElement.removeAttribute("data-wikist-route-loader-provider");
-  }
-  if (!loader) return;
-  loader.style.setProperty("--progress", "100%");
-  window.setTimeout(() => {
-    loader.classList.remove("visible");
-    window.setTimeout(() => loader.remove(), 260);
-  }, 120);
+  document.querySelectorAll("[data-cosmic-site-name]").forEach((node) => {
+    node.textContent = siteName();
+  });
 }
 
 function hydrateBlackHole(root = document) {
@@ -742,7 +534,6 @@ function hydrate(root = document) {
   if (!enabled()) return;
   ensureStyle();
   updateLocalizedText();
-  ensureNebula();
   showIntro();
   hydrateBlackHole(root || document);
   hydrateParticleTitles(root || document);
@@ -751,20 +542,11 @@ function hydrate(root = document) {
 function installEvents() {
   if (installed) return;
   installed = true;
-  document.addEventListener("pointermove", handlePointerMove, { passive: true });
-  document.addEventListener("wikist:route-loading", () => {
-    if (!enabled() || settings().routeLoader === false || reducedMotion()) return;
-    document.documentElement.setAttribute("data-wikist-route-loader-provider", "cosmic");
-    window.clearTimeout(routeTimer);
-    routeTimer = window.setTimeout(showRouteLoader, 140);
-  });
   document.addEventListener("wikist:route-ready", () => {
-    hideRouteLoader();
     window.setTimeout(() => hydrate(document), 0);
   });
   document.addEventListener("wikist:language-change", () => updateLocalizedText());
   document.addEventListener("wikist:theme-change", () => {
-    ensureNebula();
     refreshParticleTitles(document);
   });
   document.addEventListener("wikist:plugins-hydrate", (event) => {

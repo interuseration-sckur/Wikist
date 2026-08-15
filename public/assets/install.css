@@ -1,23 +1,32 @@
+@font-face {
+  font-family: "Wikist Passport CN";
+  src: url("/passport/assets/passport-cn.ttf") format("truetype");
+  font-display: swap;
+}
+
 :root {
   color-scheme: dark;
-  --bg: #07100f;
-  --panel: rgba(13, 26, 24, .90);
-  --line: rgba(123, 255, 180, .20);
-  --text: #eefaf4;
-  --muted: #9ab4ab;
-  --cyan: #3ceaff;
-  --green: #82ffb9;
-  --amber: #ffd36a;
-  --rose: #ff7f9f;
-  font-family: Inter, "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+  --bg: #080b0d;
+  --panel: rgba(15, 20, 24, .94);
+  --line: rgba(59, 81, 90, .72);
+  --text: #edf3f5;
+  --muted: #98a7ad;
+  --cyan: #5bd7e8;
+  --green: #69d79b;
+  --amber: #e8bd63;
+  --rose: #ef7694;
+  font-family: "Wikist Passport CN", Inter, "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
 }
 * { box-sizing: border-box; }
-body { min-height: 100vh; margin: 0; color: var(--text); background: linear-gradient(rgba(60,234,255,.045) 1px, transparent 1px), linear-gradient(90deg, rgba(130,255,185,.035) 1px, transparent 1px), var(--bg); background-size: 46px 46px, 46px 46px, auto; }
+body { min-height: 100vh; margin: 0; color: var(--text); background: linear-gradient(color-mix(in srgb, var(--cyan) 4.5%, transparent) 1px, transparent 1px), linear-gradient(90deg, color-mix(in srgb, var(--green) 3.5%, transparent) 1px, transparent 1px), var(--bg); background-size: 46px 46px, 46px 46px, auto; -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
 body::before { content: ""; position: fixed; inset: 0; pointer-events: none; background: linear-gradient(110deg, transparent 0 48%, rgba(60,234,255,.04) 50%, transparent 52%); }
 .installer-shell { width: min(1180px, calc(100% - 40px)); min-height: 100vh; margin: 0 auto; padding: 48px 0; display: grid; grid-template-columns: minmax(290px, .84fr) minmax(0, 1.16fr); gap: clamp(28px, 7vw, 104px); align-items: center; }
 .installer-intro { padding: 24px 0; }
-.installer-brand { color: var(--text); font-size: 1rem; font-weight: 850; letter-spacing: .12em; }
-.installer-brand span { color: var(--cyan); }
+.installer-brand { display: inline-grid; grid-template-columns: 62px auto; gap: 13px; align-items: center; color: var(--text); text-decoration: none; }
+.installer-brand img { display: block; width: 62px; height: 62px; padding: 3px; object-fit: contain; border: 1px solid var(--line); border-radius: 10px; background: rgba(255,255,255,.035); box-shadow: 0 0 30px rgba(60,234,255,.12); }
+.installer-brand span, .installer-brand strong, .installer-brand small { display: block; }
+.installer-brand strong { font-size: 1rem; font-weight: 850; letter-spacing: .12em; }
+.installer-brand small { margin-top: 5px; color: var(--cyan); font: 800 .7rem/1 ui-monospace, Consolas, monospace; letter-spacing: .12em; }
 .eyebrow { margin: 42px 0 12px; color: var(--green); font-size: .73rem; font-weight: 800; letter-spacing: .13em; }
 h1, h2, p { margin-top: 0; }
 h1 { max-width: 520px; margin-bottom: 22px; font-size: clamp(2.8rem, 5.6vw, 5.35rem); line-height: .98; letter-spacing: 0; }

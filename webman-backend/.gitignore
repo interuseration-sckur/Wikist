@@ -1,0 +1,12 @@
+/runtime
+/.env
+/.env.*
+!/.env.example
+/database/*.sqlite*
+/.idea
+/.vscode
+/vendor
+*.log
+.env
+/tests/tmp
+/tests/.phpunit.result.cache

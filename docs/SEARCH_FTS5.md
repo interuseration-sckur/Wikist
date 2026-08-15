@@ -12,6 +12,12 @@ When Passport is enabled and the bundled SQLite runtime supports FTS5, the `adva
 
 Wikist deliberately does not scan all Markdown files when the server starts. Until an administrator completes the first backfill, search continues to use the established lightweight index, so existing content remains discoverable. The same fallback is used if the runtime does not ship FTS5, if the index is disabled, or when a query needs the lightweight engine's quoted-phrase or fuzzy matching behavior.
 
+## Incremental Suggestions
+
+`GET /api/search/suggest?q=<keyword>&limit=8` uses a separate in-memory prefix index built from lightweight page summaries. It indexes titles, slugs, aliases, canonical names, and categories, accepts one-character Latin or Chinese input, and never reads article bodies per keystroke. Page save and delete events update only that page's prefix entries.
+
+The browser waits 140 ms after input, cancels superseded requests, caches results for 30 seconds, and supports IME composition, arrow-key selection, Enter, and Escape. The narrow sidebar remains a direct-submit field; the topbar, root portal, full search page, and collaboration task article selector use the richer combobox. A submitted one-character query reuses the same prefix semantics, so suggestion and result pages cannot disagree.
+
 ## Indexed Data And Boundaries
 
 The FTS record includes title, summary, body, categories, author, quality, difficulty, slug, and update time. Search text is normalized through the existing tokenization rules before insertion; this retains practical Chinese single-character and bigram matching with SQLite's standard `unicode61` tokenizer.

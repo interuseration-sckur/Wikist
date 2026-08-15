@@ -2,6 +2,7 @@ const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 const { normalizeSlug } = require("./slug");
+const { MessagingBridge } = require("./messaging-bridge");
 const {
   splitMarkdownSegments,
   translationMemoryPairs,
@@ -67,6 +68,38 @@ function addDays(days) {
 
 function sha256(value) {
   return crypto.createHash("sha256").update(String(value)).digest("base64url");
+}
+
+function knowledgeGraphId(type, key, source = "wikist") {
+  const normalizedType = String(type || "wiki_entry").trim().toLowerCase() === "page" ? "wiki_entry" : String(type || "wiki_entry").trim().toLowerCase();
+  const normalizedSource = String(source || "wikist").trim().toLowerCase().replace(/[^a-z0-9_-]+/g, "-") || "wikist";
+  const digest = crypto.createHash("sha256").update(String(key || "").trim()).digest("hex");
+  return `wko:v1:${normalizedSource}:${normalizedType}:${digest}`;
+}
+
+function markdownKnowledgeReferences(markdown) {
+  const source = String(markdown || "");
+  const references = [];
+  const seen = new Set();
+  const add = (type, id, label) => {
+    const normalizedType = String(type || "wiki_entry").trim().toLowerCase() === "page" ? "wiki_entry" : String(type || "wiki_entry").trim().toLowerCase();
+    const normalizedId = String(id || "").trim();
+    if (!normalizedId || !["wiki_entry", "revision", "question", "answer", "comment", "organization", "user", "selection"].includes(normalizedType)) return;
+    const key = `${normalizedType}:${normalizedId}`;
+    if (seen.has(key) || references.length >= 32) return;
+    seen.add(key);
+    references.push({ type: normalizedType, id: normalizedId, label: cleanText(label || normalizedId, 255) || normalizedId });
+  };
+  for (const match of source.matchAll(/\{\{ref:([a-z_]+)\|([^|{}\n]+)(?:\|([^{}\n]+))?\}\}/gi)) add(match[1], match[2], match[3]);
+  for (const match of source.matchAll(/\[\[([^\]|#]+)(?:\|([^\]]+))?\]\]/g)) add("wiki_entry", match[1], match[2] || match[1]);
+  return references;
+}
+
+function forumReferenceSummaryText(markdown) {
+  return cleanText(String(markdown || "")
+    .replace(/\{\{ref:[a-z_]+\|[^|{}\n]+(?:\|([^{}\n]+))?\}\}/gi, (_match, label) => label || "")
+    .replace(/\[\[([^\]|#]+)(?:\|([^\]]+))?\]\]/g, (_match, slug, label) => label || slug)
+    .replace(/[`*_>#~\[\]()]/g, " "), 4000);
 }
 
 function randomToken(bytes = 32) {
@@ -992,6 +1025,9 @@ class PassportStore {
     this.db = null;
     this.openDatabase();
     this.migrate();
+    this.messagingBridge = new MessagingBridge(this.db, this.rootDir);
+    this.messagingBridge.ensureSchema();
+    this.messagingBridge.reconcileLegacyNotifications();
     this.cleanup();
   }
 
@@ -1022,6 +1058,9 @@ class PassportStore {
     this.closeDatabase();
     this.openDatabase();
     this.migrate();
+    this.messagingBridge = new MessagingBridge(this.db, this.rootDir);
+    this.messagingBridge.ensureSchema();
+    this.messagingBridge.reconcileLegacyNotifications();
     this.cleanup();
     return this.databaseHealth({ integrity: false });
   }
@@ -1111,6 +1150,26 @@ class PassportStore {
 
       CREATE INDEX IF NOT EXISTS idx_sessions_token_hash ON sessions(token_hash);
       CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
+
+      CREATE TABLE IF NOT EXISTS messaging_user_presence (
+        user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+        last_seen_at TEXT NOT NULL,
+        last_context TEXT NOT NULL DEFAULT '',
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_messaging_user_presence_seen ON messaging_user_presence(last_seen_at);
+
+      CREATE TABLE IF NOT EXISTS messaging_presence_leases (
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        client_id TEXT NOT NULL,
+        last_seen_at TEXT NOT NULL,
+        last_context TEXT NOT NULL DEFAULT '',
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (user_id, client_id)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_messaging_presence_leases_seen ON messaging_presence_leases(last_seen_at);
 
       CREATE TABLE IF NOT EXISTS captchas (
         id TEXT PRIMARY KEY,
@@ -1583,9 +1642,71 @@ class PassportStore {
 
       CREATE INDEX IF NOT EXISTS idx_user_follows_following ON user_follows(following_user_id, created_at);
       CREATE INDEX IF NOT EXISTS idx_user_follows_follower ON user_follows(follower_user_id, created_at);
+
+      CREATE TABLE IF NOT EXISTS content_selections (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        object_type TEXT NOT NULL,
+        object_id TEXT NOT NULL,
+        object_label TEXT NOT NULL DEFAULT '',
+        object_url TEXT NOT NULL DEFAULT '',
+        selected_text TEXT NOT NULL,
+        prefix_text TEXT NOT NULL DEFAULT '',
+        suffix_text TEXT NOT NULL DEFAULT '',
+        start_offset INTEGER NOT NULL DEFAULT 0,
+        end_offset INTEGER NOT NULL DEFAULT 0,
+        anchor_hash TEXT NOT NULL,
+        creator_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        status TEXT NOT NULL DEFAULT 'active',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE(object_type, object_id, anchor_hash)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_content_selections_object ON content_selections(object_type, object_id, status, created_at);
+      CREATE INDEX IF NOT EXISTS idx_content_selections_creator ON content_selections(creator_user_id, status, created_at);
+
+      CREATE TABLE IF NOT EXISTS content_selection_comments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        selection_id INTEGER NOT NULL REFERENCES content_selections(id) ON DELETE CASCADE,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        reply_to_comment_id INTEGER NOT NULL DEFAULT 0,
+        body_md TEXT NOT NULL,
+        body_plain TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'published',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        deleted_at TEXT NOT NULL DEFAULT ''
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_selection_comments_selection ON content_selection_comments(selection_id, status, id);
+      CREATE INDEX IF NOT EXISTS idx_selection_comments_user ON content_selection_comments(user_id, status, created_at);
+      CREATE TABLE IF NOT EXISTS content_selection_likes (
+        selection_id INTEGER NOT NULL REFERENCES content_selections(id) ON DELETE CASCADE,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (selection_id, user_id)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_selection_likes_user ON content_selection_likes(user_id, created_at);
+
+      CREATE TABLE IF NOT EXISTS content_selection_activities (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        selection_id INTEGER NOT NULL REFERENCES content_selections(id) ON DELETE CASCADE,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        activity_type TEXT NOT NULL,
+        target_type TEXT NOT NULL DEFAULT '',
+        target_id TEXT NOT NULL DEFAULT '',
+        target_label TEXT NOT NULL DEFAULT '',
+        metadata_json TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_selection_activities_selection ON content_selection_activities(selection_id, activity_type, created_at);
+      CREATE INDEX IF NOT EXISTS idx_selection_activities_user ON content_selection_activities(user_id, activity_type, created_at);
     `);
 
     this.addColumn("users", "bio", "TEXT NOT NULL DEFAULT ''");
+    this.addColumn("content_selection_comments", "reply_to_comment_id", "INTEGER NOT NULL DEFAULT 0");
+    this.db.exec("CREATE INDEX IF NOT EXISTS idx_selection_comments_reply ON content_selection_comments(reply_to_comment_id, status, id)");
     this.addColumn("users", "avatar_url", "TEXT NOT NULL DEFAULT ''");
     this.addColumn("users", "social_links_json", "TEXT NOT NULL DEFAULT '{}'");
     this.addColumn("users", "page_md", "TEXT NOT NULL DEFAULT ''");
@@ -1939,8 +2060,15 @@ class PassportStore {
     const row = this.findUser(username);
     if (!row) return null;
     const user = publicUserFromRow(row);
+    const online = Boolean(this.db.prepare(`
+      SELECT 1
+      FROM messaging_presence_leases
+      WHERE user_id = ? AND last_seen_at >= ?
+      LIMIT 1
+    `).get(user.id, new Date(Date.now() - 40_000).toISOString()));
     return {
       ...user,
+      online,
       stats: { ...this.userStats(user.id), organizations: this.countUserOrganizations(user.id) },
       recentEdits: this.listUserEdits(user.username, 10),
       organizations: this.listUserOrganizations(user.id, { limit: 6, offset: 0 }),
@@ -2694,6 +2822,12 @@ class PassportStore {
       ON CONFLICT(user_id) DO UPDATE SET languages_json = excluded.languages_json, updated_at = excluded.updated_at
     `).run(session.user.id, jsonText(languages.length ? languages : ["en"]), now, now);
     return this.getTranslatorProfile(session.user.id);
+  }
+
+  leaveTranslatorCommunity(session) {
+    if (!session?.user) throw accessError("请先登录后退出翻译社区。", 401);
+    const result = this.db.prepare("DELETE FROM translator_members WHERE user_id = ?").run(Number(session.user.id));
+    return { left: result.changes > 0, translator: null };
   }
 
   assertTranslator(session) {
@@ -3704,6 +3838,172 @@ class PassportStore {
     return updated;
   }
 
+  knowledgeGraphReady() {
+    try {
+      const objectTable = this.db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'knowledge_objects'").get();
+      const relationTable = this.db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'knowledge_relations'").get();
+      return Boolean(objectTable && relationTable);
+    } catch (_error) {
+      return false;
+    }
+  }
+
+  upsertForumKnowledgeObject(input = {}) {
+    const type = String(input.type || "question").trim().toLowerCase();
+    const key = String(input.key || "").trim();
+    const source = String(input.source || "organization_forum").trim() || "organization_forum";
+    if (!key || !this.knowledgeGraphReady()) return "";
+    const now = nowIso();
+    const globalId = knowledgeGraphId(type, key, source);
+    const title = cleanText(input.title || key, 500) || key;
+    const summary = cleanText(input.summary || "", 4000);
+    const url = cleanText(input.url || "", 1000);
+    const language = cleanText(input.language || "", 32);
+    const status = cleanText(input.status || "active", 32) || "active";
+    const metadata = JSON.stringify(input.metadata && typeof input.metadata === "object" ? input.metadata : {});
+    this.db.prepare(`
+      INSERT INTO knowledge_objects (
+        global_id, object_type, object_key, source_system, external_id, title, summary, canonical_url,
+        language, organization_id, author_user_id, status, search_text, metadata_json, synced_at, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(source_system, object_type, object_key) DO UPDATE SET
+        global_id = excluded.global_id,
+        external_id = excluded.external_id,
+        title = excluded.title,
+        summary = excluded.summary,
+        canonical_url = excluded.canonical_url,
+        language = excluded.language,
+        organization_id = excluded.organization_id,
+        author_user_id = excluded.author_user_id,
+        status = excluded.status,
+        search_text = excluded.search_text,
+        metadata_json = excluded.metadata_json,
+        synced_at = excluded.synced_at,
+        updated_at = excluded.updated_at
+    `).run(
+      globalId, type, key, source, String(input.externalId || key), title, summary, url,
+      language, input.organizationId ? Number(input.organizationId) : null, input.authorUserId ? Number(input.authorUserId) : null,
+      status, cleanText(input.searchText || `${title} ${summary} ${key}`, 20000), metadata, now, now, now,
+    );
+    return globalId;
+  }
+
+  relateForumKnowledge(subjectGlobalId, predicate, objectGlobalId, actorUserId = null, metadata = {}) {
+    if (!subjectGlobalId || !objectGlobalId || subjectGlobalId === objectGlobalId || !this.knowledgeGraphReady()) return;
+    const source = "organization_forum";
+    const relationKey = crypto.createHash("sha256").update([subjectGlobalId, predicate, objectGlobalId, source].join("|")).digest("hex");
+    const now = nowIso();
+    this.db.prepare(`
+      INSERT INTO knowledge_relations (
+        relation_key, subject_global_id, predicate, object_global_id, actor_user_id, source_system, metadata_json, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(relation_key) DO UPDATE SET
+        actor_user_id = excluded.actor_user_id,
+        metadata_json = excluded.metadata_json,
+        updated_at = excluded.updated_at
+    `).run(relationKey, subjectGlobalId, predicate, objectGlobalId, actorUserId ? Number(actorUserId) : null, source, JSON.stringify(metadata || {}), now, now);
+  }
+
+  forumReferenceTarget(reference = {}) {
+    if (!this.knowledgeGraphReady()) return "";
+    const type = String(reference.type || "wiki_entry").toLowerCase() === "page" ? "wiki_entry" : String(reference.type || "wiki_entry").toLowerCase();
+    const rawKey = String(reference.id || "").trim();
+    if (!rawKey) return "";
+    const keys = [rawKey];
+    if (type === "revision" && rawKey.includes("@")) keys.push(rawKey.slice(0, rawKey.lastIndexOf("@")));
+    for (const key of keys) {
+      const existing = this.db.prepare(`
+        SELECT global_id FROM knowledge_objects
+        WHERE object_type = ? AND object_key = ? AND status = 'active'
+        ORDER BY CASE source_system WHEN 'wikist' THEN 0 WHEN 'organization_forum' THEN 1 ELSE 2 END
+        LIMIT 1
+      `).get(type, key);
+      if (existing?.global_id) return String(existing.global_id);
+    }
+    const forumSource = ["question", "answer"].includes(type) && /^organization-post(?:-reply)?:/i.test(rawKey);
+    const source = forumSource ? "organization_forum" : "wikist";
+    const url = type === "wiki_entry"
+      ? `#/page/${encodeURIComponent(rawKey).replace(/%2F/gi, "/")}`
+      : type === "question" && !forumSource
+        ? `#/questions/${encodeURIComponent(rawKey)}`
+        : type === "user"
+          ? `#/user/${encodeURIComponent(rawKey)}`
+          : "#/knowledge";
+    return this.upsertForumKnowledgeObject({
+      type,
+      key: rawKey,
+      source,
+      title: reference.label || rawKey,
+      url,
+      status: "active",
+      metadata: { indexedFrom: "organization_forum_reference" },
+    });
+  }
+
+  syncOrganizationForumKnowledge(post, reply = null) {
+    if (!post || !this.knowledgeGraphReady()) return;
+    if (reply) this.syncOrganizationForumKnowledge(post);
+    const isReply = Boolean(reply);
+    const key = isReply ? `organization-post-reply:${reply.id}` : `organization-post:${post.id}`;
+    const type = isReply ? "answer" : "question";
+    const body = String(isReply ? reply.contentMd : post.bodyMd || "");
+    const organizationSlug = String(post.organizationSlug || "");
+    const topicUrl = `#/organization/${encodeURIComponent(organizationSlug)}?tab=forum&topic=${post.id}`;
+    const url = isReply ? `${topicUrl}&reply=${reply.id}` : topicUrl;
+    const actorUserId = Number(isReply ? reply.authorUserId : post.authorUserId) || null;
+    const status = isReply
+      ? (reply.status === "published" ? "active" : "deleted")
+      : (post.status === "hidden" ? "deleted" : "active");
+    const subject = this.upsertForumKnowledgeObject({
+      type,
+      key,
+      source: "organization_forum",
+      externalId: String(isReply ? reply.id : post.id),
+      title: isReply ? `回复：${post.title}` : post.title,
+      summary: forumReferenceSummaryText(body),
+      url,
+      language: post.language || "",
+      organizationId: post.organizationId,
+      authorUserId: actorUserId,
+      status,
+      searchText: `${post.title || ""} ${forumReferenceSummaryText(body)} ${organizationSlug}`,
+      metadata: { postId: Number(post.id), replyId: isReply ? Number(reply.id) : null, organizationSlug, visibility: "organization" },
+    });
+    if (!subject) return;
+    this.db.prepare("DELETE FROM knowledge_relations WHERE subject_global_id = ? AND source_system = 'organization_forum'").run(subject);
+    const existingOrganization = this.db.prepare("SELECT global_id FROM knowledge_objects WHERE source_system = 'wikist' AND object_type = 'organization' AND object_key = ? LIMIT 1").get(String(post.organizationId));
+    const organizationTarget = existingOrganization?.global_id || this.upsertForumKnowledgeObject({
+      type: "organization",
+      key: String(post.organizationId),
+      source: "wikist",
+      title: post.organizationName || organizationSlug || `组织 #${post.organizationId}`,
+      url: organizationSlug ? `#/organization/${encodeURIComponent(organizationSlug)}` : "#/community",
+      organizationId: post.organizationId,
+      status: "active",
+    });
+    this.relateForumKnowledge(subject, "belongs_to", organizationTarget, actorUserId, { scope: "organization" });
+    if (isReply) {
+      const parent = knowledgeGraphId("question", `organization-post:${post.id}`, "organization_forum");
+      this.relateForumKnowledge(subject, "answers", parent, actorUserId, { postId: Number(post.id) });
+    }
+    const references = markdownKnowledgeReferences(body);
+    if (!isReply && post.pageSlug && !references.some((item) => item.type === "wiki_entry" && item.id === post.pageSlug)) {
+      references.unshift({ type: "wiki_entry", id: post.pageSlug, label: post.pageSlug });
+    }
+    references.forEach((reference) => {
+      const target = this.forumReferenceTarget(reference);
+      this.relateForumKnowledge(subject, "references", target, actorUserId, { label: reference.label });
+    });
+  }
+
+  archiveOrganizationForumKnowledge(type, id) {
+    if (!this.knowledgeGraphReady()) return;
+    const key = `${type === "answer" ? "organization-post-reply" : "organization-post"}:${id}`;
+    const globalId = knowledgeGraphId(type, key, "organization_forum");
+    this.db.prepare("UPDATE knowledge_objects SET status = 'deleted', updated_at = ? WHERE global_id = ?").run(nowIso(), globalId);
+    this.db.prepare("DELETE FROM knowledge_relations WHERE subject_global_id = ? AND source_system = 'organization_forum'").run(globalId);
+  }
+
   organizationPostQuery(session, organizationId, options = {}) {
     const { limit, offset } = listOptions(options, 10, 50);
     const status = ['open', 'resolved', 'locked'].includes(options.status) ? options.status : 'all';
@@ -3778,7 +4078,9 @@ class PassportStore {
       sourceLabel: '查看讨论主题',
       excludeUserId: session.user.id,
     });
-    return this.getOrganizationPost(session, result.lastInsertRowid);
+    const post = this.getOrganizationPost(session, result.lastInsertRowid);
+    this.syncOrganizationForumKnowledge(post);
+    return post;
   }
 
   getOrganizationPost(session, postId) {
@@ -3878,6 +4180,7 @@ class PassportStore {
       body: post.title,
       includeAuthor: true,
     });
+    this.syncOrganizationForumKnowledge(post, reply);
     return reply;
   }
 
@@ -3900,6 +4203,7 @@ class PassportStore {
         includeAuthor: true,
       });
     }
+    this.syncOrganizationForumKnowledge(updated);
     return updated;
   }
 
@@ -3915,6 +4219,9 @@ class PassportStore {
       if (organizationRoleRank(access.membership.role) < organizationRoleRank('coordinator')) throw accessError('只有主题作者、组织协调者或管理员可以删除该讨论。', 403);
     }
     this.db.prepare("UPDATE organization_posts SET status = 'hidden', updated_at = ? WHERE id = ?").run(nowIso(), post.id);
+    this.archiveOrganizationForumKnowledge("question", post.id);
+    this.db.prepare("SELECT id FROM organization_post_replies WHERE post_id = ?").all(post.id)
+      .forEach((row) => this.archiveOrganizationForumKnowledge("answer", row.id));
     return post;
   }
 
@@ -3938,6 +4245,7 @@ class PassportStore {
     const now = nowIso();
     this.db.prepare("UPDATE organization_post_replies SET status = 'deleted', updated_at = ? WHERE id = ?").run(now, reply.id);
     this.db.prepare('UPDATE organization_posts SET updated_at = ? WHERE id = ?').run(now, post.id);
+    this.archiveOrganizationForumKnowledge("answer", reply.id);
     return { post, reply };
   }
 
@@ -4287,6 +4595,45 @@ class PassportStore {
     `).all(String(slug || ""), limit, offset).map(editEventFromRow);
   }
 
+  pageAuthorIdentity(slug, fallbackAuthor = "") {
+    let row = this.db.prepare(`
+      SELECT u.id, u.username, u.display_name, u.avatar_url, u.status
+      FROM page_edit_events e
+      JOIN users u ON u.id = e.user_id
+      WHERE e.page_slug = ? AND e.user_id IS NOT NULL AND e.action = 'create'
+      ORDER BY e.id ASC
+      LIMIT 1
+    `).get(String(slug || ""));
+    const author = cleanText(fallbackAuthor, 120).replace(/^@/, "").replace(/\s+·\s+访客$/u, "").trim();
+    if (!row && author) {
+      row = this.db.prepare(`
+        SELECT id, username, display_name, avatar_url, status
+        FROM users
+        WHERE lower(username) = lower(?) OR lower(display_name) = lower(?)
+        ORDER BY CASE WHEN lower(username) = lower(?) THEN 0 ELSE 1 END, id ASC
+        LIMIT 1
+      `).get(author, author, author);
+    }
+    if (!row) {
+      row = this.db.prepare(`
+        SELECT u.id, u.username, u.display_name, u.avatar_url, u.status
+        FROM page_edit_events e
+        JOIN users u ON u.id = e.user_id
+        WHERE e.page_slug = ? AND e.user_id IS NOT NULL
+        ORDER BY e.id ASC
+        LIMIT 1
+      `).get(String(slug || ""));
+    }
+    if (!row) return null;
+    return {
+      id: Number(row.id),
+      username: row.username || "",
+      displayName: row.display_name || row.username || "",
+      avatarUrl: row.avatar_url || "",
+      status: row.status || "active",
+    };
+  }
+
   countPageEdits(slug) {
     return this.db.prepare("SELECT count(*) AS n FROM page_edit_events WHERE page_slug = ?")
       .get(String(slug || "")).n;
@@ -4550,6 +4897,7 @@ class PassportStore {
       payload.sourceLabel,
       now,
     );
+    this.messagingBridge?.mirrorUserMessage(Number(result.lastInsertRowid));
     return this.getMessage(result.lastInsertRowid);
   }
 
@@ -4578,16 +4926,19 @@ class PassportStore {
         ? AS recipient_user_id, '' AS recipient_username, '' AS recipient_name,
         sm.sender_user_id, su.username AS sender_username, sm.sender_name, sm.title, sm.body, sm.kind, sm.priority,
         sm.display_seconds, sm.source_type, sm.source_url, sm.source_label,
-        COALESCE(ms.status, 'unread') AS status, sm.status AS broadcast_status,
-        sm.created_at, COALESCE(ms.read_at, '') AS read_at, COALESCE(ms.deleted_at, '') AS deleted_at,
+        CASE WHEN viewer.id IS NOT NULL AND sm.created_at < viewer.created_at THEN 'read' ELSE COALESCE(ms.status, 'unread') END AS status,
+        sm.status AS broadcast_status,
+        sm.created_at, CASE WHEN viewer.id IS NOT NULL AND sm.created_at < viewer.created_at THEN viewer.created_at ELSE COALESCE(ms.read_at, '') END AS read_at,
+        COALESCE(ms.deleted_at, '') AS deleted_at,
         sm.recalled_at, ? AS delivery_count,
         (SELECT count(*) FROM site_message_states rs WHERE rs.message_id = sm.id AND rs.status = 'read' AND rs.deleted_at = '') AS read_count,
         (SELECT count(*) FROM site_message_states ds WHERE ds.message_id = sm.id AND ds.deleted_at != '') AS deleted_count
       FROM site_messages sm
       LEFT JOIN site_message_states ms ON ms.message_id = sm.id AND ms.user_id = ?
       LEFT JOIN users su ON su.id = sm.sender_user_id
+      LEFT JOIN users viewer ON viewer.id = ?
       WHERE sm.id = ? AND sm.status = 'active' AND COALESCE(ms.deleted_at, '') = ''
-    `).get(Number(userId), this.activeUserCount(), Number(userId), Number(siteMessageId)));
+    `).get(Number(userId), this.activeUserCount(), Number(userId), Number(userId), Number(siteMessageId)));
   }
 
   listMessages(userId, options = {}) {
@@ -4595,7 +4946,7 @@ class PassportStore {
     const status = cleanText(options.status || "all", 40).toLowerCase();
     const priority = cleanText(options.priority || "all", 20).toLowerCase();
     const where = [];
-    const args = [Number(userId), Number(userId), Number(userId)];
+    const args = [Number(userId), Number(userId), Number(userId), Number(userId)];
     if (status === "read" || status === "unread") {
       where.push("status = ?");
       args.push(status);
@@ -4622,14 +4973,18 @@ class PassportStore {
         SELECT -sm.id AS id, sm.id AS raw_id, 'site' AS channel, NULL AS user_message_id, sm.id AS site_message_id,
           ? AS recipient_user_id, '' AS recipient_username, '' AS recipient_name,
           sm.sender_user_id, su.username AS sender_username, sm.sender_name, sm.title, sm.body, sm.kind,
-          sm.source_type, sm.source_url, sm.source_label, COALESCE(ms.status, 'unread') AS status, sm.priority, sm.display_seconds, sm.status AS broadcast_status,
-          sm.created_at, COALESCE(ms.read_at, '') AS read_at, COALESCE(ms.deleted_at, '') AS deleted_at, sm.recalled_at,
+          sm.source_type, sm.source_url, sm.source_label,
+          CASE WHEN viewer.id IS NOT NULL AND sm.created_at < viewer.created_at THEN 'read' ELSE COALESCE(ms.status, 'unread') END AS status,
+          sm.priority, sm.display_seconds, sm.status AS broadcast_status,
+          sm.created_at, CASE WHEN viewer.id IS NOT NULL AND sm.created_at < viewer.created_at THEN viewer.created_at ELSE COALESCE(ms.read_at, '') END AS read_at,
+          COALESCE(ms.deleted_at, '') AS deleted_at, sm.recalled_at,
           0 AS delivery_count,
           (SELECT count(*) FROM site_message_states rs WHERE rs.message_id = sm.id AND rs.status = 'read' AND rs.deleted_at = '') AS read_count,
           (SELECT count(*) FROM site_message_states ds WHERE ds.message_id = sm.id AND ds.deleted_at != '') AS deleted_count
         FROM site_messages sm
         LEFT JOIN site_message_states ms ON ms.message_id = sm.id AND ms.user_id = ?
         LEFT JOIN users su ON su.id = sm.sender_user_id
+        LEFT JOIN users viewer ON viewer.id = ?
         WHERE sm.status = 'active' AND COALESCE(ms.deleted_at, '') = ''
       )
       SELECT * FROM combined ${clause}
@@ -4641,7 +4996,7 @@ class PassportStore {
     const status = cleanText(options.status || "all", 40).toLowerCase();
     const priority = cleanText(options.priority || "all", 20).toLowerCase();
     const where = [];
-    const args = [Number(userId), Number(userId)];
+    const args = [Number(userId), Number(userId), Number(userId)];
     if (status === "read" || status === "unread") {
       where.push("status = ?");
       args.push(status);
@@ -4657,9 +5012,10 @@ class PassportStore {
         FROM user_messages m
         WHERE m.recipient_user_id = ? AND m.deleted_at = ''
         UNION ALL
-        SELECT COALESCE(ms.status, 'unread') AS status, sm.priority
+        SELECT CASE WHEN viewer.id IS NOT NULL AND sm.created_at < viewer.created_at THEN 'read' ELSE COALESCE(ms.status, 'unread') END AS status, sm.priority
         FROM site_messages sm
         LEFT JOIN site_message_states ms ON ms.message_id = sm.id AND ms.user_id = ?
+        LEFT JOIN users viewer ON viewer.id = ?
         WHERE sm.status = 'active' AND COALESCE(ms.deleted_at, '') = ''
       )
       SELECT count(*) AS n FROM combined ${clause}
@@ -4673,8 +5029,10 @@ class PassportStore {
       SELECT count(*) AS n
       FROM site_messages sm
       LEFT JOIN site_message_states ms ON ms.message_id = sm.id AND ms.user_id = ?
-      WHERE sm.status = 'active' AND COALESCE(ms.deleted_at, '') = '' AND COALESCE(ms.status, 'unread') = 'unread'
-    `).get(Number(userId)).n;
+      LEFT JOIN users viewer ON viewer.id = ?
+      WHERE sm.status = 'active' AND COALESCE(ms.deleted_at, '') = ''
+        AND CASE WHEN viewer.id IS NOT NULL AND sm.created_at < viewer.created_at THEN 'read' ELSE COALESCE(ms.status, 'unread') END = 'unread'
+    `).get(Number(userId), Number(userId)).n;
     return direct + site;
   }
 
@@ -4692,6 +5050,7 @@ class PassportStore {
           status = 'read',
           read_at = CASE WHEN site_message_states.read_at = '' THEN excluded.read_at ELSE site_message_states.read_at END
       `).run(siteMessageId, Number(userId), now);
+      this.messagingBridge?.markLegacyRead("site", siteMessageId, Number(userId));
       return this.getSiteMessageForUser(userId, siteMessageId);
     }
     const result = this.db.prepare(`
@@ -4699,6 +5058,7 @@ class PassportStore {
       WHERE id = ? AND recipient_user_id = ? AND deleted_at = ''
     `).run(nowIso(), messageId, Number(userId));
     if (!result.changes) throw new Error("消息不存在。");
+    this.messagingBridge?.markLegacyRead("user", messageId, Number(userId));
     return this.getMessage(messageId);
   }
 
@@ -4713,11 +5073,14 @@ class PassportStore {
       SELECT sm.id, ?, 'read', ?, ''
       FROM site_messages sm
       LEFT JOIN site_message_states ms ON ms.message_id = sm.id AND ms.user_id = ?
-      WHERE sm.status = 'active' AND COALESCE(ms.deleted_at, '') = '' AND COALESCE(ms.status, 'unread') = 'unread'
+      LEFT JOIN users viewer ON viewer.id = ?
+      WHERE sm.status = 'active' AND COALESCE(ms.deleted_at, '') = ''
+        AND CASE WHEN viewer.id IS NOT NULL AND sm.created_at < viewer.created_at THEN 'read' ELSE COALESCE(ms.status, 'unread') END = 'unread'
       ON CONFLICT(message_id, user_id) DO UPDATE SET
         status = 'read',
         read_at = CASE WHEN site_message_states.read_at = '' THEN excluded.read_at ELSE site_message_states.read_at END
-    `).run(Number(userId), now, Number(userId));
+    `).run(Number(userId), now, Number(userId), Number(userId));
+    this.messagingBridge?.markAllLegacyRead(Number(userId));
     return { count: direct.changes + site.changes };
   }
 
@@ -4808,6 +5171,7 @@ class PassportStore {
         sender_user_id, sender_name, title, body, kind, priority, display_seconds, source_type, source_url, source_label, status, created_at, recalled_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, '')
     `).run(session.user.id, senderName, payload.title, payload.body, payload.kind, payload.priority, payload.displaySeconds, payload.sourceType, payload.sourceUrl, payload.sourceLabel, now);
+    this.messagingBridge?.mirrorSiteMessage(Number(result.lastInsertRowid));
     return { count: this.activeUserCount(), message: this.listAdminMessages({ limit: 1, offset: 0 }).find((item) => item.rawId === result.lastInsertRowid) || null };
   }
 
@@ -4818,6 +5182,7 @@ class PassportStore {
     if (!existing) throw new Error("全站消息不存在。");
     const result = this.db.prepare("UPDATE site_messages SET status = 'recalled', recalled_at = ? WHERE id = ? AND status != 'recalled'")
       .run(nowIso(), messageId);
+    if (result.changes) this.messagingBridge?.revokeSiteMessage(messageId);
     return { ok: true, changed: result.changes };
   }
   mentionedUsersFromText(text) {

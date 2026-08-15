@@ -1,64 +1,66 @@
 # Wikist Passport
 
-Wikist Passport is the built-in account layer for Wikist. It is designed as a small local identity system that can later be replaced by OAuth, SSO, or a dedicated account service.
+Wikist Passport 是 Wikist 唯一的账号与认证中心。当前公开入口、会话、验证码、登录注册、邮箱验证、密码恢复、TOTP 和用户管理均由 Webman 负责；Node 兼容服务不能创建账号或公开认证接口。
 
-## Storage
+## 页面入口
 
-The default database is SQLite:
+- `/passport?mode=login`：登录，支持用户名或邮箱及可选 TOTP。
+- `/passport?mode=register`：注册；首次安装会自动切换为首位管理员初始化。
+- `/passport?mode=forgot`：发送密码重置邮件。
+- `/passport?mode=reset&token=...`：使用一次性令牌设置新密码。
+- `/passport?mode=verify&token=...`：验证绑定邮箱。
+
+旧地址 `#/login`、`#/register`、`#/forgot-password`、`#/reset-password/...` 与 `#/verify-email/...` 会自动进入对应的新 Passport 页面。页面继承原 Passport 的场景切换、八套内置背景、自定义背景与强调色，并完整适配桌面、平板、手机及深浅主题。
+
+## 人机验证
+
+Passport 默认提供两种完全本地化的行为验证码，由服务端在每次生成时随机选择，浏览器不提供类型切换入口：
+
+- 滑块拼图：服务端生成缺口、校验横向坐标与容错范围。
+- 按序点选：服务端生成汉字或符号序列并校验点选顺序。
+
+实现基于 `fastknife/ajcaptcha`，图片、字体、缓存与校验均留在本站，不再依赖旧模板中的 `captcha.sckur.com` iframe。服务端会把随机类型与原始令牌的 HMAC 绑定到当前 Session，检查时忽略客户端提交的类型并消费该令牌，避免类型篡改和重放。校验成功后签发与当前浏览器 Session 绑定的单次凭证，登录、注册或找回密码消费后立即失效，默认有效期 5 分钟。旧算术验证码 API 暂时保留为兼容回退。
+
+行为验证码需要 PHP GD 与 OpenSSL。默认每个来源每分钟最多请求 40 次，可通过 `CAPTCHA_ATTEMPTS_PER_MINUTE` 调整，但不能低于 12。
+
+## 数据与兼容
+
+默认数据库仍为：
 
 ```text
 data/wikist.sqlite
 ```
 
-This keeps migration simple: stop the server, copy `content/`, `config/`, and `data/wikist.sqlite`, then start Wikist on the new machine.
+Webman 直接复用 Wikist 的 `users`、`sessions` 与 `passport_tokens` 等表，不创建第二套账号库。旧 `wikist_passport` Session 在迁移期可继续识别；新 Webman 登录也会创建兼容会话，使尚未迁移的 Node API 看到同一用户。
 
-## Features
+旧 Node scrypt 密码只通过回环地址和每次启动随机生成的内部令牌校验一次。校验成功后 Webman 立即把密码升级为 PHP 当前推荐哈希，浏览器无法访问该内部桥。
 
-- Register and login with username or email.
-- Optional verified-email login gate with SMTP verification mail.
-- Password recovery through short-lived hashed reset tokens.
-- Optional TOTP two-factor authentication per user.
-- Change password from the account center.
-- HttpOnly cookie sessions.
-- Password hashing with Node.js `crypto.scrypt` and per-user salt.
-- CAPTCHA arithmetic challenge stored in SQLite.
-- Automatic author attribution when a logged-in user edits a page.
+## 安全能力
 
-## Tables
+- 用户名或邮箱登录，注册时检查用户名与邮箱冲突。
+- HttpOnly、SameSite Session；登录后重新生成 Session ID。
+- 可选邮箱验证登录门槛与 SMTP 验证邮件。
+- 短时、单次、哈希存储的邮箱验证和密码重置令牌。
+- 用户可选 TOTP 二次验证；设置接口使用 `BaconQrCode` 在内存中生成标准 `otpauth://` PNG 二维码，同时保留可横向滚动的手动密钥和配置链接。
+- TOTP 密钥使用站点密钥加密保存，只有输入首个有效动态码后才会启用；设置响应使用 `Cache-Control: no-store`，二维码不写入磁盘。
+- 密码修改或重置后清理旧会话。
+- 禁用账号在登录页显示明确的阻断提示，公开主页数据仍按站点规则保留。
+- 登录和验证码分别限速；写请求执行可信来源检查。
 
-- `users`: account profile, password hash, role, status.
-- `sessions`: server-side session records and expiration.
-- `captchas`: short-lived human verification challenges.
-- `passport_tokens`: one-time hashed tokens for email verification and password reset.
+## 主要 API
 
-## Production Notes
+- `GET /api/passport/captcha/behavior`（服务端随机返回 `blockPuzzle` 或 `clickWord`；旧 `type` 查询参数会被安全忽略）
+- `POST /api/passport/captcha/behavior/check`
+- `GET /api/passport/availability`
+- `POST /api/passport/login`
+- `POST /api/passport/register`
+- `POST /api/passport/logout`
+- `GET /api/passport/me`
+- `POST /api/passport/email/verification`
+- `POST /api/passport/email/verify`
+- `POST /api/passport/password/forgot`
+- `POST /api/passport/password/reset`
+- `POST /api/passport/password`
+- `GET|POST /api/passport/security/...`
 
-Set a stable secret before deployment:
-
-```powershell
-$env:WIKIST_PASSPORT_SECRET = "replace-with-a-long-random-secret"
-```
-
-The current implementation uses Node's built-in `node:sqlite`, which is available in modern Node.js releases. If deploying to an older runtime, replace `src/core/passport-store.js` with a compatible SQLite adapter such as `better-sqlite3` or migrate the same interface to PostgreSQL/MySQL.
-## Wiki Identity Integration
-
-Passport is now part of the wiki editing model:
-
-- Logged-in edits are recorded with `user_id`, display name, username label, page slug, action, time, user agent, and IP metadata.
-- Guest edits receive a stable HttpOnly `wikist_guest` cookie and are recorded in `guest_profiles` with first seen, last seen, user agent, IP, and edit count.
-- Page edit history is available at `GET /api/pages/:slug/edits`.
-- Public user pages are available at `GET /api/users/:username` and `#/user/:username`.
-- Each account owns a Markdown profile page stored in SQLite as `users.page_md`.
-
-Additional tables:
-
-- `guest_profiles`: basic visitor identity for guest edits.
-- `page_edit_events`: append-only wiki edit audit events.
-
-The account center can update display name, email, bio, avatar, external profile links, and Markdown profile. External links support personal website, blog, GitHub, Zhihu, Bilibili, X, and Mastodon; only `http` / `https` URLs are stored and public pages render only the links the user provided. Saving the profile updates `last_sync_at`, which the UI shows as the user data synchronization timestamp.
-
-## Mail And Security
-
-Administrators can configure SMTP from the site settings page. The public site API only exposes safe mail metadata; SMTP passwords stay in local config and are never returned to the browser. When enabled, Wikist sends verification links for registration/email changes and reset links for password recovery.
-
-Two-factor authentication uses TOTP secrets encrypted at rest with the site passport secret. Users can enable or disable it from the account security center, and login requires a current one-time code once it is enabled.
+所有迁移完成的 JSON 响应带有 `X-Wikist-Backend: webman`，便于部署方区分 Webman 与 Node 兼容流量。

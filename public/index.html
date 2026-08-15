@@ -1,27 +1,29 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="light">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#090d0d" />
+    <meta name="theme-color" content="#f6fbfa" />
     <script>
       try {
         const savedTheme = localStorage.getItem("wikist-theme");
-        const prefersLight = window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches;
-        document.documentElement.dataset.theme = savedTheme || (prefersLight ? "light" : "dark");
+        document.documentElement.dataset.theme = savedTheme === "dark" || savedTheme === "light" ? savedTheme : "light";
       } catch (_error) {
-        document.documentElement.dataset.theme = "dark";
+        document.documentElement.dataset.theme = "light";
       }
     </script>
     <title>Wikist</title>
-    <link id="siteIconLink" rel="icon" href="/assets/wikist-emblem.svg" />
-    <link rel="stylesheet" href="/assets/styles.css?v=wikist-core-20260712-101" />
+    <link id="siteIconLink" rel="icon" href="/assets/wikist-icon.png" />
+    <link rel="stylesheet" href="/assets/styles.css?v=wikist-core-20260815-191" />
+    <link rel="stylesheet" href="/assets/design-system.css?v=wikist-core-20260815-191" />
+    <link rel="stylesheet" href="/assets/selection-toolbar.css?v=wikist-core-20260815-191" />
+    <link rel="stylesheet" href="/assets/community-qa.css?v=wikist-core-20260815-191" />
   </head>
   <body>
     <div class="app-grid">
       <aside class="sidebar" id="siteSidebar" aria-label="Wikist 导航">
         <a class="brand" href="#/page/home" aria-label="Wikist">
-          <img id="siteBrandIcon" src="/assets/wikist-emblem.svg" alt="" width="40" height="40" />
+          <img id="siteBrandIcon" src="/assets/wikist-icon.png" alt="" width="40" height="40" />
           <span>
             <strong id="siteName">Wikist</strong>
             <small id="siteTagline">开放、严谨、可验证的数学知识共同体</small>
@@ -35,11 +37,12 @@
           </button>
         </form>
 
+        <section class="sidebar-account" id="sidebarAccount" aria-label="账户摘要"></section>
+
         <nav class="nav-section" id="primaryNav" aria-label="主导航"></nav>
         <div class="sidebar-footer">
-          <a id="sidebarPassportLink" href="#/login">Wikist 通行证</a>
+          <a id="sidebarPassportLink" href="/passport?mode=login">Wikist 通行证</a>
           <a href="#/import-export">导入导出</a>
-          <a href="#/admin/overview">后台控制台</a>
           <a href="#/page/contribution-guide">贡献规范</a>
         </div>
       </aside>
@@ -64,8 +67,8 @@
               </button>
               <section class="message-popover" id="messagePopover" role="dialog" aria-label="&#x6D88;&#x606F;&#x9884;&#x89C8;" hidden></section>
             </div>
-            <a class="passport-button" id="passportLink" href="#/login" aria-label="Wikist 通行证">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M15 12H3"/></svg>
+            <a class="passport-button" id="passportLink" href="/passport?mode=login" aria-label="Wikist 通行证">
+              <span class="passport-account-icon" id="passportIcon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M15 12H3"/></svg></span>
               <span id="passportText">登录</span>
             </a>
             <a class="icon-button" href="#/new" title="新建词条" aria-label="新建词条">
@@ -74,18 +77,36 @@
             <a class="icon-button" id="editLink" href="#/edit/home" title="编辑词条" aria-label="编辑词条">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5Z"/></svg>
             </a>
+            <button class="icon-button topbar-logout" id="topbarLogout" type="button" title="退出登录" aria-label="退出登录" hidden>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h4M14 8l4 4-4 4M18 12H8"/></svg>
+            </button>
           </div>
         </header>
         <section class="content-surface" id="mainContent" aria-live="polite"></section>
+        <footer class="site-footer" id="siteFooter">
+          <div class="site-footer-main"><strong id="footerSiteName">Wikist</strong><span>开放、严谨、可验证的知识共同体</span></div>
+          <nav aria-label="页脚导航"><a href="#/page/home">知识首页</a><a href="#/search/">搜索</a><a href="#/community">协作社区</a><a href="#/page/protocol">协议</a><a href="#/page/contribution-guide">贡献规范</a></nav>
+          <small id="footerCopyright"></small>
+        </footer>
       </main>
 
       <aside class="right-rail" aria-label="词条详情">
-        <section class="rail-block">
+        <section class="rail-block rail-toc-block" id="tocRailBlock" hidden>
           <h2>目录</h2>
           <div id="tocList" class="toc-list"></div>
         </section>
-        <section class="rail-block">
-          <h2>最近更新</h2>
+        <section class="rail-block rail-recommendation-block" id="recommendationRailBlock" hidden>
+          <header class="rail-block-head">
+            <h2>词条推荐</h2>
+            <span class="rail-block-tools"><small id="recommendationLimit">最多 5 条</small><button class="rail-refresh-button" id="recommendationRefresh" type="button" title="换一批推荐" aria-label="换一批词条推荐"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.34 5.66M20 4v7h-7"/></svg></button></span>
+          </header>
+          <div id="recommendationList" class="recommendation-list"></div>
+        </section>
+        <section class="rail-block rail-recent-block" id="recentRailBlock">
+          <header class="rail-block-head">
+            <h2>最近更新</h2>
+            <span class="rail-block-tools"><small id="recentLimit">最多 5 条</small><button class="rail-refresh-button" id="recentRefresh" type="button" title="随机换一批" aria-label="随机换一批最近更新"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.34 5.66M20 4v7h-7"/></svg></button></span>
+          </header>
           <div id="recentList" class="recent-list"></div>
         </section>
       </aside>
@@ -94,6 +115,9 @@
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
     </button>
     <button class="mobile-nav-backdrop" id="mobileNavBackdrop" type="button" aria-label="&#20851;&#38381;&#31449;&#28857;&#23548;&#33322;" tabindex="-1"></button>
-    <script src="/assets/app.js?v=wikist-core-20260712-101" defer></script>
+    <script src="/assets/vendor/centrifuge/centrifuge.js?v=wikist-core-20260815-191" defer></script>
+    <script src="/assets/selection-toolbar.js?v=wikist-core-20260815-191" defer></script>
+    <script src="/assets/community-qa.js?v=wikist-core-20260815-191" defer></script>
+    <script src="/assets/app.js?v=wikist-core-20260815-191" defer></script>
   </body>
 </html>

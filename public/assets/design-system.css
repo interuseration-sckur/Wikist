@@ -1,0 +1,2154 @@
+/*
+ * Wikist Design System
+ *
+ * The visual vocabulary is adapted from the strongest patterns in the local
+ * admin template: clear chrome, quiet panels, profile headers, activity feeds
+ * and dense management tables. Layout remains in styles.css so the Markdown
+ * renderer and feature-specific geometry stay isolated from this skin.
+ */
+
+:root {
+  --ui-surface-page: #090c0e;
+  --ui-surface-nav: rgba(12, 17, 20, .97);
+  --ui-surface-card: #10161a;
+  --ui-surface-raised: #151d22;
+  --ui-surface-card-hover: #182228;
+  --ui-surface-control: #0c1215;
+  --ui-surface-control-hover: #151e23;
+  --ui-surface-popover: #151c21;
+  --ui-border: #263239;
+  --ui-border-strong: #3a4b54;
+  --ui-border-accent: color-mix(in srgb, var(--cyan) 58%, var(--ui-border));
+  --ui-highlight: rgba(255, 255, 255, .045);
+  --ui-primary-text: #061113;
+  --ui-muted-surface: rgba(148, 163, 184, .08);
+  --ui-shadow-control: inset 0 1px 0 rgba(255, 255, 255, .035), 0 1px 2px rgba(0, 0, 0, .24);
+  --ui-shadow-card: inset 0 1px 0 rgba(255, 255, 255, .035), 0 12px 30px rgba(0, 0, 0, .16);
+  --ui-shadow-raised: inset 0 1px 0 rgba(255, 255, 255, .055), 0 18px 42px rgba(0, 0, 0, .24);
+  --ui-shadow-popover: inset 0 1px 0 rgba(255, 255, 255, .055), 0 24px 64px rgba(0, 0, 0, .42);
+  --ui-transition: 150ms cubic-bezier(.2, .8, .2, 1);
+  --ui-transition-slow: 240ms cubic-bezier(.2, .8, .2, 1);
+  --ui-card-edge: linear-gradient(135deg, color-mix(in srgb, var(--cyan) 8%, transparent), transparent 42%);
+}
+
+:root[data-theme="light"] {
+  --bg: #f4f6f5;
+  --panel: #ffffff;
+  --panel-2: #f6f8f7;
+  --panel-3: #edf2f0;
+  --line: #e3e9e7;
+  --line-strong: #cbd6d3;
+  --surface-input: #f7f9f8;
+  --surface-hover: #eef3f1;
+  --shadow-soft: none;
+  --shadow: none;
+  --ui-surface-page: #f4f6f5;
+  --ui-surface-nav: rgba(255, 255, 255, .97);
+  --ui-surface-card: #ffffff;
+  --ui-surface-raised: #f6f8f7;
+  --ui-surface-card-hover: #f0f4f2;
+  --ui-surface-control: #f7f9f8;
+  --ui-surface-control-hover: #edf2f0;
+  --ui-surface-popover: #ffffff;
+  --ui-border: #e3e9e7;
+  --ui-border-strong: #cbd6d3;
+  --ui-border-accent: color-mix(in srgb, var(--cyan) 64%, #8aa9a2);
+  --ui-highlight: rgba(255, 255, 255, .92);
+  --ui-primary-text: #071a18;
+  --ui-primary-surface: color-mix(in srgb, var(--cyan) 22%, #fff);
+  --ui-primary-surface-hover: color-mix(in srgb, var(--cyan) 31%, #fff);
+  --ui-muted-surface: rgba(31, 72, 66, .055);
+  --ui-shadow-control: inset 0 1px 0 rgba(255, 255, 255, .82);
+  --ui-shadow-card: inset 0 1px 0 rgba(255, 255, 255, .94), 0 1px 2px rgba(31, 56, 52, .025), 0 8px 22px rgba(31, 56, 52, .045);
+  --ui-shadow-raised: 0 10px 28px rgba(31, 56, 52, .08);
+  --ui-shadow-popover: 0 20px 54px rgba(31, 56, 52, .14);
+  --ui-card-edge: none;
+}
+
+html {
+  scrollbar-color: var(--ui-border-strong) transparent;
+}
+
+body {
+  color: var(--text);
+  background-color: var(--ui-surface-page);
+}
+
+/* Unified messaging skin: chatcn-inspired density, native Wikist tokens. */
+.messaging-page-head h1,
+.messaging-sidebar-head h1,
+.messaging-thread-head h2,
+.messaging-context-panel h3 {
+  color: var(--text);
+  letter-spacing: 0;
+}
+
+.messaging-page-head h1 { font-size: 2rem; }
+.messaging-sidebar-head h1 { font-size: 1.35rem; }
+.messaging-thread-head h2 { font-size: .96rem; }
+.messaging-page-head p,
+.messaging-thread-head p,
+.messaging-context-panel p { color: var(--muted); }
+
+.messaging-page-head > div:last-child > button,
+.messaging-context-settings button,
+.messaging-load-older button,
+.messaging-sidebar-empty button {
+  border: 1px solid var(--ui-border);
+  border-radius: var(--radius);
+  color: var(--text);
+  background: var(--ui-surface-control);
+  box-shadow: var(--ui-shadow-control);
+  cursor: pointer;
+  transition: color var(--ui-transition), border-color var(--ui-transition), background-color var(--ui-transition);
+}
+
+.messaging-page-head > div:last-child > button:hover,
+.messaging-context-settings button:hover,
+.messaging-load-older button:hover,
+.messaging-sidebar-empty button:hover {
+  border-color: var(--ui-border-accent);
+  background: var(--ui-surface-control-hover);
+}
+
+.messaging-page-head > div:last-child > button:disabled {
+  cursor: default;
+  opacity: .48;
+}
+
+.messaging-connection-state {
+  color: var(--muted);
+  font-size: .78rem;
+}
+
+.messaging-connection-state i,
+.messaging-realtime-indicator {
+  background: #8c9aa1;
+  box-shadow: 0 0 0 3px color-mix(in srgb, #8c9aa1 13%, transparent);
+}
+
+body.messaging-realtime-connected .messaging-connection-state i,
+body.messaging-realtime-connected .messaging-realtime-indicator {
+  background: var(--green);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--green) 14%, transparent), 0 0 12px color-mix(in srgb, var(--green) 35%, transparent);
+}
+
+.messaging-workspace {
+  border-color: var(--ui-border);
+  background: var(--ui-surface-card);
+  box-shadow: var(--ui-shadow-card);
+}
+
+.messaging-sidebar,
+.messaging-context-panel {
+  border-color: var(--ui-border);
+  background: color-mix(in srgb, var(--ui-surface-raised) 80%, var(--ui-surface-card));
+}
+
+.messaging-thread {
+  background-color: var(--ui-surface-page);
+  background-image: radial-gradient(circle at 1px 1px, color-mix(in srgb, var(--ui-border) 44%, transparent) 1px, transparent 0);
+  background-size: 24px 24px;
+}
+
+.messaging-thread-head,
+.messaging-composer-shell {
+  border-color: var(--ui-border);
+  background: color-mix(in srgb, var(--ui-surface-card) 94%, transparent);
+  backdrop-filter: blur(12px);
+}
+
+.messaging-sidebar-head > button,
+.messaging-thread-actions button,
+.messaging-mobile-back,
+.messaging-composer-actions button,
+.messaging-picker header button,
+.messaging-people-picker header button {
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+  transition: color var(--ui-transition), border-color var(--ui-transition), background-color var(--ui-transition), transform var(--ui-transition);
+}
+
+.messaging-sidebar-head > button {
+  border-color: color-mix(in srgb, var(--cyan) 38%, var(--ui-border));
+  color: var(--cyan);
+  background: color-mix(in srgb, var(--cyan) 8%, var(--ui-surface-control));
+  font-size: 1.3rem;
+}
+
+.messaging-sidebar-head > button:hover,
+.messaging-thread-actions button:hover,
+.messaging-mobile-back:hover,
+.messaging-composer-actions button:hover,
+.messaging-picker header button:hover,
+.messaging-people-picker header button:hover {
+  border-color: var(--ui-border);
+  color: var(--text);
+  background: var(--ui-surface-control-hover);
+}
+
+.messaging-search,
+.messaging-kind-tabs,
+.messaging-composer {
+  border: 1px solid var(--ui-border);
+  border-radius: var(--radius);
+  background: transparent;
+  box-shadow: none;
+}
+
+.messaging-search:focus-within {
+  border-color: var(--ui-border-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--cyan) 11%, transparent), var(--ui-shadow-control);
+}
+
+.messaging-composer:focus-within {
+  border-color: var(--ui-border);
+  background: transparent;
+  box-shadow: none;
+}
+
+.messaging-search input,
+.messaging-search button,
+.messaging-composer textarea {
+  color: var(--text);
+  background: transparent;
+  box-shadow: none;
+  outline: none;
+}
+
+.messaging-search input::placeholder,
+.messaging-composer textarea::placeholder,
+.messaging-people-picker input::placeholder,
+.messaging-picker input::placeholder { color: var(--muted); opacity: .78; }
+
+.messaging-kind-tabs button {
+  border-radius: calc(var(--radius) - 2px);
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+  font-size: .72rem;
+  font-weight: 700;
+  transition: color var(--ui-transition), background-color var(--ui-transition), box-shadow var(--ui-transition);
+}
+
+.messaging-kind-tabs button:hover { color: var(--text); }
+.messaging-kind-tabs button.active {
+  color: var(--text);
+  background: var(--ui-surface-raised);
+  box-shadow: var(--ui-shadow-control);
+}
+
+.messaging-conversation-item {
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  color: var(--text);
+  transition: color var(--ui-transition), border-color var(--ui-transition), background-color var(--ui-transition), transform var(--ui-transition);
+}
+
+.messaging-conversation-item:hover {
+  border-color: var(--ui-border);
+  color: var(--text);
+  background: var(--ui-surface-card-hover);
+}
+
+.messaging-conversation-item.active {
+  border-color: color-mix(in srgb, var(--cyan) 34%, var(--ui-border));
+  background: color-mix(in srgb, var(--cyan) 9%, var(--ui-surface-raised));
+  box-shadow: inset 3px 0 0 var(--cyan);
+}
+
+.messaging-conversation-item.unread strong { color: var(--cyan); }
+.messaging-conversation-copy strong { font-size: .84rem; }
+.messaging-conversation-copy small,
+.messaging-conversation-copy time { color: var(--muted); font-size: .68rem; }
+
+.messaging-unread-count,
+.message-unread-count {
+  border: 1px solid color-mix(in srgb, #fff 66%, transparent);
+  color: #fff;
+  background: var(--rose);
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--rose) 34%, transparent);
+  font-size: .66rem;
+  font-weight: 800;
+}
+
+:root[data-theme="light"] .messaging-unread-count,
+:root[data-theme="light"] .message-unread-count {
+  border-color: #fff;
+  color: #fff;
+  background: #d93f67;
+  box-shadow: 0 3px 10px rgba(179, 45, 82, .24);
+}
+
+.messaging-presence-dot {
+  background: var(--muted-2);
+  box-shadow: none;
+}
+
+.messaging-presence-dot.is-online {
+  background: var(--green);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--green) 48%, transparent);
+}
+
+.messaging-conversation-pager { border-top: 1px solid var(--ui-border); }
+.messaging-conversation-pager span { color: var(--muted); font-size: .7rem; }
+.messaging-conversation-pager button {
+  border: 1px solid var(--ui-border);
+  border-radius: calc(var(--radius) - 2px);
+  color: var(--text);
+  background: var(--ui-surface-control);
+  cursor: pointer;
+}
+.messaging-conversation-pager button:disabled { cursor: default; opacity: .36; }
+
+.messaging-people-picker,
+.messaging-picker {
+  border: 1px solid var(--ui-border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--ui-surface-popover);
+  box-shadow: var(--ui-shadow-popover);
+}
+
+.messaging-people-picker > input,
+.messaging-picker-fields > * {
+  border: 1px solid var(--ui-border);
+  border-radius: var(--radius);
+  color: var(--text);
+  background: var(--ui-surface-control);
+  box-shadow: var(--ui-shadow-control);
+}
+
+.messaging-picker-result {
+  border: 0;
+  border-bottom: 1px solid var(--ui-border);
+  color: var(--text);
+  background: transparent;
+  cursor: pointer;
+  transition: color var(--ui-transition), background-color var(--ui-transition);
+}
+
+.messaging-picker-result:last-child { border-bottom: 0; }
+.messaging-picker-result:hover { background: var(--ui-surface-control-hover); }
+.messaging-picker-result strong { font-size: .8rem; }
+.messaging-picker-result small { color: var(--muted); font-size: .69rem; }
+
+.messaging-mention-result {
+  border: 0;
+  border-bottom: 1px solid var(--ui-border);
+  color: var(--text);
+  background: transparent;
+  cursor: pointer;
+}
+.messaging-mention-result:last-child { border-bottom: 0; }
+.messaging-mention-result:hover,
+.messaging-mention-result.active { background: var(--ui-surface-control-hover); }
+.messaging-mention-result small,
+.messaging-mention-result em { color: var(--muted); }
+
+.messaging-thread-empty,
+.messaging-thread-welcome { color: var(--muted); }
+.messaging-thread-empty > .nav-link-icon { color: var(--cyan); opacity: .8; }
+.messaging-thread-empty h2 { color: var(--text); }
+
+.messaging-message-stack > header,
+.messaging-message-stack > footer { color: var(--muted); font-size: .67rem; }
+.messaging-message-stack > header strong { color: var(--text); font-size: .74rem; }
+.messaging-bubble {
+  border: 1px solid var(--ui-border);
+  border-radius: 4px var(--radius-lg) var(--radius-lg) var(--radius-lg);
+  color: var(--text);
+  background: var(--ui-surface-raised);
+  box-shadow: var(--ui-shadow-control);
+}
+
+.messaging-message-row.mine .messaging-bubble {
+  border-color: color-mix(in srgb, var(--cyan) 27%, var(--ui-border));
+  border-radius: var(--radius-lg) 4px var(--radius-lg) var(--radius-lg);
+  background: color-mix(in srgb, var(--cyan) 11%, var(--ui-surface-raised));
+}
+
+.messaging-message-row.withdrawn .messaging-bubble {
+  border-style: dashed;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--ui-muted-surface) 72%, transparent);
+  box-shadow: none;
+}
+
+.messaging-message-body a,
+.messaging-mention { color: var(--cyan); }
+.messaging-inline-reference {
+  border: 1px solid color-mix(in srgb, var(--cyan) 30%, var(--ui-border));
+  border-radius: 999px;
+  color: var(--cyan);
+  background: color-mix(in srgb, var(--cyan) 8%, var(--ui-surface-control));
+  box-shadow: var(--ui-shadow-control);
+  font-size: .78rem;
+  font-weight: 750;
+  transition: color var(--ui-transition), border-color var(--ui-transition), background-color var(--ui-transition);
+}
+.messaging-inline-reference:hover {
+  border-color: var(--ui-border-accent);
+  color: var(--text);
+  background: color-mix(in srgb, var(--cyan) 13%, var(--ui-surface-control-hover));
+}
+.messaging-message-tools button {
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+}
+.messaging-message-tools button:hover { color: var(--text); }
+
+.messaging-reply-quote {
+  border: 0;
+  border-left: 2px solid var(--cyan);
+  border-radius: calc(var(--radius) - 2px);
+  color: var(--text);
+  background: color-mix(in srgb, var(--ui-surface-control) 76%, transparent);
+  cursor: pointer;
+}
+.messaging-reply-quote small { color: var(--cyan); }
+.messaging-reply-quote span { color: var(--muted); }
+
+.messaging-reference,
+.messaging-attachment {
+  border: 1px solid var(--ui-border);
+  border-radius: var(--radius);
+  color: var(--text);
+  background: color-mix(in srgb, var(--ui-surface-control) 82%, transparent);
+  transition: color var(--ui-transition), border-color var(--ui-transition), background-color var(--ui-transition), transform var(--ui-transition);
+}
+
+.messaging-reference:hover,
+.messaging-attachment:hover {
+  border-color: var(--ui-border-accent);
+  color: var(--text);
+  background: var(--ui-surface-control-hover);
+  transform: translateY(-1px);
+}
+
+.messaging-reference .nav-link-icon,
+.messaging-attachment .nav-link-icon { color: var(--cyan); }
+.messaging-reference small { color: var(--cyan); font-size: .62rem; text-transform: uppercase; }
+.messaging-reference strong,
+.messaging-attachment strong { font-size: .74rem; }
+.messaging-reference em,
+.messaging-attachment small { color: var(--muted); font-size: .66rem; font-style: normal; }
+.messaging-attachment.image span {
+  color: #fff;
+  background: linear-gradient(transparent, rgba(0, 0, 0, .78));
+  font-size: .67rem;
+}
+
+.messaging-typing { color: var(--muted); font-size: .7rem; }
+.messaging-typing-dots i { background: var(--cyan); }
+
+.messaging-send-button {
+  border: 1px solid color-mix(in srgb, var(--cyan) 54%, var(--ui-border));
+  border-radius: var(--radius);
+  color: var(--ui-primary-text);
+  background: var(--ui-primary-surface, var(--cyan));
+  box-shadow: var(--ui-shadow-control);
+  cursor: pointer;
+  font-weight: 800;
+  transition: background-color var(--ui-transition), transform var(--ui-transition), box-shadow var(--ui-transition);
+}
+.messaging-send-button:hover {
+  background: var(--ui-primary-surface-hover, color-mix(in srgb, var(--cyan) 84%, white));
+  transform: translateY(-1px);
+}
+.messaging-send-button:disabled { cursor: wait; opacity: .58; }
+
+.messaging-composer-footer {
+  border-top: 1px solid var(--ui-border);
+}
+
+.messaging-compose-chip {
+  border: 1px solid var(--ui-border);
+  border-radius: var(--radius);
+  color: var(--text);
+  background: var(--ui-surface-raised);
+  box-shadow: var(--ui-shadow-control);
+  font-size: .7rem;
+}
+.messaging-compose-chip.reply { border-left-color: var(--cyan); }
+.messaging-compose-chip.reference { border-left-color: var(--green); }
+.messaging-compose-chip.attachment { border-left-color: var(--amber); }
+.messaging-compose-chip small { color: var(--muted); }
+.messaging-compose-chip button {
+  border-radius: 50%;
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+}
+.messaging-compose-chip button:hover { color: var(--text); background: var(--ui-surface-control-hover); }
+.messaging-system-note { color: var(--muted); background: var(--ui-surface-card); }
+
+.messaging-context-panel > section + section { border-color: var(--ui-border); }
+.messaging-context-panel > section > header span { color: var(--cyan); font-size: .7rem; }
+.messaging-context-identity .user-avatar { box-shadow: 0 0 0 4px color-mix(in srgb, var(--cyan) 9%, transparent); }
+.messaging-member-list a { color: var(--text); }
+.messaging-member-list a:hover strong { color: var(--cyan); }
+.messaging-member-list small { color: var(--muted); }
+.messaging-member-privacy {
+  border: 1px solid var(--ui-border);
+  border-radius: var(--radius);
+  color: var(--muted);
+  background: var(--ui-muted-surface);
+}
+.messaging-member-pager button {
+  border: 1px solid var(--ui-border);
+  border-radius: var(--radius);
+  color: var(--text);
+  background: var(--ui-surface-control);
+  cursor: pointer;
+}
+.messaging-member-pager button:disabled { cursor: default; opacity: .42; }
+
+.organization-chat-link,
+.user-message-button {
+  border: 1px solid color-mix(in srgb, var(--cyan) 32%, var(--ui-border));
+  border-radius: var(--radius);
+  color: var(--cyan);
+  background: color-mix(in srgb, var(--cyan) 7%, transparent);
+  box-shadow: none;
+  text-decoration: none;
+  transition: color var(--ui-transition), border-color var(--ui-transition), background-color var(--ui-transition);
+}
+.organization-chat-link:hover,
+.user-message-button:hover {
+  border-color: var(--ui-border-accent);
+  color: var(--text);
+  background: color-mix(in srgb, var(--cyan) 12%, var(--ui-surface-control));
+}
+
+:root[data-theme="light"] .messaging-workspace {
+  border-color: var(--ui-border);
+  background: #fff;
+  box-shadow: 0 12px 34px rgba(31, 56, 52, .07);
+}
+:root[data-theme="light"] .messaging-sidebar,
+:root[data-theme="light"] .messaging-context-panel { background: #f7f9f8; }
+:root[data-theme="light"] .messaging-thread {
+  background-color: #fff;
+  background-image: radial-gradient(circle at 1px 1px, rgba(48, 91, 83, .09) 1px, transparent 0);
+}
+:root[data-theme="light"] .messaging-thread-head,
+:root[data-theme="light"] .messaging-composer-shell { background: rgba(255, 255, 255, .95); }
+:root[data-theme="light"] .messaging-message-row.incoming .messaging-bubble { background: #f3f6f5; }
+:root[data-theme="light"] .messaging-message-row.mine .messaging-bubble { background: #e7f5f1; }
+:root[data-theme="light"] .messaging-search,
+:root[data-theme="light"] .messaging-kind-tabs { background: #fff; }
+:root[data-theme="light"] .messaging-composer { background: transparent; }
+:root[data-theme="light"] .messaging-people-picker,
+:root[data-theme="light"] .messaging-picker { background: #fff; }
+
+.sidebar,
+.right-rail,
+.topbar {
+  border-color: var(--ui-border);
+  background-color: var(--ui-surface-nav);
+  box-shadow: inset 0 1px 0 var(--ui-highlight);
+}
+
+.sidebar {
+  background-image: linear-gradient(180deg, color-mix(in srgb, var(--cyan) 4%, transparent), transparent 26%);
+}
+
+.brand img,
+.user-avatar,
+.organization-avatar {
+  border-color: var(--ui-border-strong);
+  background-color: var(--ui-surface-raised);
+  box-shadow: var(--ui-shadow-control);
+  object-fit: cover;
+}
+
+.brand strong,
+.sidebar-account-link strong,
+.nav-link.active,
+.admin-sidebar a.active {
+  color: var(--text);
+}
+
+.brand small,
+.sidebar-account-link small,
+.breadcrumbs,
+.nav-link,
+.sidebar-footer a {
+  color: var(--muted);
+}
+
+.sidebar-account {
+  border-color: var(--ui-border);
+  border-radius: var(--radius);
+  background-color: color-mix(in srgb, var(--ui-surface-raised) 86%, transparent);
+  box-shadow: var(--ui-shadow-control);
+}
+
+.sidebar-account-link {
+  color: var(--text);
+}
+
+.sidebar-account-link:hover {
+  background-color: var(--ui-surface-card-hover);
+}
+
+.sidebar-account-guest {
+  border-color: color-mix(in srgb, var(--cyan) 36%, var(--ui-border));
+  border-radius: 50%;
+  color: var(--cyan);
+  background-color: color-mix(in srgb, var(--cyan) 8%, var(--ui-surface-control));
+}
+
+.nav-link,
+.sidebar-footer a,
+.admin-sidebar a {
+  border-color: transparent;
+  border-radius: var(--radius);
+  background-color: transparent;
+  box-shadow: none;
+  transition: color var(--ui-transition), border-color var(--ui-transition), background-color var(--ui-transition), box-shadow var(--ui-transition), transform var(--ui-transition);
+}
+
+.nav-link-icon {
+  color: currentColor;
+}
+
+.nav-link:hover,
+.sidebar-footer a:hover,
+.admin-sidebar a:hover {
+  border-color: var(--ui-border);
+  color: var(--text);
+  background-color: var(--ui-surface-control-hover);
+}
+
+.nav-link.active,
+.admin-sidebar a.active,
+[aria-current="page"] {
+  border-color: color-mix(in srgb, var(--cyan) 30%, var(--ui-border));
+  color: var(--text);
+  background-color: color-mix(in srgb, var(--cyan) 9%, var(--ui-surface-control));
+  box-shadow: inset 3px 0 0 var(--cyan), var(--ui-shadow-control);
+}
+
+.topbar .top-quick-nav a {
+  border: 0;
+  border-radius: 0;
+  color: var(--muted);
+  background: transparent;
+  box-shadow: none;
+}
+
+.topbar .top-quick-nav a::after {
+  border-radius: 2px 2px 0 0;
+  background: var(--cyan);
+  opacity: 0;
+  transform: scaleX(.45);
+  transition: opacity var(--ui-transition), transform var(--ui-transition);
+}
+
+.topbar .top-quick-nav a:hover,
+.topbar .top-quick-nav a.active,
+.topbar .top-quick-nav a[aria-current="page"] {
+  border-color: transparent;
+  color: var(--text);
+  background-color: transparent;
+  box-shadow: none;
+}
+
+.topbar .top-quick-nav a:hover::after { opacity: .42; transform: scaleX(.75); }
+.topbar .top-quick-nav a.active::after,
+.topbar .top-quick-nav a[aria-current="page"]::after { opacity: 1; transform: scaleX(1); }
+
+.topbar {
+  backdrop-filter: blur(16px) saturate(125%);
+  box-shadow: inset 0 1px 0 var(--ui-highlight), 0 6px 24px rgba(0, 0, 0, .08);
+}
+
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]),
+textarea,
+select {
+  border-color: var(--ui-border);
+  border-radius: var(--radius);
+  color: var(--text);
+  background-color: var(--ui-surface-control);
+  box-shadow: var(--ui-shadow-control);
+  transition: border-color var(--ui-transition), background-color var(--ui-transition), box-shadow var(--ui-transition);
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--muted-2);
+  opacity: 1;
+}
+
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):hover,
+textarea:hover,
+select:hover {
+  border-color: var(--ui-border-strong);
+  background-color: var(--ui-surface-control-hover);
+}
+
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):focus,
+textarea:focus,
+select:focus {
+  border-color: var(--cyan);
+  outline: 0;
+  box-shadow: var(--focus-ring), var(--ui-shadow-control);
+}
+
+input[type="checkbox"],
+input[type="radio"],
+input[type="range"] {
+  accent-color: var(--cyan);
+}
+
+input:disabled,
+textarea:disabled,
+select:disabled,
+input[readonly],
+textarea[readonly] {
+  color: var(--muted);
+  background-color: color-mix(in srgb, var(--ui-surface-control) 82%, var(--ui-muted-surface));
+}
+
+.icon-button,
+.mini-button,
+.forum-action-button,
+.review-decision-button,
+.review-note-withdraw,
+.favorite-remove-button,
+.favorite-result-remove,
+.plugin-vendor-button,
+.knowledge-pagination-button,
+.watchlist-manage-button,
+.page-tool-nav a,
+.page-tool-nav button {
+  border-color: var(--ui-border);
+  border-radius: var(--radius);
+  color: var(--muted);
+  background-color: var(--ui-surface-control);
+  box-shadow: var(--ui-shadow-control);
+  transition: color var(--ui-transition), border-color var(--ui-transition), background-color var(--ui-transition), box-shadow var(--ui-transition), transform var(--ui-transition);
+}
+
+.icon-button:hover,
+.mini-button:hover,
+.forum-action-button:hover,
+.review-decision-button:hover,
+.review-note-withdraw:hover,
+.favorite-remove-button:hover,
+.favorite-result-remove:hover,
+.plugin-vendor-button:hover,
+.knowledge-pagination-button:hover,
+.watchlist-manage-button:hover,
+.page-tool-nav a:hover,
+.page-tool-nav button:hover {
+  border-color: var(--ui-border-strong);
+  color: var(--text);
+  background-color: var(--ui-surface-control-hover);
+  box-shadow: inset 0 1px 0 var(--ui-highlight), 0 8px 22px rgba(0, 0, 0, .14);
+}
+
+.command-button,
+.passport-button {
+  border-color: color-mix(in srgb, var(--cyan) 66%, var(--ui-border));
+  border-radius: var(--radius);
+  color: var(--ui-primary-text);
+  background-color: var(--cyan);
+  background-image: linear-gradient(180deg, rgba(255, 255, 255, .13), transparent 58%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .22), 0 7px 18px color-mix(in srgb, var(--cyan) 13%, transparent);
+  transition: color var(--ui-transition), border-color var(--ui-transition), background-color var(--ui-transition), box-shadow var(--ui-transition), transform var(--ui-transition);
+}
+
+.passport-button.signed-in {
+  border-color: transparent;
+  color: var(--text);
+  background: transparent;
+  background-image: none;
+  box-shadow: none;
+}
+
+.command-button:hover,
+.passport-button:hover {
+  border-color: color-mix(in srgb, var(--cyan) 82%, var(--text));
+  color: var(--ui-primary-text);
+  background-color: color-mix(in srgb, var(--cyan) 88%, #fff);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .3), 0 10px 26px color-mix(in srgb, var(--cyan) 18%, transparent);
+}
+
+.passport-button.signed-in:hover {
+  border-color: transparent;
+  color: var(--cyan);
+  background: transparent;
+  box-shadow: none;
+}
+
+.passport-button.signed-in:active {
+  color: var(--cyan);
+  background: transparent;
+  box-shadow: none;
+}
+
+.passport-button.signed-in:focus-visible {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: var(--focus-ring);
+}
+
+.command-button:active,
+.passport-button:active,
+.icon-button:active,
+.mini-button:active {
+  transform: translateY(1px);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, .24);
+}
+
+.command-button.secondary,
+.command-button.ghost {
+  border-color: var(--ui-border);
+  color: var(--text);
+  background-color: var(--ui-surface-control);
+  background-image: none;
+  box-shadow: var(--ui-shadow-control);
+}
+
+.command-button.secondary:hover,
+.command-button.ghost:hover {
+  border-color: var(--ui-border-strong);
+  color: var(--text);
+  background-color: var(--ui-surface-control-hover);
+}
+
+.command-button.danger,
+.danger-panel .command-button {
+  border-color: color-mix(in srgb, var(--rose) 58%, var(--ui-border));
+  color: var(--rose);
+  background-color: color-mix(in srgb, var(--rose) 8%, var(--ui-surface-control));
+  background-image: none;
+  box-shadow: var(--ui-shadow-control);
+}
+
+.wiki-box,
+.sci-box,
+.portal-stat,
+.auth-panel,
+.identity-card,
+.result-item,
+.search-result-card,
+.favorite-result-card,
+.comment-item,
+.message-item,
+.citation-review-item,
+.review-queue-item,
+.review-version-card,
+.transfer-hero,
+.transfer-panel,
+.transfer-state,
+.plugin-config-card,
+.plugin-hook-card,
+.community-organization-card,
+.community-create-panel,
+.community-post-card,
+.community-task-card,
+.community-review-card,
+.forum-topic-row,
+.forum-reply,
+.forum-side-note,
+.organization-section,
+.organization-home-intro,
+.organization-basic-facts,
+.organization-management-panel,
+.organization-identity-panel,
+.organization-identity-card,
+.workspace-member-card,
+.navigation-page-card,
+.taxonomy-card,
+.page-rating-panel,
+.admin-note,
+.admin-metric,
+.admin-settings-panel,
+.admin-dashboard-panel,
+.backup-result-card {
+  border-color: var(--ui-border);
+  border-radius: var(--radius);
+  background-color: var(--ui-surface-card);
+  background-image: none;
+  box-shadow: var(--ui-shadow-card);
+  transition: border-color var(--ui-transition), background-color var(--ui-transition), box-shadow var(--ui-transition), transform var(--ui-transition);
+}
+
+.wiki-box,
+.admin-dashboard-panel,
+.organization-home-intro,
+.organization-basic-facts,
+.profile-hero {
+  background-image: var(--ui-card-edge);
+}
+
+.result-item:hover,
+.search-result-card:hover,
+.favorite-result-card:hover,
+.citation-review-item:hover,
+.review-queue-item:hover,
+.community-organization-card:hover,
+.community-post-card:hover,
+.community-task-card:hover,
+.forum-topic-row:hover,
+.navigation-page-card:hover,
+.taxonomy-card:hover,
+.admin-recent-page:hover {
+  border-color: var(--ui-border-strong);
+  background-color: var(--ui-surface-card-hover);
+  box-shadow: var(--ui-shadow-raised);
+  transform: translateY(-1px);
+}
+
+.wiki-box > h2,
+.sci-box > h2,
+.admin-dashboard-panel > header,
+.organization-home-intro > header,
+.organization-basic-facts > h2 {
+  border-color: var(--ui-border);
+}
+
+.wiki-box > h2,
+.sci-box > h2,
+.admin-dashboard-panel h2,
+.organization-home-intro h2,
+.organization-basic-facts h2 {
+  color: var(--text);
+}
+
+.rail-block {
+  border-color: transparent;
+  border-bottom-color: var(--ui-border);
+  border-radius: 0;
+  background-color: transparent;
+  background-image: none;
+  box-shadow: none;
+}
+
+.portal-stat-icon,
+.admin-metric-icon {
+  border-color: color-mix(in srgb, var(--cyan) 28%, var(--ui-border));
+  border-radius: 50%;
+  color: var(--cyan);
+  background-color: color-mix(in srgb, var(--cyan) 8%, var(--ui-surface-raised));
+  box-shadow: inset 0 1px 0 var(--ui-highlight);
+}
+
+.portal-stat small,
+.portal-stat span,
+.admin-metric small,
+.admin-metric em {
+  color: var(--muted);
+}
+
+.portal-stat strong,
+.admin-metric strong,
+.admin-panel-count {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.portal-stat:nth-child(2) .portal-stat-icon,
+.admin-metric:nth-child(2) .admin-metric-icon {
+  border-color: color-mix(in srgb, var(--green) 34%, var(--ui-border));
+  color: var(--green);
+  background-color: color-mix(in srgb, var(--green) 8%, var(--ui-surface-raised));
+}
+
+.portal-stat:nth-child(3) .portal-stat-icon,
+.admin-metric:nth-child(3) .admin-metric-icon {
+  border-color: color-mix(in srgb, var(--amber) 34%, var(--ui-border));
+  color: var(--amber);
+  background-color: color-mix(in srgb, var(--amber) 8%, var(--ui-surface-raised));
+}
+
+.profile-hero,
+.organization-hero,
+.workspace-hero {
+  border-color: var(--ui-border);
+  border-radius: var(--radius);
+  background-color: var(--ui-surface-card);
+  box-shadow: var(--ui-shadow-card);
+}
+
+.profile-hero-copy > p,
+.profile-hero-copy > small,
+.profile-metric-strip span,
+.profile-metric-strip a,
+.organization-workspace-stats {
+  color: var(--muted);
+}
+
+.profile-metric-strip {
+  border-color: var(--ui-border);
+  background-color: color-mix(in srgb, var(--ui-surface-raised) 72%, transparent);
+}
+
+.profile-metric-strip > * {
+  border-color: var(--ui-border);
+}
+
+.profile-metric-strip strong {
+  color: var(--text);
+}
+
+.profile-metric-strip a:hover strong {
+  color: var(--cyan);
+}
+
+.admin-sidebar {
+  border-color: var(--ui-border);
+  border-radius: var(--radius);
+  background-color: var(--ui-surface-card);
+  background-image: linear-gradient(180deg, color-mix(in srgb, var(--cyan) 5%, transparent), transparent 34%);
+  box-shadow: var(--ui-shadow-card);
+}
+
+.admin-sidebar-head {
+  border-color: var(--ui-border);
+}
+
+.admin-head,
+.admin-toolbar,
+.community-toolbar,
+.forum-filters,
+.citation-review-filters,
+.review-queue-filters,
+.taxonomy-filter-form,
+.translation-glossary-toolbar {
+  border-color: var(--ui-border);
+  border-radius: var(--radius);
+  background-color: var(--ui-surface-card);
+  box-shadow: var(--ui-shadow-card);
+}
+
+.admin-metric:hover {
+  border-color: var(--ui-border-strong);
+  background-color: var(--ui-surface-card-hover);
+  box-shadow: var(--ui-shadow-raised);
+  transform: translateY(-1px);
+}
+
+.admin-activity-item,
+.admin-recent-page,
+.admin-quality-row,
+.edit-event {
+  border-color: var(--ui-border);
+  background-color: transparent;
+  transition: color var(--ui-transition), border-color var(--ui-transition), background-color var(--ui-transition);
+}
+
+.admin-activity-mark {
+  border-color: color-mix(in srgb, var(--cyan) 58%, var(--ui-border));
+  border-radius: 50%;
+  background-color: var(--cyan);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--cyan) 9%, transparent);
+}
+
+.admin-activity-item span,
+.admin-activity-item time,
+.admin-recent-page small,
+.admin-recent-page time {
+  color: var(--muted);
+}
+
+.admin-quality-track {
+  border-radius: 999px;
+  background-color: var(--ui-muted-surface);
+}
+
+.admin-quality-track i {
+  border-radius: inherit;
+  background-color: var(--cyan);
+  background-image: linear-gradient(90deg, var(--cyan), var(--green));
+}
+
+.admin-dashboard-panel > footer {
+  border-color: var(--ui-border);
+  color: var(--muted);
+}
+
+.admin-dashboard-panel > footer a {
+  color: var(--cyan);
+}
+
+.admin-table-wrap,
+.plugin-table-wrap,
+.table-wrap,
+.table-scroll {
+  border-color: var(--ui-border);
+  border-radius: var(--radius);
+  background-color: var(--ui-surface-card);
+  box-shadow: var(--ui-shadow-card);
+}
+
+table,
+.admin-table,
+.plugin-table {
+  border-color: var(--ui-border);
+  background-color: transparent;
+}
+
+.admin-table th,
+.admin-table td {
+  border-right: 0;
+  border-left: 0;
+  border-top: 0;
+  border-bottom-color: var(--ui-border);
+  background-image: none;
+  box-shadow: none;
+}
+
+thead,
+th {
+  border-color: var(--ui-border);
+  color: var(--muted);
+  background-color: var(--ui-surface-raised);
+}
+
+td,
+tr {
+  border-color: var(--ui-border);
+}
+
+tbody tr {
+  transition: background-color var(--ui-transition);
+}
+
+tbody tr:hover {
+  background-color: color-mix(in srgb, var(--cyan) 4%, transparent);
+}
+
+.admin-table tbody tr,
+.admin-table tbody td {
+  background-color: transparent;
+}
+
+.admin-table tbody tr:hover {
+  background-color: color-mix(in srgb, var(--cyan) 5%, var(--ui-surface-card));
+}
+
+.admin-table tbody tr:hover > td {
+  background-color: transparent;
+}
+
+.page-tool-nav-list,
+.organization-workspace-tabs,
+.following-tabs,
+.auth-tabs,
+.pager,
+.taxonomy-pager,
+.knowledge-pager {
+  border-color: var(--ui-border);
+  border-radius: var(--radius);
+  background-color: color-mix(in srgb, var(--ui-surface-card) 94%, transparent);
+  box-shadow: inset 0 1px 0 var(--ui-highlight);
+}
+
+.page-tool-nav-list a,
+.organization-workspace-tabs a,
+.following-tabs a,
+.auth-tabs a,
+.pager button,
+.taxonomy-pager button,
+.knowledge-pager button {
+  border-color: transparent;
+  border-radius: calc(var(--radius) - 2px);
+  color: var(--muted);
+  background-color: transparent;
+}
+
+.page-tool-nav-list a:hover,
+.organization-workspace-tabs a:hover,
+.following-tabs a:hover,
+.auth-tabs a:hover,
+.pager button:hover,
+.taxonomy-pager button:hover,
+.knowledge-pager button:hover {
+  border-color: var(--ui-border);
+  color: var(--text);
+  background-color: var(--ui-surface-control-hover);
+}
+
+.page-tool-nav-list a.active,
+.organization-workspace-tabs a.active,
+.following-tabs a.active,
+.auth-tabs a.active,
+.pager .active,
+.taxonomy-pager .active,
+.knowledge-pager .active {
+  border-color: color-mix(in srgb, var(--cyan) 38%, var(--ui-border));
+  color: var(--cyan);
+  background-color: color-mix(in srgb, var(--cyan) 9%, var(--ui-surface-control));
+  box-shadow: inset 0 -2px 0 var(--cyan);
+}
+
+.quality-badge,
+.chip,
+.category-chip,
+.topic-chip,
+.community-post-type,
+.community-task-type,
+.community-task-status,
+.plugin-hook-chip,
+.review-version-chip,
+.translation-badges span,
+.admin-status {
+  border-color: var(--ui-border);
+  border-radius: 999px;
+  color: var(--muted);
+  background-color: var(--ui-surface-control);
+  box-shadow: inset 0 1px 0 var(--ui-highlight);
+}
+
+.quality-badge,
+.plugin-hook-chip {
+  border-color: color-mix(in srgb, var(--green) 42%, var(--ui-border));
+  color: var(--green);
+  background-color: color-mix(in srgb, var(--green) 8%, var(--ui-surface-control));
+}
+
+.message-badge,
+.favorite-count-badge {
+  border-color: color-mix(in srgb, var(--rose) 54%, transparent);
+  color: #fff;
+  background-color: var(--rose);
+}
+
+:root[data-theme="light"] .message-badge {
+  border-color: #fff;
+  color: #fff;
+  background-color: #d93f67;
+  background-image: none;
+  box-shadow: none;
+}
+
+.article-favorite-button,
+.article-watch-button,
+.article-share-button,
+.user-follow-button {
+  border-color: var(--ui-border);
+  border-radius: 999px;
+  color: var(--muted);
+  background-color: var(--ui-surface-control);
+  box-shadow: var(--ui-shadow-control);
+  transition: color var(--ui-transition), border-color var(--ui-transition), background-color var(--ui-transition), transform var(--ui-transition);
+}
+
+.article-favorite-button:hover,
+.article-watch-button:hover,
+.article-share-button:hover,
+.user-follow-button:hover {
+  border-color: var(--ui-border-strong);
+  color: var(--text);
+  background-color: var(--ui-surface-control-hover);
+}
+
+.article-favorite-button.active,
+.article-watch-button.active,
+.user-follow-button.active,
+[aria-pressed="true"] {
+  border-color: color-mix(in srgb, var(--cyan) 46%, var(--ui-border));
+  color: var(--cyan);
+  background-color: color-mix(in srgb, var(--cyan) 9%, var(--ui-surface-control));
+}
+
+.message-popover,
+.wikist-system-card,
+.swal2-popup,
+.wikist-priority-toast,
+.wikist-swal-toast {
+  border-color: var(--ui-border-strong);
+  border-radius: var(--radius);
+  color: var(--text);
+  background-color: var(--ui-surface-popover);
+  box-shadow: var(--ui-shadow-popover);
+}
+
+.empty-state,
+.organization-tab-note,
+.admin-empty-row {
+  border-color: var(--ui-border);
+  color: var(--muted);
+  background-color: color-mix(in srgb, var(--ui-muted-surface) 74%, transparent);
+}
+
+/* Canonical light surfaces. Legacy feature styles must not reintroduce dark
+ * fills or dashboard-style outlines after the token layer has been applied. */
+:root[data-theme="light"] .sci-hero,
+:root[data-theme="light"] .sci-box,
+:root[data-theme="light"] .sci-box-feature,
+:root[data-theme="light"] .sci-box-news,
+:root[data-theme="light"] .sci-box-path,
+:root[data-theme="light"] .sci-box-progress,
+:root[data-theme="light"] .sci-box-origin,
+:root[data-theme="light"] .sci-box-discovery,
+:root[data-theme="light"] .portal-stat,
+:root[data-theme="light"] .home-insight-card,
+:root[data-theme="light"] .profile-hero,
+:root[data-theme="light"] .auth-panel,
+:root[data-theme="light"] .organization-identity-panel,
+:root[data-theme="light"] .community-create-panel,
+:root[data-theme="light"] .account-section-tabs,
+:root[data-theme="light"] .transfer-hero,
+:root[data-theme="light"] .transfer-panel,
+:root[data-theme="light"] .backup-panel,
+:root[data-theme="light"] .backup-result-card,
+:root[data-theme="light"] .backup-file-picker {
+  border-color: transparent;
+  background-color: var(--ui-surface-card);
+  background-image: none;
+  box-shadow: var(--ui-shadow-card);
+}
+
+:root[data-theme="light"] .sci-hero {
+  background-color: var(--ui-surface-card);
+  box-shadow: inset 0 3px 0 color-mix(in srgb, var(--cyan) 30%, transparent), var(--ui-shadow-card);
+}
+
+:root[data-theme="light"] .portal-stat,
+:root[data-theme="light"] .home-insight-card,
+:root[data-theme="light"] .admin-metric {
+  background-color: var(--ui-surface-card);
+  box-shadow: inset 0 2px 0 color-mix(in srgb, var(--cyan) 16%, transparent), var(--ui-shadow-card);
+}
+
+:root[data-theme="light"] .home-dashboard .progress-item,
+:root[data-theme="light"] .home-dashboard .wiki-mini-card,
+:root[data-theme="light"] .home-dashboard .wiki-news-link,
+:root[data-theme="light"] .home-dashboard .wiki-news-list a {
+  border-color: var(--ui-border);
+  background-color: transparent;
+  background-image: none;
+  box-shadow: none;
+}
+
+:root[data-theme="light"] .sci-box::before { opacity: 0; }
+
+:root[data-theme="light"] body.admin-mode .admin-main,
+:root[data-theme="light"] body.admin-mode .admin-layout {
+  border-color: transparent;
+  background-color: transparent;
+  background-image: none;
+  box-shadow: none;
+}
+
+:root[data-theme="light"] body.admin-mode .admin-sidebar,
+:root[data-theme="light"] body.admin-mode .admin-main > .article-head,
+:root[data-theme="light"] .admin-head,
+:root[data-theme="light"] .admin-toolbar,
+:root[data-theme="light"] .admin-note,
+:root[data-theme="light"] .admin-metric,
+:root[data-theme="light"] .admin-settings-panel,
+:root[data-theme="light"] .admin-dashboard-panel,
+:root[data-theme="light"] .admin-table-wrap,
+:root[data-theme="light"] .plugin-table-wrap,
+:root[data-theme="light"] .plugin-create-panel,
+:root[data-theme="light"] .citation-review-filters,
+:root[data-theme="light"] .review-queue-filters,
+:root[data-theme="light"] .citation-review-item,
+:root[data-theme="light"] .review-queue-item,
+:root[data-theme="light"] .review-version-card,
+:root[data-theme="light"] .review-panel,
+:root[data-theme="light"] .review-decision-form {
+  border-color: transparent;
+  background-color: var(--ui-surface-card);
+  background-image: none;
+  box-shadow: var(--ui-shadow-card);
+}
+
+:root[data-theme="light"] body.admin-mode .admin-sidebar a {
+  border-color: transparent;
+  background-color: transparent;
+  box-shadow: none;
+}
+
+:root[data-theme="light"] body.admin-mode .admin-sidebar a.active {
+  border-color: color-mix(in srgb, var(--cyan) 20%, transparent);
+  background-color: color-mix(in srgb, var(--cyan) 7%, var(--ui-surface-raised));
+  box-shadow: inset 3px 0 0 var(--cyan);
+}
+
+:root[data-theme="light"] .admin-table,
+:root[data-theme="light"] .admin-table tbody,
+:root[data-theme="light"] .admin-table tbody tr,
+:root[data-theme="light"] .admin-table tbody td {
+  background-color: transparent;
+  background-image: none;
+  box-shadow: none;
+}
+
+:root[data-theme="light"] .admin-table thead,
+:root[data-theme="light"] .admin-table thead th {
+  background-color: var(--ui-surface-raised);
+  background-image: none;
+}
+
+:root[data-theme="light"] .admin-table tbody tr:hover {
+  background-color: color-mix(in srgb, var(--cyan) 6%, var(--ui-surface-card));
+}
+
+:root[data-theme="light"] .admin-table tbody tr:hover > td {
+  background-color: transparent;
+}
+
+:root[data-theme="light"] .command-button,
+:root[data-theme="light"] .command-button:hover,
+:root[data-theme="light"] .passport-button,
+:root[data-theme="light"] .passport-button:hover,
+:root[data-theme="light"] .command-button.danger,
+:root[data-theme="light"] .danger-panel .command-button {
+  color: var(--ui-primary-text);
+}
+
+:root[data-theme="light"] .command-button:not(.secondary):not(.ghost):not(.danger),
+:root[data-theme="light"] .passport-button:not(.signed-in) {
+  border-color: color-mix(in srgb, var(--cyan) 44%, var(--ui-border));
+  background-color: var(--ui-primary-surface);
+  background-image: none;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .84), 0 5px 14px color-mix(in srgb, var(--cyan) 8%, transparent);
+}
+
+:root[data-theme="light"] .command-button:not(.secondary):not(.ghost):not(.danger):hover,
+:root[data-theme="light"] .passport-button:not(.signed-in):hover {
+  border-color: color-mix(in srgb, var(--cyan) 58%, var(--ui-border));
+  background-color: var(--ui-primary-surface-hover);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .9), 0 7px 18px color-mix(in srgb, var(--cyan) 10%, transparent);
+}
+
+:root[data-theme="light"] .topbar .top-quick-nav,
+:root[data-theme="light"] .topbar .top-quick-nav a,
+:root[data-theme="light"] .topbar .top-quick-nav a:hover,
+:root[data-theme="light"] .topbar .top-quick-nav a.active,
+:root[data-theme="light"] .topbar .top-quick-nav a[aria-current="page"] {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+
+:root[data-theme="light"] .passport-button.signed-in,
+:root[data-theme="light"] .passport-button.signed-in:hover,
+:root[data-theme="light"] .passport-button.signed-in:active {
+  border-color: transparent;
+  color: var(--text);
+  background: transparent;
+  background-image: none;
+  box-shadow: none;
+}
+
+:root[data-theme="light"] .passport-button.signed-in:hover,
+:root[data-theme="light"] .passport-button.signed-in:active {
+  color: var(--cyan);
+}
+
+/* Messaging state semantics. Layout remains in styles.css. */
+.message-popover-head,
+.message-popover-more {
+  background: var(--ui-surface-popover);
+}
+
+.message-popover-fold {
+  border-top: 1px solid var(--ui-border);
+}
+
+.message-popover-fold > summary {
+  color: var(--muted);
+  cursor: pointer;
+  font-size: .75rem;
+  font-weight: 750;
+  list-style: none;
+}
+
+.message-popover-fold > summary:hover { color: var(--text); background: var(--ui-surface-control-hover); }
+
+.messaging-conversation-list[aria-busy="true"] {
+  opacity: .58;
+  pointer-events: none;
+}
+
+.messaging-conversation-group + .messaging-conversation-group {
+  border-top: 1px solid var(--ui-border);
+}
+
+.messaging-conversation-group > header { color: var(--muted); font-size: .68rem; font-weight: 750; }
+.messaging-conversation-group.pinned > header { color: var(--cyan); }
+.messaging-conversation-group > header small { color: inherit; }
+
+.messaging-context-kind {
+  font-size: .72rem;
+}
+
+.messaging-context-bio {
+  line-height: 1.55;
+}
+
+.messaging-context-social-links .profile-social-link {
+  font-size: .7rem;
+}
+
+.messaging-context-social-links .profile-social-mark {
+  font-size: .54rem;
+}
+
+.messaging-read-state {
+  color: var(--cyan);
+  font-size: .65rem;
+  white-space: nowrap;
+}
+
+/* Semantic light controls: light surfaces stay light regardless of legacy selectors. */
+:root[data-theme="light"] .profile-social-link,
+:root[data-theme="light"] .messaging-context-settings button,
+:root[data-theme="light"] .messaging-member-pager button,
+:root[data-theme="light"] .messaging-message-tools button,
+:root[data-theme="light"] .mini-button.ghost {
+  border-color: var(--ui-border);
+  color: var(--text);
+  background-color: var(--ui-surface-control);
+  background-image: none;
+  box-shadow: var(--ui-shadow-control);
+}
+
+:root[data-theme="light"] .profile-social-link:hover,
+:root[data-theme="light"] .messaging-context-settings button:hover,
+:root[data-theme="light"] .messaging-member-pager button:hover {
+  border-color: var(--ui-border-strong);
+  color: var(--text);
+  background-color: var(--ui-surface-control-hover);
+}
+
+:root[data-theme="light"] .profile-social-mark {
+  border: 1px solid color-mix(in srgb, var(--cyan) 28%, var(--ui-border));
+  color: #08756f;
+  background: color-mix(in srgb, var(--cyan) 10%, #fff);
+  box-shadow: none;
+}
+
+:root[data-theme="light"] .profile-social-link.is-blog .profile-social-mark {
+  border-color: color-mix(in srgb, var(--amber) 30%, var(--ui-border));
+  color: #7a5600;
+  background: color-mix(in srgb, var(--amber) 12%, #fff);
+}
+
+:root[data-theme="light"] .profile-social-link.is-github .profile-social-mark,
+:root[data-theme="light"] .profile-social-link.is-x .profile-social-mark {
+  border-color: var(--ui-border-strong);
+  color: #34433f;
+  background: #f2f5f4;
+}
+
+:root[data-theme="light"] .wikist-swal-confirm {
+  border-color: color-mix(in srgb, var(--cyan) 44%, var(--ui-border));
+  color: var(--ui-primary-text);
+  background: var(--ui-primary-surface);
+  box-shadow: var(--ui-shadow-control);
+}
+
+:root[data-theme="light"] .wikist-swal-confirm:hover {
+  background: var(--ui-primary-surface-hover);
+}
+
+:root[data-theme="light"] .wikist-swal-confirm.is-danger {
+  border-color: color-mix(in srgb, var(--rose) 34%, var(--ui-border));
+  color: #81233f;
+  background: color-mix(in srgb, var(--rose) 13%, #fff);
+}
+
+:root[data-theme="light"] .wikist-swal-cancel {
+  border-color: var(--ui-border);
+  color: var(--text);
+  background: var(--ui-surface-control);
+}
+
+.topbar .topbar-actions .language-select,
+.topbar .topbar-actions .icon-button,
+.topbar .topbar-actions .message-menu .icon-button,
+.topbar .topbar-actions .passport-button {
+  border-color: transparent;
+  color: var(--muted);
+  background: transparent;
+  background-image: none;
+  box-shadow: none;
+}
+
+.topbar .topbar-actions .passport-button.signed-in {
+  color: var(--text);
+}
+
+.topbar .topbar-actions .language-select:hover,
+.topbar .topbar-actions .icon-button:hover,
+.topbar .topbar-actions .message-menu .icon-button:hover,
+.topbar .topbar-actions .passport-button:hover,
+.topbar .topbar-actions .passport-button.signed-in:hover {
+  border-color: transparent;
+  color: var(--text);
+  background: var(--ui-muted-surface);
+  background-image: none;
+  box-shadow: none;
+}
+
+:root[data-theme="light"] .topbar .topbar-actions .passport-button:not(.signed-in),
+:root[data-theme="light"] .topbar .topbar-actions .passport-button:not(.signed-in):hover {
+  border-color: transparent;
+  color: var(--muted);
+  background: transparent;
+  background-image: none;
+  box-shadow: none;
+}
+
+:root[data-theme="light"] .topbar .topbar-actions .passport-button:not(.signed-in):hover {
+  color: var(--text);
+  background: var(--ui-muted-surface);
+}
+
+.topbar .topbar-actions .language-select:focus,
+.topbar .topbar-actions .icon-button:focus-visible,
+.topbar .topbar-actions .message-menu .icon-button:focus-visible,
+.topbar .topbar-actions .passport-button:focus-visible {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: var(--focus-ring);
+}
+
+:root[data-theme="light"] .knowledge-portal-core > img,
+:root[data-theme="light"] .knowledge-portal-search,
+:root[data-theme="light"] .knowledge-portal-links a.primary {
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.async-suggest-menu {
+  border-color: var(--ui-border-strong);
+  background: var(--ui-surface-popover);
+  box-shadow: var(--ui-shadow-popover);
+}
+
+.async-suggest-option {
+  transition: color var(--ui-transition), background-color var(--ui-transition);
+}
+
+.async-suggest-option:hover,
+.async-suggest-option:focus-visible,
+.async-suggest-option[aria-selected="true"] {
+  color: var(--text);
+  background-color: var(--ui-surface-card-hover);
+  box-shadow: none;
+  outline-color: transparent;
+}
+
+.async-suggest-option[aria-selected="true"] {
+  background-image: linear-gradient(90deg, color-mix(in srgb, var(--cyan) 13%, transparent), transparent 78%);
+}
+
+:root[data-theme="light"] .async-suggest-menu {
+  border-color: var(--ui-border);
+  background: var(--ui-surface-popover);
+}
+
+/* Knowledge sharing and messaging governance skin */
+.article-share-button {
+  border: 1px solid var(--ui-border);
+  border-radius: 999px;
+  color: var(--muted);
+  background: var(--ui-surface-control);
+  box-shadow: var(--ui-shadow-control);
+  cursor: pointer;
+  font: inherit;
+  font-size: .82rem;
+}
+
+.article-share-button:hover {
+  border-color: var(--ui-border-accent);
+  color: var(--cyan);
+  background: var(--ui-surface-control-hover);
+}
+
+.wikist-modal-layer {
+  background: color-mix(in srgb, var(--ui-surface-page) 78%, transparent);
+  backdrop-filter: blur(8px);
+}
+
+.wikist-modal {
+  border: 1px solid var(--ui-border-strong);
+  border-radius: calc(var(--radius) + 2px);
+  color: var(--text);
+  background: var(--ui-surface-popover);
+  box-shadow: var(--ui-shadow-popover);
+}
+
+.wikist-modal > header {
+  border-bottom: 1px solid var(--ui-border);
+}
+
+.wikist-modal > header > button {
+  border: 0;
+  border-radius: 50%;
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+  font-size: 1.2rem;
+}
+
+.wikist-modal > header > button:hover {
+  color: var(--text);
+  background: var(--ui-surface-control-hover);
+}
+
+.page-share-tabs {
+  border-radius: var(--radius);
+  background: var(--ui-surface-control);
+}
+
+.page-share-tabs button {
+  border: 0;
+  border-radius: calc(var(--radius) - 2px);
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+}
+
+.page-share-tabs button.active {
+  color: var(--text);
+  background: var(--ui-surface-raised);
+  box-shadow: var(--ui-shadow-control);
+}
+
+.page-share-search,
+.page-share-note {
+  color: var(--muted);
+  font-size: .78rem;
+}
+
+.page-share-search > span,
+.page-share-note > span,
+.messaging-auto-reply-field > span {
+  color: var(--text);
+  font-weight: 700;
+}
+
+.page-share-search input,
+.page-share-note textarea,
+.messaging-auto-reply-field textarea {
+  color: var(--text);
+  background-color: var(--ui-surface-control);
+  box-shadow: inset 0 1px 0 var(--ui-highlight);
+}
+
+.page-share-search input:focus,
+.page-share-note textarea:focus,
+.messaging-auto-reply-field textarea:focus {
+  border-color: var(--cyan);
+  background-color: var(--ui-surface-raised);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--cyan) 14%, transparent);
+}
+
+.page-share-results-heading {
+  border-bottom: 1px solid var(--ui-border);
+  color: var(--text);
+}
+
+.page-share-target {
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  color: var(--text);
+  text-align: left;
+  background: var(--ui-surface-control);
+  cursor: pointer;
+}
+
+.page-share-target:hover {
+  border-color: var(--ui-border-accent);
+  background: var(--ui-surface-control-hover);
+}
+
+.page-share-target small {
+  color: var(--muted);
+}
+
+.page-share-target em {
+  color: var(--cyan);
+  font-size: .72rem;
+  font-style: normal;
+}
+
+.page-share-organization-mark {
+  border: 1px solid var(--ui-border-strong);
+  border-radius: 50%;
+  color: var(--cyan);
+  background: var(--ui-surface-raised);
+  font-weight: 800;
+}
+
+.messaging-preference-toggle {
+  border: 1px solid var(--ui-border);
+  border-radius: var(--radius);
+  background: var(--ui-surface-control);
+  cursor: pointer;
+}
+
+.messaging-preference-toggle input {
+  accent-color: var(--cyan);
+}
+
+.messaging-preference-toggle small,
+.messaging-auto-reply-field {
+  color: var(--muted);
+}
+
+.messaging-preference-toggle small {
+  line-height: 1.5;
+}
+
+.messaging-auto-reply-field {
+  font-size: .78rem;
+}
+
+.messaging-auto-reply-field textarea {
+  resize: vertical;
+}
+
+.messaging-auto-reply-field.is-disabled {
+  opacity: .55;
+}
+
+.messaging-mention-picker {
+  border: 1px solid var(--ui-border-strong);
+  background: var(--ui-surface-popover);
+  box-shadow: var(--ui-shadow-popover);
+}
+
+.messaging-conversation-boundary {
+  color: var(--muted);
+  font-size: .7rem;
+}
+
+.messaging-conversation-boundary::before,
+.messaging-conversation-boundary::after {
+  background: var(--ui-border);
+}
+
+.messaging-conversation-boundary.is-waiting,
+.messaging-member-mute-state {
+  color: var(--amber);
+}
+
+.messaging-conversation-boundary.is-released {
+  color: var(--green);
+}
+
+.messaging-system-note {
+  border-top: 1px solid var(--ui-border);
+}
+
+.messaging-auto-reply-badge,
+.messaging-role-badge {
+  border: 1px solid color-mix(in srgb, var(--cyan) 32%, var(--ui-border));
+  border-radius: 999px;
+  color: var(--cyan);
+  background: color-mix(in srgb, var(--cyan) 7%, var(--ui-surface-control));
+  font-size: .62rem;
+  font-style: normal;
+}
+
+.messaging-role-badge.role-owner {
+  border-color: color-mix(in srgb, var(--amber) 36%, var(--ui-border));
+  color: var(--amber);
+}
+
+.messaging-role-badge.role-admin {
+  border-color: color-mix(in srgb, var(--green) 36%, var(--ui-border));
+  color: var(--green);
+}
+
+.messaging-member-row {
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  background: var(--ui-surface-control);
+}
+
+.messaging-member-row > a {
+  color: var(--text);
+}
+
+.messaging-member-row.is-muted {
+  border-color: color-mix(in srgb, var(--amber) 26%, var(--ui-border));
+}
+
+.messaging-member-action-menu .wikist-field {
+  color: var(--muted);
+  font-size: .74rem;
+  font-weight: 700;
+}
+
+.messaging-member-action-trigger {
+  border: 1px solid var(--ui-border);
+  border-radius: var(--radius);
+  color: var(--muted);
+  background: var(--ui-surface-raised);
+  transition: border-color var(--transition-fast), color var(--transition-fast), background var(--transition-fast);
+}
+
+.messaging-member-action-trigger:hover,
+.messaging-member-action-trigger:focus-visible,
+.messaging-member-action-trigger[aria-expanded="true"] {
+  border-color: color-mix(in srgb, var(--cyan) 42%, var(--ui-border));
+  color: var(--cyan);
+  background: color-mix(in srgb, var(--cyan) 8%, var(--ui-surface-raised));
+}
+
+.messaging-member-action-menu {
+  border: 1px solid var(--ui-border-strong);
+  border-radius: var(--radius-lg);
+  color: var(--text);
+  background: var(--ui-surface-popover);
+  box-shadow: var(--ui-shadow-popover);
+}
+
+.messaging-member-action-menu > header {
+  border-bottom: 1px solid var(--ui-border);
+}
+
+.messaging-member-action-menu > header small {
+  color: var(--muted);
+  font-size: .72rem;
+}
+
+.messaging-member-action-menu > header strong {
+  font-size: .92rem;
+}
+
+.messaging-member-action-menu > button {
+  color: var(--amber);
+}
+
+.messaging-member-action-menu > button.danger {
+  color: var(--green);
+}
+
+.messaging-group-moderation > div {
+  border: 1px solid var(--ui-border);
+  border-radius: var(--radius);
+  background: var(--ui-surface-control);
+}
+
+.messaging-group-moderation small {
+  color: var(--muted);
+  font-size: .67rem;
+}
+
+.messaging-group-moderation button {
+  border: 1px solid color-mix(in srgb, var(--amber) 34%, var(--ui-border));
+  border-radius: var(--radius);
+  color: var(--amber);
+  background: color-mix(in srgb, var(--amber) 8%, var(--ui-surface-control));
+  cursor: pointer;
+}
+
+:root[data-theme="light"] .wikist-modal-layer {
+  background: rgba(235, 242, 239, .78);
+}
+
+:root[data-theme="light"] .wikist-modal,
+:root[data-theme="light"] .messaging-mention-picker {
+  background: #fff;
+}
+
+:root[data-theme="light"] .math-note p {
+  color: inherit;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: .01ms !important;
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
+/* Selection interaction --------------------------------------------------- */
+[data-selection-content] {
+  cursor: text;
+}
+
+[data-selection-content]::selection,
+[data-selection-content] *::selection {
+  color: inherit;
+  background: color-mix(in srgb, var(--accent) 28%, transparent);
+}
+
+.selection-annotation-dialog {
+  border-color: var(--ui-border-strong);
+  color: var(--text);
+  background: var(--ui-surface-popover);
+  box-shadow: var(--ui-shadow-popover);
+}
+
+.selection-annotation-dialog .comment-item,
+.account-selection-item {
+  border-color: var(--ui-border);
+  background: var(--ui-surface-card);
+  box-shadow: var(--ui-shadow-card);
+}
+
+.selection-annotation-comments {
+  border: 1px solid var(--ui-border);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--ui-muted-surface) 58%, transparent);
+}
+
+.selection-annotation-comments .selection-annotation-empty {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+
+.selection-annotation-comments.is-empty {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.selection-annotation-quote {
+  border-left-color: var(--cyan);
+  background: color-mix(in srgb, var(--cyan) 7%, var(--ui-surface-card));
+}
+
+.selection-annotation-author,
+.selection-annotation-quote a {
+  color: var(--text);
+  text-decoration: none;
+}
+
+.selection-annotation-author small,
+.selection-annotation-quote footer,
+.selection-activity-heading small {
+  color: var(--muted);
+}
+
+.selection-comment-reply-label,
+.selection-comment-reply-label a,
+.selection-reply-context a {
+  color: var(--cyan);
+}
+
+.selection-reply-context {
+  border: 1px solid color-mix(in srgb, var(--cyan) 30%, var(--ui-border));
+  border-radius: var(--radius);
+  color: var(--muted);
+  background: color-mix(in srgb, var(--cyan) 7%, var(--ui-surface-control));
+}
+
+.selection-reply-context button {
+  border: 0;
+  border-radius: calc(var(--radius) - 2px);
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+.selection-reply-context button:hover,
+.selection-reply-context button:focus-visible {
+  color: var(--text);
+  background: var(--ui-surface-control-hover);
+}
+
+.selection-annotation-form {
+  border-top: 1px solid var(--ui-border);
+  background: var(--ui-surface-popover);
+}
+
+.selection-like-button {
+  border: 1px solid var(--ui-border);
+  border-radius: var(--radius);
+  color: var(--muted);
+  background: var(--ui-surface-control);
+  cursor: pointer;
+}
+
+.selection-like-button:hover,
+.selection-like-button:focus-visible {
+  border-color: var(--ui-border-accent);
+  color: var(--cyan);
+  background: var(--ui-surface-control-hover);
+}
+
+.selection-like-button.active {
+  border-color: color-mix(in srgb, #e9658d 68%, var(--ui-border));
+  color: #df3f70;
+  background: color-mix(in srgb, #e9658d 16%, var(--ui-surface-control));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, #e9658d 18%, transparent);
+}
+
+.selection-like-button.active svg {
+  fill: currentColor;
+}
+
+.selection-like-button em {
+  color: inherit;
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
+}
+
+.selection-activity-badge {
+  border: 1px solid color-mix(in srgb, var(--cyan) 32%, var(--ui-border));
+  border-radius: 999px;
+  color: var(--cyan);
+  background: color-mix(in srgb, var(--cyan) 8%, var(--ui-surface-card));
+}
+
+.selection-activity-badge.is-quote {
+  border-color: color-mix(in srgb, var(--green) 34%, var(--ui-border));
+  color: var(--green);
+  background: color-mix(in srgb, var(--green) 8%, var(--ui-surface-card));
+}
+
+.selection-activity-badge.is-comment {
+  border-color: color-mix(in srgb, var(--amber) 38%, var(--ui-border));
+  color: var(--amber);
+  background: color-mix(in srgb, var(--amber) 8%, var(--ui-surface-card));
+}
+
+.account-selection-filters {
+  border: 0;
+  border-bottom: 1px solid var(--ui-border);
+  border-radius: 0;
+  background: transparent;
+}
+
+.account-selection-filters a {
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  color: var(--muted);
+  text-decoration: none;
+}
+
+.account-selection-filters a:hover {
+  color: var(--text);
+  background: transparent;
+}
+
+.account-selection-filters a.active {
+  color: var(--cyan);
+  border-bottom-color: var(--cyan);
+  background: transparent;
+  box-shadow: none;
+}
+
+:root[data-theme="light"] .selection-annotation-dialog,
+:root[data-theme="light"] .selection-annotation-form,
+:root[data-theme="light"] .selection-annotation-dialog .comment-item,
+:root[data-theme="light"] .account-selection-item {
+  background: var(--ui-surface-card);
+  box-shadow: var(--ui-shadow-card);
+}
+/* End Selection interaction ----------------------------------------------- */

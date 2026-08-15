@@ -123,6 +123,10 @@ The v0.10 collaboration commons adds organizations, memberships, tasks, discussi
 
 The v0.11 collaboration layer keeps the same data boundary while exposing active organization memberships as Passport academic identities and splitting organization work into a Markdown-authored home, paginated task board, paginated forum, and paginated member/application area. Topic search, state, subscriptions, favorites, pinning, reply pagination, and article-linked task context are queries over the existing organization tables rather than a second forum runtime or identity provider. The existing message table receives directed membership, task, and discussion events; it does not fan every action out to all members.
 
+The unified communication layer moves durable messaging ownership to Webman. Passport remains the only user and session authority; organization chats reuse `organization_members` instead of copying roles. Direct messages, organization conversations, personal/system notifications, read cursors, attachments, mentions and typed knowledge-object references live in Wikist SQLite. A transactional outbox publishes authorized event envelopes to optional Centrifugo channels. Centrifugo has no Wikist database access, accepts no browser business publishes, and is never treated as message storage. See [Unified Realtime Messaging](REALTIME_MESSAGING.md).
+
+Wikist Native Community is the Q&A source of truth behind Webman. Questions, answers, comments, votes, reactions, collections, follows, revisions, activity, reputation, badges, reports, reviews and organization spaces are stored in the Wikist database and reuse Passport identities, organization memberships, Messaging notifications and the shared knowledge graph. Organization visibility is enforced independently at list, detail, search, preview, relation and notification boundaries. The external `page` object type is canonicalized to `wiki_entry`, preserving compatibility without duplicating identities. No second Q&A process, account store or remote API participates in normal operation. See [Native Community architecture](NATIVE_COMMUNITY.md).
+
 Wikipedia import/export preserves source attribution and attempts to map headings, links, images, tables, mathematical notation, and common wikitext structures into Wikist Markdown. It is intentionally a converter with visible fallbacks, not a promise of lossless MediaWiki template execution.
 
 ## Operations And Safety
@@ -139,7 +143,7 @@ The following are planned as additive layers rather than implicit requirements:
 
 - optional DOI/arXiv metadata enrichment and citation-style selection;
 - optional semantic or external translation-service integrations beyond the built-in exact-match memory and glossary;
-- a separate forum, message broker, or social-feed service beyond organization-scoped discussion threads;
+- an external social-feed service beyond the built-in organization forum, Native Community Q&A and unified messaging layers;
 - an event/hook API with permission declarations for plugins;
 - an alternate Passport store backed by PostgreSQL or MySQL.
 

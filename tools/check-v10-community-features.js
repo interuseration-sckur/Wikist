@@ -39,6 +39,44 @@ function register(store, username) {
   }, request()).user;
 }
 
+function prepareKnowledgeGraph(store) {
+  store.db.exec(`
+    CREATE TABLE IF NOT EXISTS knowledge_objects (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      global_id TEXT NOT NULL UNIQUE,
+      object_type TEXT NOT NULL,
+      object_key TEXT NOT NULL,
+      source_system TEXT NOT NULL DEFAULT 'wikist',
+      external_id TEXT NOT NULL DEFAULT '',
+      title TEXT NOT NULL DEFAULT '',
+      summary TEXT NOT NULL DEFAULT '',
+      canonical_url TEXT NOT NULL DEFAULT '',
+      language TEXT NOT NULL DEFAULT '',
+      organization_id INTEGER,
+      author_user_id INTEGER,
+      status TEXT NOT NULL DEFAULT 'active',
+      search_text TEXT NOT NULL DEFAULT '',
+      metadata_json TEXT NOT NULL DEFAULT '{}',
+      synced_at TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE(source_system, object_type, object_key)
+    );
+    CREATE TABLE IF NOT EXISTS knowledge_relations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      relation_key TEXT NOT NULL UNIQUE,
+      subject_global_id TEXT NOT NULL,
+      predicate TEXT NOT NULL,
+      object_global_id TEXT NOT NULL,
+      actor_user_id INTEGER,
+      source_system TEXT NOT NULL DEFAULT 'wikist',
+      metadata_json TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+  `);
+}
+
 removeTempRoot();
 fs.mkdirSync(tempRoot, { recursive: true });
 
@@ -46,6 +84,7 @@ let passport = null;
 try {
   const pages = new PageStore(tempRoot, {});
   passport = new PassportStore(tempRoot, { database: "data/v10-community.sqlite" });
+  prepareKnowledgeGraph(passport);
   const owner = register(passport, "v10_owner");
   const reviewer = register(passport, "v10_reviewer");
   const translator = register(passport, "v10_translator");
@@ -89,10 +128,10 @@ try {
   const claimedTask = passport.claimOrganizationTask(translatorSession, writeTask.id);
   const pageReviewTask = passport.createOrganizationTask(ownerSession, organization.slug, { taskType: "review", pageSlug: source.slug, title: "社区审阅当前版本", summary: "两位审阅者完成可核验检查。" });
   const translationReviewTask = passport.createOrganizationTask(ownerSession, organization.slug, { taskType: "review", pageSlug: source.slug, language: "en", title: "英文译文社区审阅", summary: "核对术语与段落对应。" });
-  const post = passport.createOrganizationPost(ownerSession, organization.slug, { postType: "discussion", title: "群论术语的英文表达", bodyMd: "请核对 **group** 与相关记法。", pageSlug: source.slug, language: "en" });
+  const post = passport.createOrganizationPost(ownerSession, organization.slug, { postType: "discussion", title: "群论术语的英文表达", bodyMd: "请核对 **group** 与相关记法。\n\n{{ref:wiki_entry|community-algebra|社区代数}}", pageSlug: source.slug, language: "en" });
   const followedPost = passport.setOrganizationPostFollow(reviewerSession, post.id, true);
   const favoritedPost = passport.setOrganizationPostFavorite(reviewerSession, post.id, true);
-  const reply = passport.replyToOrganizationPost(reviewerSession, post.id, { contentMd: "建议同时检查同态与子群术语。" });
+  const reply = passport.replyToOrganizationPost(reviewerSession, post.id, { contentMd: "建议同时检查同态与子群术语。\n\n{{ref:wiki_entry|community-algebra|社区代数}}" });
   const ownerProfile = passport.getUserProfile(owner.id);
   const publicOwner = passport.getPublicUser(owner.username);
   const pageTasks = passport.listPageOrganizationTasks(reviewerSession, source.slug, { limit: 10, offset: 0 });
@@ -177,6 +216,10 @@ try {
   }
   const quotaSnapshot = passport.organizationQuota(quotaMember.id);
 
+  const forumQuestionObject = passport.db.prepare("SELECT * FROM knowledge_objects WHERE source_system = 'organization_forum' AND object_type = 'question' AND object_key = ?").get(`organization-post:${post.id}`);
+  const forumAnswerObject = passport.db.prepare("SELECT * FROM knowledge_objects WHERE source_system = 'organization_forum' AND object_type = 'answer' AND object_key = ?").get(`organization-post-reply:${reply.id}`);
+  const forumRelations = passport.db.prepare("SELECT predicate FROM knowledge_relations WHERE source_system = 'organization_forum' AND subject_global_id IN (?, ?)").all(forumQuestionObject?.global_id || '', forumAnswerObject?.global_id || '').map((item) => item.predicate);
+
   const checks = {
     ownerAndRolesPersist: passport.organizationMembership(organization.id, owner.id)?.role === "owner"
       && joinedReviewer.membership.status === "active"
@@ -195,6 +238,8 @@ try {
       && approvedMembership.status === "active" && approvedMembership.role === "writer"
       && readerMessagesAfterApproval >= 1,
     forumFollowAndFavoritePersist: followedPost.following && favoritedPost.favorited && Number(favoritedPost.favoriteCount) === 1,
+    forumKnowledgeReferencesPersist: forumQuestionObject?.status === "active" && forumAnswerObject?.status === "active"
+      && forumRelations.includes("belongs_to") && forumRelations.includes("answers") && forumRelations.filter((predicate) => predicate === "references").length >= 2,
     organizationMarkdownPersists: passport.organizationBySlug(requestOrganization.slug).descriptionMd.includes("Review request commons"),
     organizationHeroAndMemberSearchPersist: updatedOrganization.heroImage === "/uploads/organization/algebra-cover.webp" && updatedOrganization.avatarImage === "/uploads/organization/algebra-avatar.webp"
       && searchedMembers.length === 1 && searchedMembers[0].username === reviewer.username && searchedMemberCount === 1,

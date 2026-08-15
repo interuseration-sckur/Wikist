@@ -26,16 +26,41 @@ if errorlevel 1 (
   exit /b 1
 )
 
-if /I "%~1"=="--restart" (
-  set "PORT_LABEL=%WIKIST_PORT%"
-  if not defined PORT_LABEL set "PORT_LABEL=8899"
-  echo Checking the existing Wikist service on port %PORT_LABEL%...
-  powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$portText = $env:WIKIST_PORT; if ([string]::IsNullOrWhiteSpace($portText)) { $port = 8899 } else { $port = [int]$portText }; $listener = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1; if ($listener) { try { $health = Invoke-RestMethod -Uri ('http://127.0.0.1:' + $port + '/api/health') -TimeoutSec 2; if ($health.ok -ne $true) { throw 'The listener did not return a healthy Wikist response.' } } catch { try { $site = Invoke-RestMethod -Uri ('http://127.0.0.1:' + $port + '/api/site') -TimeoutSec 2; if ($site.comments.provider -ne 'wikist-local') { throw 'The listener is not a Wikist server.' } } catch { Write-Error ('Refusing to stop port ' + $port + ': ' + $_.Exception.Message); exit 3 } }; Stop-Process -Id $listener.OwningProcess; Start-Sleep -Milliseconds 700 }"
+if /I "%~1"=="--setup" (
+  "%NODE_BIN%" "%ROOT%\tools\setup-community-stack.js"
   if errorlevel 1 exit /b 1
+  exit /b 0
 )
+
+if /I "%~1"=="--stop" (
+  "%NODE_BIN%" "%ROOT%\tools\start-hybrid.js" --stop
+  if errorlevel 1 exit /b 1
+  exit /b 0
+)
+
+if /I "%~1"=="--status" (
+  "%NODE_BIN%" "%ROOT%\tools\start-hybrid.js" --status
+  if errorlevel 1 exit /b 1
+  exit /b 0
+)
+
+if not exist "%ROOT%\data\wikist-stack.json" goto prepare_stack
+if not exist "%ROOT%\data\centrifugo\config.json" goto prepare_stack
+goto stack_ready
+
+:prepare_stack
+echo Preparing the Wikist realtime stack...
+"%NODE_BIN%" "%ROOT%\tools\setup-community-stack.js"
+if errorlevel 1 exit /b 1
+
+:stack_ready
 
 set "PORT_LABEL=%WIKIST_PORT%"
 if not defined PORT_LABEL set "PORT_LABEL=8899"
-echo Starting Wikist with "%NODE_BIN%"
+echo Starting the complete Wikist stack with "%NODE_BIN%"
 echo Wikist will use http://127.0.0.1:%PORT_LABEL%.
-"%NODE_BIN%" "%ROOT%\server.js"
+if /I "%~1"=="--restart" (
+  "%NODE_BIN%" "%ROOT%\tools\start-hybrid.js" --restart
+) else (
+  "%NODE_BIN%" "%ROOT%\tools\start-hybrid.js"
+)

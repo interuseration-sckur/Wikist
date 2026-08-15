@@ -55,10 +55,12 @@ try {
   const serverSource = fs.readFileSync(path.join(process.cwd(), "src", "server", "app.js"), "utf8");
   assert(appSource.includes("wikistRouteLoader"), "route loading must have a native fallback independent of optional plugins");
   assert(appSource.includes("wikist-native-route-loader"), "native route loading must use an isolated component class");
-  assert(appSource.includes("data-wikist-route-loader-provider"), "native loading must yield to an active plugin provider");
   const cosmicSource = fs.readFileSync(path.join(process.cwd(), "plugins", "wikist-cosmic-experience", "cosmic.mjs"), "utf8");
-  assert(cosmicSource.includes("wikist-cosmic-route-loader"), "cosmic loading must use an isolated component class");
-  assert(!cosmicSource.includes('document.querySelector(".wikist-route-loader")'), "cosmic loading must never capture the native loader");
+  assert(cosmicSource.includes("wikist-warp-intro"), "cosmic experience must retain the knowledge-core intro");
+  assert(!cosmicSource.includes("wikist-cosmic-route-loader"), "cosmic experience must not duplicate native route loading");
+  assert(!cosmicSource.includes("wikist-cosmic-nebula-layer"), "cosmic experience must not recreate the removed pointer-follow glow layer");
+  assert(!cosmicSource.includes('addEventListener("pointermove"'), "cosmic experience must not register a global pointer-follow listener");
+  assert(!appSource.includes("data-wikist-route-loader-provider"), "route loading must have one sitewide provider");
   assert(serverSource.includes("pages.listPageSummaries()"), "list APIs should use the lightweight metadata catalog");
 
   console.log(JSON.stringify({

@@ -5,15 +5,19 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="color-scheme" content="dark light" />
   <title>安装 Wikist</title>
-  <link rel="stylesheet" href="/assets/install.css?v=wikist-core-20260712-101" />
+  <link rel="icon" href="/assets/wikist-icon.png" />
+  <link rel="stylesheet" href="/assets/install.css?v=wikist-core-20260809-112" />
 </head>
 <body>
   <main class="installer-shell">
     <section class="installer-intro">
-      <a class="installer-brand" href="/">WIKIST <span>SETUP</span></a>
+      <a class="installer-brand" href="/">
+        <img src="/assets/wikist-logo.png" alt="" width="62" height="62" />
+        <span><strong>WIKIST</strong><small>SETUP</small></span>
+      </a>
       <p class="eyebrow">MATHEMATICAL KNOWLEDGE INFRASTRUCTURE</p>
       <h1>建立你的<br>知识共同体。</h1>
-      <p class="intro-copy">这一步会写入站点基础配置。数据采用项目内 SQLite 文件，复制整个 Wikist 目录即可迁移词条、用户和附件。</p>
+      <p class="intro-copy">填写站点、数据和邮件设置后完成安装。</p>
       <dl class="installer-signals">
         <div><dt>01</dt><dd>站点身份与语言</dd></div>
         <div><dt>02</dt><dd>SQLite 数据路径</dd></div>
@@ -43,7 +47,7 @@
             <label>许可证<input name="license" value="CC BY-SA 4.0" /></label>
             <label>资源 CDN 基址（可选）<input name="cdnBase" placeholder="https://cdn.example.com" /></label>
           </div>
-          <label>站点图标 URL<input name="siteIcon" value="/assets/wikist-emblem.svg" placeholder="/uploads/site-icon.png 或 https://cdn.example.com/icon.png" /></label>
+          <label>站点图标 URL<input name="siteIcon" value="/assets/wikist-icon.png" placeholder="/uploads/site-icon.png 或 https://cdn.example.com/icon.png" /></label>
         </fieldset>
 
         <fieldset>
@@ -85,7 +89,7 @@
         <div>
           <p class="eyebrow">MAINTENANCE</p>
           <h3>卸载安装配置</h3>
-          <p>该操作只会移走 <code>config/site.config.json</code>，不会删除 <code>content/</code>、<code>data/</code>、SQLite 用户数据、评论或词条。重启后站点会重新进入安装器，便于回滚配置或重新绑定云端参数。</p>
+          <p>卸载前会备份当前配置；词条、用户和数据库将保留。重启后可重新配置。</p>
         </div>
         <label>确认词<input id="uninstallConfirm" spellcheck="false" placeholder="UNINSTALL_CONFIG" /></label>
         <div class="installer-actions">
@@ -95,6 +99,6 @@
       </section>
     </section>
   </main>
-  <script src="/assets/install.js?v=wikist-core-20260712-101"></script>
+  <script src="/assets/install.js?v=wikist-core-20260810-175"></script>
 </body>
 </html>

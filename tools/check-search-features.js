@@ -23,6 +23,8 @@ const pages = [
     summary: "有限群中子群阶整除群阶。",
     body: "Lagrange theorem is a core result in group theory.",
     categories: ["代数", "群论"],
+    aliases: ["Group theorem"],
+    canonicalNames: ["Lagrange's theorem"],
     difficulty: "本科",
     quality: "A",
     updatedAt: "2026-07-02",
@@ -52,7 +54,7 @@ const pages = [
   },
 ];
 
-const pageStore = { listPages: () => pages };
+const pageStore = { listPages: () => pages, listPageSummaries: () => pages };
 const search = new SearchIndex(pageStore, () => ({
   plugins: {
     advancedSearch: {
@@ -74,6 +76,25 @@ const categoryFiltered = search.search("category:代数", { page: 1, limit: 10 }
 const titleFiltered = search.search("title:Lagrange", { page: 1, limit: 10 });
 const fuzzy = search.search("lagrane", { page: 1, limit: 10 });
 const qualityFiltered = search.search("群", { quality: "A", page: 1, limit: 10 });
+const oneLetterSearch = search.search("g", { page: 1, limit: 10 });
+const oneLetterFiltered = search.search("g", { category: "群论", page: 1, limit: 10 });
+const identitySearch = search.search("Group theorem", { page: 1, limit: 10 });
+const prefixSuggestion = search.suggest("g", { limit: 8 });
+const chineseSuggestion = search.suggest("群", { limit: 8 });
+const cachedSuggestion = search.suggest("g", { limit: 8 });
+const suggestionCacheHit = search.lastTelemetry.cacheHit;
+search.syncPage({
+  slug: "gamma-function",
+  title: "Gamma 函数",
+  summary: "Gamma function extends the factorial.",
+  categories: ["特殊函数"],
+  quality: "B",
+  status: "stable",
+  updatedAt: "2026-07-05",
+});
+const incrementalSuggestion = search.suggest("gam", { limit: 8 });
+search.removePage("gamma-function");
+const removedSuggestion = search.suggest("gam", { limit: 8 });
 
 const ftsRoot = path.join(process.cwd(), "data", "wikist-fts-search-test");
 fs.rmSync(ftsRoot, { recursive: true, force: true, maxRetries: 8, retryDelay: 120 });
@@ -143,7 +164,15 @@ const checks = {
   titleSyntax: titleFiltered.items.length === 1 && titleFiltered.items[0].slug === "lagrange-theorem",
   fuzzySearch: fuzzy.items.some((item) => item.slug === "lagrange-theorem"),
   qualityFilter: qualityFiltered.items.length >= 2 && qualityFiltered.items.every((item) => item.quality === "A"),
+  oneLetterFormalSearch: oneLetterSearch.items.some((item) => item.slug === "lagrange-theorem") && oneLetterSearch.engine === "wikist-prefix-cache",
+  oneLetterFilteredSearch: oneLetterFiltered.items.length === 1 && oneLetterFiltered.items[0].slug === "lagrange-theorem",
+  identityFormalSearch: identitySearch.items.some((item) => item.slug === "lagrange-theorem"),
   facets: categoryFiltered.facets.categories.some((item) => item.name === "代数"),
+  oneLetterPrefixSuggestion: prefixSuggestion.items.some((item) => item.slug === "lagrange-theorem"),
+  chineseSubstringSuggestion: chineseSuggestion.items.some((item) => item.slug === "lagrange-theorem"),
+  suggestionCache: suggestionCacheHit && cachedSuggestion.engine === "wikist-prefix-cache",
+  suggestionIncrementalSync: incrementalSuggestion.items.some((item) => item.slug === "gamma-function"),
+  suggestionIncrementalDelete: !removedSuggestion.items.some((item) => item.slug === "gamma-function"),
   ftsReady: ftsStatus?.available && ftsStatus?.ready && ftsStatus?.documents === pages.length,
   ftsFindsEnglish: ftsSearch?.engine === "sqlite-fts5" && ftsSearch.items.some((item) => item.slug === "lagrange-theorem"),
   ftsFindsChineseTokens: ftsChinese?.items.some((item) => item.slug === "abstract-algebra"),
