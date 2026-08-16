@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "a0c52008370027858d3d762538b215c3",
+    "content-hash": "38c3e7b6493240d59772bf7bf46b9932",
     "packages": [
         {
             "name": "bacon/bacon-qr-code",
@@ -6056,20 +6056,23 @@
         },
         {
             "name": "webman/redis-queue",
-            "version": "v1.3.2",
+            "version": "v2.1.1",
             "source": {
                 "type": "git",
                 "url": "https://github.com/webman-php/redis-queue.git",
-                "reference": "80b9ddca0405bbb6d02e6b368e8036b3b1a13814"
+                "reference": "ff4791e21f3c324a47e21da7b6f2dae5a7311dcb"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/webman-php/redis-queue/zipball/80b9ddca0405bbb6d02e6b368e8036b3b1a13814",
-                "reference": "80b9ddca0405bbb6d02e6b368e8036b3b1a13814",
+                "url": "https://api.github.com/repos/webman-php/redis-queue/zipball/ff4791e21f3c324a47e21da7b6f2dae5a7311dcb",
+                "reference": "ff4791e21f3c324a47e21da7b6f2dae5a7311dcb",
                 "shasum": ""
             },
             "require": {
-                "workerman/redis-queue": "^1.2"
+                "ext-redis": "*",
+                "php": ">=8.1",
+                "workerman/redis-queue": "^1.2",
+                "workerman/webman-framework": "^2.1 || dev-master"
             },
             "type": "library",
             "autoload": {
@@ -6081,9 +6084,9 @@
             "description": "Redis message queue plugin for webman.",
             "support": {
                 "issues": "https://github.com/webman-php/redis-queue/issues",
-                "source": "https://github.com/webman-php/redis-queue/tree/v1.3.2"
+                "source": "https://github.com/webman-php/redis-queue/tree/v2.1.1"
             },
-            "time": "2024-04-03T02:00:20+00:00"
+            "time": "2025-11-14T07:12:52+00:00"
         },
         {
             "name": "webman/validation",
