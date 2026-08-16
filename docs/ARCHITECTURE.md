@@ -54,16 +54,16 @@ The public framework repository excludes local content, database files, upload f
 ## Request And Collaboration Flow
 
 1. A first-run server exposes only the installer until `config/site.config.json` is written.
-2. Normal requests pass through the HTTP router in `src/server/app.js`.
-3. Page reads come from `PageStore`; page writes produce Markdown plus a revision snapshot.
-4. When Passport is enabled, the router authenticates the HttpOnly session before applying page, role, or dashboard permissions.
+2. Public requests enter Webman, which owns authentication, authorization, Community and Messaging routes.
+3. Unmigrated content requests cross the allowlisted loopback compatibility boundary to `src/server/app.js`; the Node listener is never public.
+4. Page reads come from `PageStore`; page writes produce Markdown plus a revision snapshot. Webman authenticates the HttpOnly session before issuing the internal identity token used by compatible content routes.
 5. Logged-in edits are attributed to a user. Guest edits and comments require nickname and email, then receive a stable guest cookie and an audit profile.
 6. Page saves, imports, restores, deletes, and translation saves update the link index. Matching page, category, and language subscribers receive a direct inbox message; followers of the editing user receive one separate author-update message.
 7. The browser performs one post-render idle task for formula typesetting, plotting, plugin hydration, link previews, and language conversion.
 
 ## Identity, Roles, And Permissions
 
-Passport provides local registration, CAPTCHA, optional email verification, password recovery, TOTP two-factor authentication, profile Markdown, avatars, external links, public contribution profiles, and a lightweight directed user-follow graph.
+Webman Passport is the sole identity owner. It provides behavior CAPTCHA registration, optional email verification, password recovery, TOTP two-factor authentication, profile Markdown, avatars, external links, public contribution profiles, and a lightweight directed user-follow graph. The arithmetic CAPTCHA inside `PassportStore` is compatibility-only and is scheduled for removal with the Node Passport surface in Wikist 2.0; new UI, API and feature tests cannot call it.
 
 The built-in role order is:
 

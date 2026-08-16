@@ -2,20 +2,76 @@
 
 ## 首次安装
 
-1. 安装 Node.js 18 或更高版本、PHP 8.1 或更高版本；准备 Composer。Windows 便携运行时也可放入 `.runtime/php` 与 `.runtime/composer`。
+1. 安装 Node.js 22.5 或更高版本（需支持 `node:sqlite`）、PHP 8.4.1 或更高版本；准备 Composer，并启用 PDO、SQLite、mbstring、OpenSSL、cURL、GD、intl、XML、ZIP；生产环境同时启用 OPcache。Windows 便携运行时也可放入 `.runtime/php` 与 `.runtime/composer`。
+
+Ubuntu 22.04/24.04 可在已经解压或克隆的项目目录执行：
+
+```bash
+sudo bash tools/install-ubuntu.sh --public-url=https://wiki.example.com
+```
+
+脚本会校验并准备 Node.js、PHP 扩展、项目私有 Composer、Centrifugo、运行目录、服务账号与 systemd；使用 `--no-realtime` 可先关闭实时传输层。
 2. 解压或克隆 Wikist 到服务器目录。
 3. 将 Centrifugo 可执行文件放入 `.runtime/centrifugo/`，然后运行 `npm run setup:stack`；也可以直接执行 `npm start` 让启动器自动初始化。
 4. 运行 `npm start`；Windows 也可直接运行 `run-wikist-server.cmd`，缺少栈配置时它会自动初始化。
 5. 打开 `http://你的域名:8899/install.html`，填写站点名称、SQLite 相对路径、编辑策略和可选 SMTP 参数。
-6. 页面提示成功后执行 `npm stop`，再用相同统一入口启动。
+6. 页面提示成功后执行 `npm run stop`，再用相同统一入口启动。
 
 统一进程组包含 Webman `8899`、Node 兼容层 `8900` 和 Centrifugo `8902`。生产反向代理只应指向 Webman 公共端口，另外两个端口保持回环或内网可见。
+
+Ubuntu 生产服务器可以生成并检查 systemd、Nginx 与 Caddy 配置：
+
+```bash
+npm run setup:stack
+npm run service:install -- --public-url=https://wiki.example.com --user=wikist
+```
+
+生成结果位于 `data/deployment/`。确认运行用户和域名后，可由 root 安装 systemd 服务：
+
+```bash
+sudo npm run service:install -- --public-url=https://wiki.example.com --user=wikist --apply --yes
+```
+
+该命令只公开 Webman `8899` 的反向代理入口，并把 Node `8900` 与 Centrifugo API `8902` 保留在回环地址。Nginx/Caddy 配置仍需管理员填写证书或纳入现有网关。
 
 `npm run setup:stack` 可安全重复执行：它会保留已有 Centrifugo 密钥和端口，并刷新本地实时通信配置。生成的私钥位于 `data/`，不得提交到 Git。
 
 安装器会写入 `config/site.config.json`。用户、会话、评论、评分和审计日志存放在该配置指定的 SQLite 文件中，默认是 `data/wikist.sqlite`。
 
 通过反向代理安装时建议转发 `Host $http_host` 与 `X-Forwarded-Host $http_host`，但安装校验不依赖外部域名与内部 Host 相等，因此兼容 Docker、面板代理和隧道。安全边界由短时安装令牌、客户端绑定与浏览器跨站标记承担。默认安装保护允许十分钟内 60 次安装页/API 请求，触发后冷却 60 秒。
+
+## 升级
+
+升级前先在后台生成并下载一次全站备份，然后执行不会停止服务的预检：
+
+```bash
+npm run update -- --preflight-only --yes
+```
+
+Git 部署使用：
+
+```bash
+npm run update -- --strategy=git --remote=origin --branch=main --service=wikist --yes
+```
+
+使用 GitHub Release 解压包部署时：
+
+```bash
+npm run update -- --strategy=local --source=/path/to/wikist-release --service=wikist --yes
+```
+
+工作目录包含需要保留的本地代码改动时，可在 Git 更新命令中加入 `--stash-dirty`。升级器会保护站点配置、数据库、词条、上传文件和本地插件数据，并自动执行待处理的数据库迁移。
+
+升级完成后检查并重启：
+
+```bash
+npm run doctor
+npm run check
+npm run restart
+npm run status
+```
+
+升级失败时按 `data/updates/` 中的报告恢复升级前快照，不要只回退代码而忽略数据库版本。
 
 ## 迁移
 
@@ -28,6 +84,15 @@
 - `public/assets/`（包含本地界面资源）
 
 在新机器准备 Node.js、PHP、Composer 与 Centrifugo 运行时后，执行 `npm run setup:stack` 和 `npm start`。数据库路径必须保持为项目目录内的相对路径；这是为了让整站复制、备份与回档保持一致。
+
+域名、协议或服务器地址变化时，不要逐个修改配置。执行：
+
+```bash
+npm run migrate:server -- --public-url=https://new-wiki.example.com --mode=single-production --yes
+npm run doctor -- --urls
+```
+
+迁移工具会先备份站点、环境与实时通信配置，再统一公开地址、可信来源、安全 Cookie 和浏览器 WebSocket 地址；内部服务仍保持回环地址。
 
 ## 重新配置
 
@@ -42,7 +107,7 @@ npm start
 
 ## Windows 启动
 
-`run-wikist-server.cmd` 与 `tools/run-wikist-server.cmd` 会以当前项目目录为根目录启动全部服务。它们会优先使用系统 Node.js，其次寻找 `runtime/node/node.exe`，并校验 Node 主版本不低于 18。
+`run-wikist-server.cmd` 与 `tools/run-wikist-server.cmd` 会以当前项目目录为根目录启动全部服务。它们会优先使用系统 Node.js，其次寻找 `runtime/node/node.exe`，并校验 Node.js 不低于 22.5 且支持 `node:sqlite`。
 
 支持的统一管理命令：
 

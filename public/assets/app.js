@@ -1,12 +1,20 @@
 const THEME_KEY = "wikist-theme";
 const LANG_KEY = "wikist-language";
-const CORE_ASSET_VERSION = "wikist-core-20260815-191";
+const CORE_ASSET_VERSION = "wikist-core-20260816-203";
 const RAIL_RECOMMENDATION_LIMIT = 5;
 const RAIL_RECENT_LIMIT = 5;
 const PAGE_SHARE_RECENT_DIRECT_LIMIT = 6;
 const VDITOR_VERSION = "3.11.2";
 const VDITOR_CDN = `https://cdn.jsdelivr.net/npm/vditor@${VDITOR_VERSION}`;
 const SWEETALERT_VERSION = "11.26.25";
+const TRUSTED_ASSET_INTEGRITY = Object.freeze({
+  "https://cdn.jsdelivr.net/npm/vditor@3.11.2/dist/index.min.js": "sha384-tXVIgdtmAFOvXla1JO9GrFxWNKAiPeHwfsSmAeVtGHn7XgpNRYTRuYgAvu3Mon5z",
+  "https://cdn.jsdelivr.net/npm/vditor@3.11.2/dist/index.css": "sha384-fIMXN1nPH5LtoE2PpM+Y9averYRD5aKbfrHnIFdl2Gkcewiis3zM7BinMSnyc4wo",
+  "https://cdn.jsdelivr.net/npm/function-plot@1.25.4/dist/function-plot.js": "sha384-DT8k1lVP+I3Blr6Hk4YvNFzPE1Mi2HNZlID3J3nGiA0CGjy79MM7uRFtI3Fp+C/i",
+  "https://cdn.jsdelivr.net/npm/mathjs@14.0.1/lib/browser/math.js": "sha384-h89MtFxYUpvSrN4/iHXHDPFENeYlne1rtRmGo4hHOgWSK6lf1RFrdMccVRSbMiPl",
+  "https://cdn.jsdelivr.net/npm/opencc-js@1.0.5/dist/umd/full.js": "sha384-lSi9aFkjJFq3Fe5HZNORU+TFYbMDZh6m2KHdolOWxKNew8tzqMIjj3X1e6D9htV4",
+  "https://cdn.jsdelivr.net/npm/mathjax@3.2.2/es5/tex-chtml.js": "sha384-AHAnt9ZhGeHIrydA1Kp1L7FN+2UosbF7RQg6C+9Is/a7kDpQ1684C2iH2VWil6r4",
+});
 let activeEditor = null;
 let vditorAssetsPromise = null;
 let functionPlotAssetsPromise = null;
@@ -53,7 +61,9 @@ let messagingPresenceClientId = "";
 let messagingPresenceEventTimer = 0;
 let messagingModerationRefreshPromise = null;
 let messagingMentionState = { query: "", start: 0, end: 0, items: [], activeIndex: 0, timer: 0, requestId: 0 };
-let messagingPreferences = { openMode: false, autoReplyEnabled: false, autoReplyText: "" };
+let messagingRealtimeState = "polling";
+let messagingRealtimeWatchdog = 0;
+let messagingPreferences = { openMode: false, autoReplyEnabled: false, autoReplyText: "", showOnlineStatus: false };
 let messagingWorkspaceState = {
   conversations: [],
   pagination: { page: 1, pages: 1, total: 0, limit: 24 },
@@ -88,6 +98,7 @@ const state = {
   messagePopoverOpen: false,
   uiLanguage: "zh-CN",
   pageLanguage: "zh-CN",
+  csrfToken: "",
 };
 
 function currentSiteName() {
@@ -189,9 +200,15 @@ function selectionContentAttributes({ type, id, label, url, organizationSlug = "
 
 async function api(path, options = {}) {
   const isFormData = typeof FormData !== "undefined" && options.body instanceof FormData;
+  const method = String(options.method || "GET").toUpperCase();
+  const csrfHeaders = !["GET", "HEAD", "OPTIONS"].includes(method) && state.csrfToken
+    ? { "x-csrf-token": state.csrfToken }
+    : {};
   const response = await fetch(path, {
     credentials: "same-origin",
-    headers: isFormData ? { ...(options.headers || {}) } : { "content-type": "application/json", ...(options.headers || {}) },
+    headers: isFormData
+      ? { ...csrfHeaders, ...(options.headers || {}) }
+      : { "content-type": "application/json", ...csrfHeaders, ...(options.headers || {}) },
     ...options,
   });
   const payload = await response.json().catch(() => ({}));
@@ -301,6 +318,25 @@ function safeSiteIconUrl(value) {
   return withCdnBase(fallback);
 }
 
+function safeClientHref(value, fallback = "#") {
+  const raw = String(value || "").trim();
+  if (/^https?:\/\/[^\s"'<>]+$/i.test(raw)) return raw;
+  if (/^#\/[A-Za-z0-9%._~!$&()*+,;=:@/?-]*$/.test(raw)) return raw;
+  if (/^\/(?!\/)[^\s"'<>\\]*$/.test(raw)) return raw;
+  return fallback;
+}
+
+function trustedAssetIntegrity(value) {
+  try {
+    const url = new URL(String(value || ""), window.location.href);
+    url.search = "";
+    url.hash = "";
+    return TRUSTED_ASSET_INTEGRITY[url.href] || "";
+  } catch (_error) {
+    return "";
+  }
+}
+
 function applySiteIcon() {
   const icon = safeSiteIconUrl(siteAssetValue("siteIcon"));
   const link = el.siteIconLink || document.querySelector("link[rel~='icon']");
@@ -315,6 +351,11 @@ function ensureStylesheet(href, marker) {
   const link = document.createElement("link");
   link.rel = "stylesheet";
   link.href = href;
+  const integrity = trustedAssetIntegrity(href);
+  if (integrity) {
+    link.integrity = integrity;
+    link.crossOrigin = "anonymous";
+  }
   if (marker) link.dataset.wikistStyle = marker;
   document.head.appendChild(link);
 }
@@ -886,14 +927,6 @@ function applySiteCustomizations() {
   }
   style.textContent = css;
 
-  const js = siteAssetValue("customJs");
-  if (!js.trim()) return;
-  try {
-    window.WikistCustom = { site: state.site, api, route };
-    Function("window", "document", "Wikist", `"use strict";\n${js}`)(window, document, window.WikistCustom);
-  } catch (error) {
-    console.warn("Wikist custom JS failed:", error);
-  }
 }
 applyTheme(savedTheme(), false);
 
@@ -917,6 +950,11 @@ function loadScript(src, globalName = "", errorMessage = "资源加载失败。"
     }
     const script = document.createElement("script");
     script.src = src;
+    const integrity = trustedAssetIntegrity(src);
+    if (integrity) {
+      script.integrity = integrity;
+      script.crossOrigin = "anonymous";
+    }
     script.async = true;
     script.defer = true;
     script.onload = () => { script.dataset.loaded = "true"; resolve(); };
@@ -1218,14 +1256,10 @@ async function refreshMessagingHeartbeat(context = "") {
 function releaseMessagingPresence() {
   if (!state.user) return;
   const body = JSON.stringify({ clientId: currentMessagingPresenceClientId() });
-  if (typeof navigator.sendBeacon === "function") {
-    const queued = navigator.sendBeacon("/api/messaging/presence/offline", new Blob([body], { type: "application/json" }));
-    if (queued) return;
-  }
   fetch("/api/messaging/presence/offline", {
     method: "POST",
     credentials: "same-origin",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...(state.csrfToken ? { "x-csrf-token": state.csrfToken } : {}) },
     body,
     keepalive: true,
   }).catch(() => {});
@@ -1260,19 +1294,29 @@ async function ensureMessagingRealtime() {
   }
   if (messagingClient && messagingClientUserId === Number(state.user.id)) {
     startMessagingHeartbeat();
+    const clientState = String(messagingClient.state || "").toLowerCase();
+    if (clientState === "disconnected") {
+      messagingRealtimeState = "connecting";
+      renderMessagingConnectionState();
+      try { messagingClient.connect(); } catch (_error) {}
+    }
+    scheduleMessagingRealtimeWatchdog(messagingClient);
     return messagingClient;
   }
   messagingBootstrap = await api("/api/messaging/bootstrap").catch(() => null);
+  if (!messagingBootstrap) messagingRealtimeState = "unavailable";
   if (messagingBootstrap) {
     state.unreadMessages = Number(messagingBootstrap.unreadCount || 0);
-    messagingPreferences = { openMode: false, autoReplyEnabled: false, autoReplyText: "", ...(messagingBootstrap.preferences || {}) };
+    messagingPreferences = { openMode: false, autoReplyEnabled: false, autoReplyText: "", showOnlineStatus: false, ...(messagingBootstrap.preferences || {}) };
     if (messagingBootstrap.presence) applyMessagingPresence(messagingBootstrap.presence);
     renderMessageBadge();
   }
   startMessagingHeartbeat();
   const CentrifugeClient = typeof window.Centrifuge === "function" ? window.Centrifuge : window.Centrifuge?.Centrifuge;
   if (!messagingBootstrap?.realtime?.enabled || typeof CentrifugeClient !== "function") {
+    if (messagingBootstrap) messagingRealtimeState = "polling";
     if (!messagingBadgeTimer) messagingBadgeTimer = window.setInterval(() => refreshUnifiedMessageBadge().catch(() => {}), 15000);
+    renderMessagingConnectionState();
     return null;
   }
   const activeConversationId = messagingActiveConversationId;
@@ -1291,18 +1335,57 @@ async function ensureMessagingRealtime() {
   });
   client.on("publication", (context) => handleUnifiedMessagingEvent(context.data));
   client.on("connected", () => {
+    if (messagingClient !== client) return;
+    clearMessagingRealtimeWatchdog();
+    messagingRealtimeState = "connected";
     document.body.classList.add("messaging-realtime-connected");
+    renderMessagingConnectionState();
     refreshMessagingPresence().catch(() => {});
   });
-  client.on("disconnected", () => document.body.classList.remove("messaging-realtime-connected"));
-  client.on("error", () => document.body.classList.remove("messaging-realtime-connected"));
+  const usePollingFallback = () => {
+    if (messagingClient !== client) return;
+    messagingRealtimeState = "connecting";
+    document.body.classList.remove("messaging-realtime-connected");
+    if (!messagingBadgeTimer) messagingBadgeTimer = window.setInterval(() => refreshUnifiedMessageBadge().catch(() => {}), 15000);
+    renderMessagingConnectionState();
+    scheduleMessagingRealtimeWatchdog(client);
+  };
+  client.on("disconnected", usePollingFallback);
+  client.on("error", () => {
+    if (messagingClient === client && String(client.state || "").toLowerCase() !== "connected") usePollingFallback();
+  });
   messagingClient = client;
   messagingClientUserId = Number(state.user.id);
   client.connect();
+  scheduleMessagingRealtimeWatchdog(client);
   return client;
 }
 
+function clearMessagingRealtimeWatchdog() {
+  if (messagingRealtimeWatchdog) window.clearTimeout(messagingRealtimeWatchdog);
+  messagingRealtimeWatchdog = 0;
+}
+
+function scheduleMessagingRealtimeWatchdog(client) {
+  if (!client || messagingClient !== client || String(client.state || "").toLowerCase() === "connected") return;
+  clearMessagingRealtimeWatchdog();
+  messagingRealtimeWatchdog = window.setTimeout(() => {
+    messagingRealtimeWatchdog = 0;
+    if (messagingClient !== client || String(client.state || "").toLowerCase() === "connected") return;
+    const activeConversationId = messagingActiveConversationId;
+    disconnectMessagingRealtime();
+    messagingActiveConversationId = activeConversationId;
+    messagingRealtimeState = "connecting";
+    renderMessagingConnectionState();
+    ensureMessagingRealtime().catch(() => {
+      messagingRealtimeState = "polling";
+      renderMessagingConnectionState();
+    });
+  }, 8000);
+}
+
 function disconnectMessagingRealtime() {
+  clearMessagingRealtimeWatchdog();
   if (messagingConversationSubscription) {
     try { messagingConversationSubscription.unsubscribe(); } catch (_error) {}
     try { messagingConversationSubscription.removeAllListeners(); } catch (_error) {}
@@ -1317,6 +1400,21 @@ function disconnectMessagingRealtime() {
   if (messagingBadgeTimer) window.clearInterval(messagingBadgeTimer);
   messagingBadgeTimer = 0;
   document.body.classList.remove("messaging-realtime-connected");
+}
+
+function messagingConnectionLabel() {
+  if (messagingRealtimeState === "connected") return "实时已连接";
+  if (messagingRealtimeState === "unavailable") return "消息服务不可用";
+  if (messagingRealtimeState === "connecting") return "正在恢复实时连接";
+  return "实时连接中";
+}
+
+function renderMessagingConnectionState() {
+  const target = document.querySelector(".messaging-connection-state");
+  if (!target) return;
+  target.classList.toggle("is-connected", messagingRealtimeState === "connected");
+  target.classList.toggle("is-unavailable", messagingRealtimeState === "unavailable");
+  target.innerHTML = `<i></i>${messagingConnectionLabel()}`;
 }
 
 async function subscribeMessagingConversation(conversationId) {
@@ -1712,6 +1810,11 @@ function injectMathJax(root = el.main) {
   };
   const script = document.createElement("script");
   script.src = source;
+  const integrity = trustedAssetIntegrity(source);
+  if (integrity) {
+    script.integrity = integrity;
+    script.crossOrigin = "anonymous";
+  }
   script.async = true;
   script.dataset.wikistMath = "true";
   document.head.appendChild(script);
@@ -1783,6 +1886,7 @@ function createCosmicScene(canvas) {
   let dpr = 1;
   let frame = 0;
   let animation = 0;
+  let resizeFrame = 0;
 
   function lightTheme() {
     return document.documentElement.dataset.theme === "light";
@@ -1790,13 +1894,18 @@ function createCosmicScene(canvas) {
 
   function resize() {
     const rect = canvas.getBoundingClientRect();
-    dpr = Math.min(window.devicePixelRatio || 1, 2);
-    width = Math.max(1, Math.floor(rect.width));
-    height = Math.max(1, Math.floor(rect.height));
+    const nextDpr = Math.min(window.devicePixelRatio || 1, 2);
+    const nextWidth = Math.max(1, Math.floor(rect.width));
+    const nextHeight = Math.max(1, Math.floor(rect.height));
+    if (nextWidth === width && nextHeight === height && nextDpr === dpr) return false;
+    dpr = nextDpr;
+    width = nextWidth;
+    height = nextHeight;
     canvas.width = Math.floor(width * dpr);
     canvas.height = Math.floor(height * dpr);
     context.setTransform(dpr, 0, 0, dpr, 0, 0);
     seed();
+    return true;
   }
 
   function seed() {
@@ -1910,7 +2019,13 @@ function createCosmicScene(canvas) {
   resize();
   draw(0);
   if (!reducedMotion) animation = requestAnimationFrame(draw);
-  const onResize = () => resize();
+  const onResize = () => {
+    if (resizeFrame) return;
+    resizeFrame = requestAnimationFrame(() => {
+      resizeFrame = 0;
+      if (resize() && reducedMotion) draw(performance.now());
+    });
+  };
   window.addEventListener("resize", onResize);
   return {
     refresh() {
@@ -1919,6 +2034,7 @@ function createCosmicScene(canvas) {
     },
     destroy() {
       cancelAnimationFrame(animation);
+      cancelAnimationFrame(resizeFrame);
       window.removeEventListener("resize", onResize);
     },
   };
@@ -2186,6 +2302,7 @@ async function refreshUser(options = {}) {
   const refreshPromise = (async () => {
     const payload = await api("/api/passport/me").catch(() => ({ user: null }));
     state.user = payload.user || null;
+    state.csrfToken = payload.csrfToken || "";
     userLastFetchedAt = Date.now();
     renderPassportLink();
     renderTopQuickNav();
@@ -2297,7 +2414,7 @@ function socialLinksHtml(links = {}, variant = "card") {
   }
   const variantClass = variant === "public" ? "public-social-links" : variant === "context" ? "messaging-context-social-links" : "";
   return `<div class="profile-social-links ${variantClass}" aria-label="外部资料">${entries.map(({ key, label, mark }) => `
-    <a class="profile-social-link is-${key}" href="${escapeHtml(links[key])}" target="_blank" rel="noopener noreferrer" title="打开 ${escapeHtml(label)}">
+    <a class="profile-social-link is-${key}" href="${escapeHtml(links[key])}" target="_blank" rel="nofollow ugc noopener noreferrer" title="打开 ${escapeHtml(label)}">
       <span class="profile-social-mark" aria-hidden="true">${mark}</span><span>${escapeHtml(label)}</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M19 13v5a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h5"/></svg>
     </a>`).join("")}</div>`;
 }
@@ -3557,9 +3674,9 @@ function renderHomePortal(page) {
   const newsItems = Array.isArray(homeText.newsItems) ? homeText.newsItems : [];
   const progress = Array.isArray(homeText.progressItems) ? homeText.progressItems : [];
   const featuredModule = homeConfig.showFeatured ? `<article class="wiki-box sci-box sci-box-feature"><h2>特色词条</h2>${featured.length ? featured.map((item) => pageCard(item, item.quality || "词条")).join("") : "<p>暂无特色词条。</p>"}</article>` : "";
-  const newsModule = homeConfig.showNews ? `<article class="wiki-box sci-box sci-box-news"><h2>${escapeHtml(homeText.newsTitle)}</h2>${newsItems.length ? `<div class="wiki-news-list">${newsItems.map((item) => `<a href="${escapeHtml(item.href || "#/page/news")}"><span>${escapeHtml(item.date || item.tag || "资讯")}</span>${escapeHtml(item.title)}${item.body ? `<small>${escapeHtml(item.body)}</small>` : ""}</a>`).join("")}</div>` : (news ? `<a class="wiki-news-link" href="#/page/news"><strong>${escapeHtml(news.title)}</strong><span>${escapeHtml(news.summary)}</span></a>` : `<p>${escapeHtml(homeText.newsEmpty)}</p>`)}<div class="wiki-news-list">${state.recent.slice(0, 4).map((item) => `<a href="#/page/${encodeSlug(item.slug)}"><span>${fmtDate(item.updatedAt)}</span>${escapeHtml(item.title)}</a>`).join("")}</div></article>` : "";
+  const newsModule = homeConfig.showNews ? `<article class="wiki-box sci-box sci-box-news"><h2>${escapeHtml(homeText.newsTitle)}</h2>${newsItems.length ? `<div class="wiki-news-list">${newsItems.map((item) => `<a href="${escapeHtml(safeClientHref(item.href, "#/page/news"))}"><span>${escapeHtml(item.date || item.tag || "资讯")}</span>${escapeHtml(item.title)}${item.body ? `<small>${escapeHtml(item.body)}</small>` : ""}</a>`).join("")}</div>` : (news ? `<a class="wiki-news-link" href="#/page/news"><strong>${escapeHtml(news.title)}</strong><span>${escapeHtml(news.summary)}</span></a>` : `<p>${escapeHtml(homeText.newsEmpty)}</p>`)}<div class="wiki-news-list">${state.recent.slice(0, 4).map((item) => `<a href="#/page/${encodeSlug(item.slug)}"><span>${fmtDate(item.updatedAt)}</span>${escapeHtml(item.title)}</a>`).join("")}</div></article>` : "";
   const pathModule = homeConfig.showPath ? `<article class="wiki-box sci-box sci-box-path"><h2>${escapeHtml(homeText.pathTitle)}</h2><div class="wiki-link-grid"><a href="#/page/markup-guide">标记规范</a><a href="#/page/tutorial">教程</a><a href="#/page/protocol">协议</a><a href="#/page/contribution-guide">贡献规范</a></div></article>` : "";
-  const progressModule = homeConfig.showProgress ? `<article class="wiki-box sci-box sci-box-progress"><h2>${escapeHtml(homeText.progressTitle)}</h2>${progress.map((item) => `<a class="progress-item" href="${escapeHtml(item.href)}" target="_blank" rel="noreferrer"><span>${escapeHtml(item.tag)}</span><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.body)}</small></a>`).join("")}</article>` : "";
+  const progressModule = homeConfig.showProgress ? `<article class="wiki-box sci-box sci-box-progress"><h2>${escapeHtml(homeText.progressTitle)}</h2>${progress.map((item) => `<a class="progress-item" href="${escapeHtml(safeClientHref(item.href, "#/page/home"))}" target="_blank" rel="noopener noreferrer"><span>${escapeHtml(item.tag)}</span><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.body)}</small></a>`).join("")}</article>` : "";
   const stableModule = homeConfig.showStable ? `<article class="wiki-box sci-box sci-box-stable"><h2>稳定内容</h2>${stable.length ? stable.map((item) => pageCard(item, item.quality || "稳定")).join("") : "<p>暂无稳定词条。</p>"}</article>` : "";
   const categoriesModule = homeConfig.showCategories ? `<article class="wiki-box sci-box sci-box-categories"><h2>分类索引</h2><div class="wiki-category-cloud">${categories.length ? categories.map((item) => `<span>${escapeHtml(item)}</span>`).join("") : "<span>等待分类</span>"}</div></article>` : "";
   const discoveryModule = `<article class="wiki-box sci-box sci-box-discovery"><h2 class="home-module-heading"><span>知识发现</span><button class="rail-refresh-button" id="homeDiscoveryRefresh" type="button" title="换一批优质词条" aria-label="换一批知识发现"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.34 5.66M20 4v7h-7"/></svg></button></h2><div id="homeDiscoveryList">${homeDiscoveryItemsHtml()}</div></article>`;
@@ -3893,7 +4010,8 @@ async function renderCommunity(value = "") {
     location.hash = `#/community?q=${encodeURIComponent(next)}`;
   });
   bindPagination(document.querySelector(".community-organization-column"), (next) => { location.hash = `#/community?q=${encodeURIComponent(query)}&page=${next}`; });
-  document.querySelector("#communityCreateForm")?.addEventListener("submit", async (event) => {
+  const communityCreateForm = document.querySelector("#communityCreateForm");
+  communityCreateForm?.addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = event.currentTarget;
     const status = form.querySelector(".status-line");
@@ -4307,8 +4425,9 @@ function organizationWorkspaceTabs(organization, active = "home", membership = n
 function organizationWorkspaceHeader(organization, membership, active, summary) {
   const membershipLabel = membership ? `你的身份：${organizationRoleLabel(membership.role)}${membership.status !== "active" ? "（待批准）" : ""}` : "公开浏览";
   const cover = organization.heroImage ? `<figure class="organization-cover"><img src="${escapeHtml(organization.heroImage)}" alt="${escapeHtml(organization.name)} 顶部图" /></figure>` : "";
-  const chat = membership?.status === "active" ? `<a class="organization-chat-link" href="#/messages?organization=${encodeURIComponent(organization.slug)}">${navigationIconSvg("chat")}<span>组织群聊</span></a>` : "";
-  return `<section class="organization-workspace-head">${cover}<header class="article-head organization-workspace-title"><div class="organization-workspace-kicker"><span class="system-kicker">Academic Workspace</span><span class="organization-workspace-actions"><span class="quality-badge">${escapeHtml(organization.visibility === "request" ? "申请加入" : "开放加入")}</span>${chat}</span></div><div class="article-title-row"><div class="organization-title-with-avatar">${organizationAvatarHtml(organization, "large")}<h1>${escapeHtml(organization.name)}</h1></div></div><p class="article-summary">${escapeHtml(summary || organization.description || "面向可持续维护的知识领域开展协作。")}</p><div class="organization-workspace-stats"><span>${organization.memberCount} 成员</span><span>${organization.taskCount} 项任务</span><span>${organization.discussionCount} 个主题</span><span>${escapeHtml(membershipLabel)}</span></div></header>${organizationWorkspaceTabs(organization, active, membership)}</section>`;
+  const chat = membership?.status === "active" ? `<a class="organization-chat-link" href="#/messages?organization=${encodeURIComponent(organization.slug)}" aria-label="组织群聊" title="组织群聊">${navigationIconSvg("chat")}</a>` : "";
+  const joinLabel = organization.visibility === "request" ? "申请加入" : "开放加入";
+  return `<section class="organization-workspace-head">${cover}<header class="article-head organization-workspace-title"><div class="organization-workspace-kicker"><span class="system-kicker">Academic Workspace</span></div><div class="article-title-row"><div class="organization-title-with-avatar">${organizationAvatarHtml(organization, "large")}<h1>${escapeHtml(organization.name)}</h1></div><span class="organization-workspace-actions"><span class="quality-badge">${escapeHtml(joinLabel)}</span>${chat}</span></div><p class="article-summary">${escapeHtml(summary || organization.description || "面向可持续维护的知识领域开展协作。")}</p><div class="organization-workspace-stats"><span>${organization.memberCount} 成员</span><span>${organization.taskCount} 项任务</span><span>${organization.discussionCount} 个主题</span><span>${escapeHtml(membershipLabel)}</span></div></header>${organizationWorkspaceTabs(organization, active, membership)}</section>`;
 }
 
 function organizationMemberCardHtml(member, options = {}) {
@@ -4347,13 +4466,14 @@ async function renderOrganizationHome(value) {
   renderToc(organization.descriptionToc || []);
   el.editLink.href = "#/new";
   const about = organization.descriptionHtml || `<p>${escapeHtml(organization.description || "该组织尚未撰写介绍。")}</p>`;
-  const ownerSettings = membership?.role === "owner" ? `<div class="organization-profile-options"><label class="organization-field"><span>加入方式</span><select name="visibility"><option value="public" ${organization.visibility === "public" ? "selected" : ""}>直接加入</option><option value="request" ${organization.visibility === "request" ? "selected" : ""}>申请加入</option></select></label><label class="organization-field"><span>审阅阈值</span><select name="reviewThreshold">${[2, 3, 4, 5].map((item) => `<option value="${item}" ${Number(organization.reviewThreshold) === item ? "selected" : ""}>${item} 位审阅者</option>`).join("")}</select></label></div>` : "";
+  const ownerSettings = membership?.role === "owner" ? `<div class="organization-profile-options"><label class="organization-field"><span>加入方式</span><select name="visibility"><option value="public" ${organization.visibility !== "request" ? "selected" : ""}>直接加入</option><option value="request" ${organization.visibility === "request" ? "selected" : ""}>申请后加入</option></select></label><label class="organization-field"><span>审阅阈值</span><select name="reviewThreshold">${[2, 3, 4, 5].map((item) => `<option value="${item}" ${Number(organization.reviewThreshold) === item ? "selected" : ""}>${item} 位审阅者</option>`).join("")}</select></label></div>` : "";
   const editor = canManage ? `<details class="organization-management-panel"><summary><span><strong>管理组织资料</strong><small>编辑名称、图片、研究方向与公开介绍</small></span><span class="mini-link">展开编辑</span></summary><form class="organization-profile-editor" id="organizationProfileEditor"><div class="organization-editor-head"><span class="system-kicker">Coordinator Tools</span><h2>编辑组织首页</h2><p>填写组织资料并保存。</p></div><label class="organization-field"><span>组织名称</span><input name="name" maxlength="90" value="${escapeHtml(organization.name)}" required /></label><label class="organization-field"><span>简短说明</span><input name="description" maxlength="900" value="${escapeHtml(organization.description || "")}" placeholder="用于组织列表和搜索结果" /></label><label class="organization-field"><span>&#32452;&#32455;&#22836;&#20687; URL</span><input name="avatarImage" inputmode="url" maxlength="500" value="${escapeHtml(organization.avatarImage || "")}" placeholder="https://... &#25110; /uploads/..." /></label><label class="organization-field organization-field-wide"><span>组织顶部大图</span><input name="heroImage" type="url" maxlength="1000" value="${escapeHtml(organization.heroImage || "")}" placeholder="https://… 或 /uploads/…" /></label><label class="organization-field organization-field-wide"><span>研究方向</span><input name="focus" value="${escapeHtml((organization.focus || []).join(", "))}" placeholder="例如：抽象代数，群论，英文翻译" /></label><label class="organization-field organization-field-wide"><span>组织介绍 Markdown</span><textarea name="descriptionMd" rows="12" spellcheck="false">${escapeHtml(organization.descriptionMd || "")}</textarea></label>${ownerSettings}<div class="organization-editor-actions"><button class="command-button" type="submit">保存组织首页</button><p class="status-line"></p></div></form></details>` : "";
   el.main.innerHTML = `${organizationWorkspaceHeader(organization, membership, "home", organization.description || "组织介绍、成员身份与协作边界在这里公开维护。")}<section class="organization-home-layout"><article class="organization-home-intro"><header><span class="system-kicker">Organization Charter</span><h2>组织介绍</h2></header><article class="article-body" ${selectionContentAttributes({ type: "organization", id: organization.id || organization.slug, label: organization.name, url: organizationWorkspaceHref(organization.slug), organizationSlug: organization.slug })}>${about}</article></article><aside class="organization-basic-facts"><span class="system-kicker">Organization Facts</span><h2>基本信息</h2><dl><div><dt>创建者</dt><dd>${organization.founderUsername ? `<a href="#/user/${encodeURIComponent(organization.founderUsername)}">${escapeHtml(organization.founderName || organization.founderUsername)}</a>` : "未记录"}</dd></div><div><dt>研究方向</dt><dd>${(organization.focus || []).length ? organization.focus.map((item) => `<span>${escapeHtml(item)}</span>`).join("") : "未设置"}</dd></div><div><dt>共识阈值</dt><dd>${organization.reviewThreshold} 位审阅者</dd></div><div><dt>创建时间</dt><dd>${fmtDate(organization.createdAt)}</dd></div></dl><div class="organization-primary-actions">${!membership && state.user ? `<button class="command-button" type="button" id="organizationHomeJoin" ${joinBlocked ? "disabled" : ""}>${joinBlocked ? "已达到 5 个组织上限" : "加入组织"}</button>` : ""}${!state.user ? '<a class="command-button" href="#/login">登录后加入</a>' : ""}<a class="command-button secondary" href="${organizationWorkspaceHref(organization.slug, "forum")}">进入学术论坛</a></div></aside></section>${editor}`;
   document.querySelector("#organizationHomeJoin")?.addEventListener("click", async () => {
     try { const joined = await api(`/api/community/organizations/${encodeURIComponent(organization.slug)}/join`, { method: "POST", body: "{}" }); uiToast(joined.membership.status === "active" ? "已加入组织" : "申请已提交，等待审核"); await renderOrganizationHome(value); } catch (error) { await uiAlert("加入失败", error.message, "error"); }
   });
-  document.querySelector("#organizationProfileEditor")?.addEventListener("submit", async (event) => {
+  const organizationProfileEditor = document.querySelector("#organizationProfileEditor");
+  organizationProfileEditor?.addEventListener("submit", async (event) => {
     event.preventDefault(); const form = event.currentTarget; const status = form.querySelector(".status-line"); status.textContent = "正在保存组织首页...";
     try { await api(`/api/community/organizations/${encodeURIComponent(organization.slug)}`, { method: "PUT", body: JSON.stringify(Object.fromEntries(new FormData(form).entries())) }); uiToast("组织首页已保存"); await renderOrganizationHome(value); } catch (error) { status.textContent = error.message; }
   });
@@ -6472,6 +6592,7 @@ function accountSecurityHtml(user = {}, preferences = {}) {
       </div>
       <div class="editor-actions security-actions">
         ${user.email && !user.emailVerified ? '<button class="command-button secondary" type="button" id="sendVerificationEmail">发送验证邮件</button>' : ""}
+        <button class="command-button secondary" type="button" id="changeAccountEmail">更换邮箱</button>
         ${user.twoFactorEnabled ? '<button class="command-button secondary" type="button" id="disableTwoFactor">关闭二次验证</button>' : '<button class="command-button" type="button" id="setupTwoFactor">开启二次验证</button>'}
       </div>
       <section class="account-messaging-summary" aria-labelledby="accountMessagingTitle">
@@ -6487,7 +6608,7 @@ function accountProfilePanelHtml(user = {}) {
   return `<form class="auth-panel compact profile-panel" id="profileForm">
     <h2>公开资料</h2>
     <label>显示名称<input name="displayName" value="${escapeHtml(user.displayName || "")}" required /></label>
-    <label>邮箱<input name="email" type="email" value="${escapeHtml(user.email || "")}" /></label>
+    <label><span>邮箱 <small class="profile-email-note" id="profileEmailHint">（请在安全中心验证并更换）</small></span><input name="email" type="email" value="${escapeHtml(user.email || "")}" readonly aria-describedby="profileEmailHint" /></label>
     <label>头像地址<input name="avatarUrl" value="${escapeHtml(user.avatarUrl || "")}" placeholder="https://..." /></label>
     <label>简介<input name="bio" value="${escapeHtml(user.bio || "")}" maxlength="500" /></label>
     ${profileSocialFields(user.socialLinks)}
@@ -6597,7 +6718,7 @@ function accountAchievementsPanelHtml(payload = {}) {
       <div class="achievement-overview-copy"><span class="system-kicker">Wikist Growth</span><h3>知识成长历程</h3><p>持续创作、协作和交流，解锁覆盖全站的贡献成就。</p><div class="achievement-summary-metrics"><span><strong>${Number(summary.earned || 0)}</strong><small>已解锁</small></span><span><strong>${Number(summary.total || 0)}</strong><small>全部成就</small></span><span><strong>${Number(summary.points || 0)}</strong><small>成长点数</small></span></div></div>
     </header>
     ${categories.length ? `<div class="achievement-category-row">${categories.map((category) => `<span>${escapeHtml(category)}</span>`).join("")}</div>` : ""}
-    <div class="achievement-grid">${items.length ? items.map((item) => `<article class="achievement-card ${item.earned ? "is-earned" : "is-locked"}">
+    <div class="achievement-grid ${items.length ? "" : "is-empty"}">${items.length ? items.map((item) => `<article class="achievement-card ${item.earned ? "is-earned" : "is-locked"}">
       <span class="achievement-card-icon">${achievementIconSvg(item.icon)}</span>
       <div class="achievement-card-copy"><div><span class="achievement-level is-${escapeHtml(item.level || "bronze")}">${item.earned ? "已解锁" : escapeHtml(item.level || "bronze")}</span><small>${escapeHtml(item.category || "知识成长")}</small></div><h3>${escapeHtml(item.name || "未命名成就")}</h3><p>${escapeHtml(item.description || "")}</p></div>
       <footer><div class="achievement-progress-track"><i style="width:${Math.max(0, Math.min(100, Number(item.progress || 0)))}%"></i></div><span>${Number(item.current || 0)} / ${Number(item.threshold || 1)}</span>${item.earned && item.awardedAt ? `<time>${fmtDate(item.awardedAt)}</time>` : ""}</footer>
@@ -6789,7 +6910,9 @@ async function renderAccount(value = "") {
     const box = document.querySelector("#twoFactorSetupBox");
     status.textContent = "正在生成二次验证密钥...";
     try {
-      const result = await api("/api/passport/security/2fa/setup", { method: "POST", body: JSON.stringify({}) });
+      const currentPassword = await uiPrompt({ title: "开启二次验证", text: "请输入当前密码确认身份。", confirmText: "继续" });
+      if (currentPassword === null) { status.textContent = ""; return; }
+      const result = await api("/api/passport/security/2fa/setup", { method: "POST", body: JSON.stringify({ currentPassword }) });
       const qrCodeDataUri = /^data:image\/(?:svg\+xml|png);base64,/i.test(String(result.qrCodeDataUri || ""))
         ? String(result.qrCodeDataUri)
         : "";
@@ -6808,7 +6931,11 @@ async function renderAccount(value = "") {
         const payload = Object.fromEntries(new FormData(event.currentTarget).entries());
         status.textContent = "正在启用...";
         try {
-          await api("/api/passport/security/2fa/enable", { method: "POST", body: JSON.stringify(payload) });
+          const enabled = await api("/api/passport/security/2fa/enable", { method: "POST", body: JSON.stringify(payload) });
+          state.csrfToken = enabled.csrfToken || state.csrfToken;
+          if (Array.isArray(enabled.security?.recoveryCodes) && enabled.security.recoveryCodes.length) {
+            await uiAlert("请保存恢复码", enabled.security.recoveryCodes.join("\n"), "success");
+          }
           await refreshUser();
           await renderAccount(value);
         } catch (error) {
@@ -6830,6 +6957,20 @@ async function renderAccount(value = "") {
       await api("/api/passport/security/2fa/disable", { method: "POST", body: JSON.stringify({ currentPassword, code }) });
       await refreshUser();
       await renderAccount(value);
+    } catch (error) {
+      status.textContent = error.message;
+    }
+  });
+  document.querySelector("#changeAccountEmail")?.addEventListener("click", async () => {
+    const email = await uiPrompt({ title: "更换邮箱", text: "输入新邮箱。验证完成前，当前邮箱仍然有效。", confirmText: "继续" });
+    if (email === null) return;
+    const currentPassword = await uiPrompt({ title: "确认身份", text: "请输入当前密码。", confirmText: "发送验证邮件" });
+    if (currentPassword === null) return;
+    const status = document.querySelector("#securityStatus");
+    status.textContent = "正在发送新邮箱验证邮件...";
+    try {
+      await api("/api/passport/email/change", { method: "POST", body: JSON.stringify({ email, currentPassword }) });
+      status.textContent = "验证邮件已发送。完成验证后新邮箱才会生效。";
     } catch (error) {
       status.textContent = error.message;
     }
@@ -6958,7 +7099,7 @@ function messagingSafeUrl(value, fallback = "#") {
 
 function messagingBodyTextHtml(value) {
   let html = escapeHtml(String(value || ""));
-  html = html.replace(/(https?:\/\/[^\s<]+)/g, (url) => `<a href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>`);
+  html = html.replace(/(https?:\/\/[^\s<]+)/g, (url) => `<a href="${url}" target="_blank" rel="nofollow ugc noopener noreferrer">${url}</a>`);
   html = html.replace(/(^|[^\p{L}\p{N}_])@([\p{L}\p{N}_.-]{2,32})/gu, (_match, prefix, username) => `${prefix}<a class="messaging-mention" href="#/user/${encodeURIComponent(username)}">@${username}</a>`);
   return html.replace(/\n/g, "<br>");
 }
@@ -7178,7 +7319,7 @@ function closeMessagingPreferencesDialog() {
 async function loadMessagingPreferences() {
   const payload = await api("/api/messaging/preferences").catch(() => null);
   if (payload?.preferences) {
-    messagingPreferences = { openMode: false, autoReplyEnabled: false, autoReplyText: "", ...payload.preferences };
+    messagingPreferences = { openMode: false, autoReplyEnabled: false, autoReplyText: "", showOnlineStatus: false, ...payload.preferences };
   }
   return messagingPreferences;
 }
@@ -7186,11 +7327,11 @@ async function loadMessagingPreferences() {
 async function openMessagingPreferencesDialog(options = {}) {
   await loadMessagingPreferences();
   closeMessagingPreferencesDialog();
-  const preferences = { openMode: false, autoReplyEnabled: false, autoReplyText: "", ...(messagingPreferences || {}) };
+  const preferences = { openMode: false, autoReplyEnabled: false, autoReplyText: "", showOnlineStatus: false, ...(messagingPreferences || {}) };
   const layer = document.createElement("section");
   layer.id = "messagingPreferencesLayer";
   layer.className = "wikist-modal-layer messaging-preferences-layer";
-  layer.innerHTML = `<article class="wikist-modal messaging-preferences-dialog" role="dialog" aria-modal="true" aria-labelledby="messagingPreferencesTitle"><header><div><span class="system-kicker">Messaging Preferences</span><h2 id="messagingPreferencesTitle">通信设置</h2></div><button type="button" data-close-messaging-preferences aria-label="关闭">×</button></header><form id="messagingPreferencesForm"><label class="messaging-preference-toggle"><input name="openMode" type="checkbox" ${preferences.openMode ? "checked" : ""}><span><strong>开放私信</strong><small>允许未互相关注的用户持续发送消息。</small></span></label><label class="messaging-preference-toggle"><input name="autoReplyEnabled" type="checkbox" ${preferences.autoReplyEnabled ? "checked" : ""}><span><strong>离线自动回复</strong><small>离线收到私信时发送一次自动回复。</small></span></label><label class="messaging-auto-reply-field wikist-field"><span>自动回复内容</span><textarea class="wikist-input" name="autoReplyText" rows="4" maxlength="500" placeholder="例如：我当前不在线，稍后回复你。">${escapeHtml(preferences.autoReplyText || "")}</textarea></label><footer><p class="status-line" id="messagingPreferencesStatus"></p><button class="command-button" type="submit">保存设置</button></footer></form></article>`;
+  layer.innerHTML = `<article class="wikist-modal messaging-preferences-dialog" role="dialog" aria-modal="true" aria-labelledby="messagingPreferencesTitle"><header><div><span class="system-kicker">Messaging Preferences</span><h2 id="messagingPreferencesTitle">通信设置</h2></div><button type="button" data-close-messaging-preferences aria-label="关闭">×</button></header><form id="messagingPreferencesForm"><label class="messaging-preference-toggle"><input name="openMode" type="checkbox" ${preferences.openMode ? "checked" : ""}><span><strong>开放私信</strong><small>允许未互相关注的用户持续发送消息。</small></span></label><label class="messaging-preference-toggle"><input name="showOnlineStatus" type="checkbox" ${preferences.showOnlineStatus ? "checked" : ""}><span><strong>公开在线状态</strong><small>允许其他用户在你的公开主页查看实时在线状态。</small></span></label><label class="messaging-preference-toggle"><input name="autoReplyEnabled" type="checkbox" ${preferences.autoReplyEnabled ? "checked" : ""}><span><strong>离线自动回复</strong><small>离线收到私信时发送一次自动回复。</small></span></label><label class="messaging-auto-reply-field wikist-field"><span>自动回复内容</span><textarea class="wikist-input" name="autoReplyText" rows="4" maxlength="500" placeholder="例如：我当前不在线，稍后回复你。">${escapeHtml(preferences.autoReplyText || "")}</textarea></label><footer><p class="status-line" id="messagingPreferencesStatus"></p><button class="command-button" type="submit">保存设置</button></footer></form></article>`;
   document.body.appendChild(layer);
   const syncField = () => {
     const enabled = Boolean(layer.querySelector('[name="autoReplyEnabled"]')?.checked);
@@ -7212,7 +7353,7 @@ async function openMessagingPreferencesDialog(options = {}) {
     submit.disabled = true;
     status.textContent = "正在保存...";
     try {
-      const result = await api("/api/messaging/preferences", { method: "PUT", body: JSON.stringify({ openMode: form.openMode.checked, autoReplyEnabled: form.autoReplyEnabled.checked, autoReplyText: form.autoReplyText.value.trim() }) });
+      const result = await api("/api/messaging/preferences", { method: "PUT", body: JSON.stringify({ openMode: form.openMode.checked, showOnlineStatus: form.showOnlineStatus.checked, autoReplyEnabled: form.autoReplyEnabled.checked, autoReplyText: form.autoReplyText.value.trim() }) });
       messagingPreferences = result.preferences || preferences;
       close();
       if (typeof options.onSaved === "function") await options.onSaved(messagingPreferences);
@@ -7294,7 +7435,7 @@ async function renderMessagingWorkspace(value = "") {
     api(`/api/messaging/conversations?${query}`),
   ]);
   messagingBootstrap = bootstrap;
-  messagingPreferences = { openMode: false, autoReplyEnabled: false, autoReplyText: "", ...(bootstrap.preferences || {}) };
+  messagingPreferences = { openMode: false, autoReplyEnabled: false, autoReplyText: "", showOnlineStatus: false, ...(bootstrap.preferences || {}) };
   if (bootstrap.presence) applyMessagingPresence(bootstrap.presence);
   state.unreadMessages = Number(bootstrap.unreadCount || 0);
   renderMessageBadge();
@@ -7348,7 +7489,7 @@ async function renderMessagingWorkspace(value = "") {
   setChromeTitle(activeConversation ? `${activeConversation.title} - 通信` : "通信");
   renderToc([]);
   el.editLink.href = "#/new";
-  el.main.innerHTML = `<section class="messaging-page"><header class="messaging-page-head"><div><span class="system-kicker">Knowledge Collaboration</span><h1>统一通信</h1><p>联系成员、进入组织群聊或引用知识内容。</p></div><div><span class="messaging-connection-state"><i></i>${bootstrap.realtime?.enabled ? "实时连接" : "安全同步"}</span><button type="button" data-open-messaging-preferences>${navigationIconSvg("workspace")}<span>通信设置</span></button><button type="button" data-messaging-read-all ${state.unreadMessages ? "" : "disabled"}>全部已读</button></div></header><section class="messaging-workspace ${activeConversation ? "has-active" : ""} ${requestedId ? "mobile-thread-open" : ""}" id="messagingWorkspace">${messagingSidebarHtml(conversations, messagingWorkspaceState.pagination, activeConversation?.id || "", filters)}${messagingThreadHtml(activeConversation, messagingWorkspaceState.messages, pageData)}${activeConversation ? messagingContextHtml(activeConversation, messagingWorkspaceState.messages, memberPage) : ""}</section></section>`;
+  el.main.innerHTML = `<section class="messaging-page"><header class="messaging-page-head"><div><span class="system-kicker">Knowledge Collaboration</span><h1>统一通信</h1><p>联系成员、进入组织群聊或引用知识内容。</p></div><div><span class="messaging-connection-state"><i></i>${messagingConnectionLabel()}</span><button type="button" data-open-messaging-preferences>${navigationIconSvg("workspace")}<span>通信设置</span></button><button type="button" data-messaging-read-all ${state.unreadMessages ? "" : "disabled"}>全部已读</button></div></header><section class="messaging-workspace ${activeConversation ? "has-active" : ""} ${requestedId ? "mobile-thread-open" : ""}" id="messagingWorkspace">${messagingSidebarHtml(conversations, messagingWorkspaceState.pagination, activeConversation?.id || "", filters)}${messagingThreadHtml(activeConversation, messagingWorkspaceState.messages, pageData)}${activeConversation ? messagingContextHtml(activeConversation, messagingWorkspaceState.messages, memberPage) : ""}</section></section>`;
   bindMessagingWorkspace();
   if (activeConversation) {
     await markMessagingConversationRead(activeConversation.id);
@@ -8297,12 +8438,15 @@ async function renderUserPage(username) {
     const editProfileButton = isSelf ? `<a class="icon-button user-profile-edit" href="#/account" title="编辑个人主页" aria-label="编辑个人主页"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5Z"/></svg></a>` : "";
     const followButton = userFollowButtonHtml(user, isSelf, isBanned);
     const messageButton = state.user && !isSelf && !isBanned ? `<a class="command-button secondary user-message-button" href="#/messages?user=${Number(user.id)}">${navigationIconSvg("chat")}<span>私信</span></a>` : "";
+    const presenceStatus = user.onlineVisible === false
+      ? '<span class="user-presence-status is-private" title="用户未公开在线状态"><i></i><span class="messaging-presence-label">状态未公开</span></span>'
+      : `<span class="user-presence-status ${user.online ? "is-online" : ""}" data-profile-presence-user="${Number(user.id)}" title="实时在线状态"><i></i><span class="messaging-presence-label ${user.online ? "is-online" : ""}" data-presence-label="${Number(user.id)}">${user.online ? "在线" : "离线"}</span></span>`;
     const activity = user.recentEdits?.length
       ? user.recentEdits.slice(0, 10).map((event) => `<a class="edit-event" href="#/page/${encodeSlug(event.pageSlug)}"><div><strong>${escapeHtml(event.pageTitle)}</strong><span>${event.action === "create" ? "创建" : event.action === "delete" ? "删除" : "编辑"}</span></div><small>${fmtDate(event.createdAt)}</small></a>`).join("")
       : `<p class="muted-line">暂无公开活动。</p>`;
     el.main.innerHTML = `
       <header class="article-head user-head profile-hero public-profile-hero">
-        <div class="profile-hero-main">${avatarHtml(user, "large")}<div class="profile-hero-copy"><span class="system-kicker">Community Profile</span><h1>${escapeHtml(user.displayName || user.username)}</h1><p>@${escapeHtml(user.username)} · ${escapeHtml(user.groupLabel || GROUP_LABELS[user.role] || user.role)} <span class="user-presence-status ${user.online ? "is-online" : ""}" data-profile-presence-user="${Number(user.id)}" title="实时在线状态"><i></i><span class="messaging-presence-label ${user.online ? "is-online" : ""}" data-presence-label="${Number(user.id)}">${user.online ? "在线" : "离线"}</span></span></p><small>${escapeHtml(user.bio || "这个用户还没有填写简介。")}</small></div></div>
+        <div class="profile-hero-main">${avatarHtml(user, "large")}<div class="profile-hero-copy"><span class="system-kicker">Community Profile</span><h1>${escapeHtml(user.displayName || user.username)}</h1><p>@${escapeHtml(user.username)} · ${escapeHtml(user.groupLabel || GROUP_LABELS[user.role] || user.role)} ${presenceStatus}</p><small>${escapeHtml(user.bio || "这个用户还没有填写简介。")}</small></div></div>
         <div class="profile-hero-actions">${followButton}${messageButton}${editProfileButton}</div>
         <div class="profile-metric-strip public-profile-metric-strip"><span><strong>${Number(user.stats?.edits || 0)}</strong><span>编辑</span></span><span><strong>${Number(user.stats?.comments || 0)}</strong><span>评论</span></span><span><strong>${Number(communityReputation.score || 0)}</strong><span>社区声望</span></span><span><strong>#${Number(communityReputation.rank || 0)}</strong><span>社区排名</span></span><span><strong>${Number(user.stats?.followers || 0)}</strong><span>关注者</span></span><span><strong>${Number(user.stats?.following || 0)}</strong><span>正在关注</span></span><span><strong>${fmtDate(user.createdAt).split(" ")[0] || "-"}</strong><span>加入日期</span></span></div>
         ${socialLinksHtml(user.socialLinks, "public")}
@@ -8604,7 +8748,7 @@ async function renderAdminUsers(page = 1, query = "") {
 function adminOrganizationRow(organization) {
   const status = organization.status === "disabled" ? "已停用" : "正常";
   const statusControl = canManageUsers()
-    ? `<div class="admin-inline-control"><select data-organization-status aria-label="组织状态"><option value="active" ${organization.status === "active" ? "selected" : ""}>正常</option><option value="disabled" ${organization.status === "disabled" ? "selected" : ""}>停用</option></select><button class="mini-button" type="button" data-save-organization>保存</button></div>`
+    ? `<div class="admin-inline-control organization-admin-controls"><select data-organization-status aria-label="组织状态"><option value="active" ${organization.status === "active" ? "selected" : ""}>正常</option><option value="disabled" ${organization.status === "disabled" ? "selected" : ""}>停用</option></select><button class="mini-button" type="button" data-save-organization>保存</button></div>`
     : `<span class="admin-status">${status}</span>`;
   return `<tr data-organization-slug="${escapeHtml(organization.slug)}"><td><strong>${escapeHtml(organization.name)}</strong><small>${escapeHtml(organization.slug)}</small></td><td>${organization.founderUsername ? `<a class="mini-link" href="#/user/${encodeURIComponent(organization.founderUsername)}">${escapeHtml(organization.founderName || organization.founderUsername)}</a>` : "未记录"}</td><td>${(organization.focus || []).slice(0, 3).map((item) => `<span class="chip">${escapeHtml(item)}</span>`).join("") || '<span class="muted-line">未设置</span>'}</td><td>${Number(organization.memberCount || 0)} 成员<small>${Number(organization.taskCount || 0)} 任务 · ${Number(organization.discussionCount || 0)} 主题</small></td><td>${statusControl}<span class="status-line"></span></td><td class="admin-row-actions"><a class="mini-link" href="#/organization/${encodeURIComponent(organization.slug)}">进入组织</a><a class="mini-link" href="#/organization/${encodeURIComponent(organization.slug)}?tab=members">成员</a></td></tr>`;
 }
@@ -8615,7 +8759,7 @@ async function renderAdminOrganizations(page = 1, query = "", filter = "all") {
   const { items, pagination } = normalizedPaged(payload, page, limit);
   const stats = payload.stats || {};
   const rows = items.length ? items.map(adminOrganizationRow).join("") : '<tr><td colspan="6">没有匹配的协作组织。</td></tr>';
-  const body = `${adminHeader("协作社区管理", "搜索组织并管理状态与公开入口。")}<section class="admin-metrics organization-admin-metrics"><div class="admin-metric"><span>全部组织</span><strong>${Number(stats.total || 0)}</strong></div><div class="admin-metric"><span>正常运行</span><strong>${Number(stats.active || 0)}</strong></div><div class="admin-metric"><span>已停用</span><strong>${Number(stats.disabled || 0)}</strong></div></section>${adminSearchForm("adminOrganizationSearch", query, "搜索组织名称、标识、简介或创建者", `<select name="status" aria-label="组织状态"><option value="all" ${filter === "all" ? "selected" : ""}>全部状态</option><option value="active" ${filter === "active" ? "selected" : ""}>正常</option><option value="disabled" ${filter === "disabled" ? "selected" : ""}>已停用</option></select>`)}<div class="admin-table-wrap"><table class="admin-table organization-admin-table"><thead><tr><th>组织</th><th>创建者</th><th>研究方向</th><th>协作规模</th><th>状态</th><th>操作</th></tr></thead><tbody>${rows}</tbody></table></div>${paginationHtml(pagination, "协作社区管理")}`;
+  const body = `${adminHeader("协作社区管理", "搜索组织并管理运行状态。")}<section class="admin-metrics organization-admin-metrics"><div class="admin-metric"><span>全部组织</span><strong>${Number(stats.total || 0)}</strong></div><div class="admin-metric"><span>正常运行</span><strong>${Number(stats.active || 0)}</strong></div><div class="admin-metric"><span>已停用</span><strong>${Number(stats.disabled || 0)}</strong></div></section>${adminSearchForm("adminOrganizationSearch", query, "搜索组织名称、标识、简介或创建者", `<select name="status" aria-label="组织状态"><option value="all" ${filter === "all" ? "selected" : ""}>全部状态</option><option value="active" ${filter === "active" ? "selected" : ""}>正常</option><option value="disabled" ${filter === "disabled" ? "selected" : ""}>已停用</option></select>`)}<div class="admin-table-wrap"><table class="admin-table organization-admin-table"><thead><tr><th>组织</th><th>创建者</th><th>研究方向</th><th>协作规模</th><th>状态</th><th>操作</th></tr></thead><tbody>${rows}</tbody></table></div>${paginationHtml(pagination, "协作社区管理")}`;
   el.main.innerHTML = adminShell("organizations", body);
   document.querySelector("#adminOrganizationSearch")?.addEventListener("submit", (event) => { event.preventDefault(); const data = new FormData(event.currentTarget); renderAdminOrganizations(1, data.get("q") || "", data.get("status") || "all").catch(renderError); });
   enhanceTables();
@@ -8674,7 +8818,7 @@ async function renderAdminCommunity(tab = "overview", page = 1, statusFilter = "
       ? `<tr data-community-report-id="${escapeHtml(item.id)}"><td><strong>${escapeHtml(({ spam: "垃圾信息", abuse: "不当内容", duplicate: "重复内容", incorrect: "事实错误", copyright: "版权问题", privacy: "隐私问题", other: "其他" })[item.reason] || item.reason)}</strong><small>${escapeHtml(item.details || "未补充说明")}</small></td><td>${communityModerationObjectHtml(item)}</td><td>${escapeHtml(item.reporter?.displayName || item.reporter?.username || "用户")}<small>${fmtDate(item.createdAt)}</small></td><td>${adminStatus(item.status)}</td><td class="admin-row-actions">${item.status === "pending" ? '<button class="mini-button" type="button" data-community-report-decision="resolved">确认处理</button><button class="mini-button danger" type="button" data-community-report-decision="dismissed">驳回</button>' : escapeHtml(item.resolution || "已处理")}</td></tr>`
       : `<tr data-community-review-id="${escapeHtml(item.id)}"><td><strong>${escapeHtml(item.queueType || "内容审核")}</strong><small>${escapeHtml(item.reason || "待社区审阅")}</small></td><td>${communityModerationObjectHtml(item)}</td><td><strong>${escapeHtml(item.requester?.displayName || item.requester?.username || "社区成员")}</strong>${adminStatus(item.status)}<small>${fmtDate(item.createdAt)}</small></td><td class="admin-row-actions">${item.status === "pending" ? '<button class="mini-button" type="button" data-community-review-decision="approved">通过</button><button class="mini-button danger" type="button" data-community-review-decision="rejected">拒绝</button>' : "已完成"}</td></tr>`).join("") : `<tr><td colspan="${reports ? 5 : 4}">${reports ? "没有符合条件的举报。" : "没有符合条件的修订。"}</td></tr>`;
     const options = [["pending", "待处理"], [reports ? "resolved" : "approved", reports ? "已处理" : "已通过"], [reports ? "dismissed" : "rejected", reports ? "已驳回" : "已拒绝"]];
-    const filter = `<form class="admin-toolbar" id="adminCommunityQueueFilter"><select name="status" aria-label="队列状态">${options.map(([value, label]) => `<option value="${value}" ${statusFilter === value ? "selected" : ""}>${label}</option>`).join("")}</select><button class="command-button" type="submit">筛选</button></form>`;
+    const filter = `<form class="admin-toolbar admin-community-queue-filter" id="adminCommunityQueueFilter"><select name="status" aria-label="队列状态">${options.map(([value, label]) => `<option value="${value}" ${statusFilter === value ? "selected" : ""}>${label}</option>`).join("")}</select><button class="command-button" type="submit">筛选</button></form>`;
     const body = `${heading}${filter}<div class="admin-table-wrap"><table class="admin-table"><thead><tr>${reports ? "<th>举报原因</th><th>对象</th><th>提交者</th><th>状态</th><th>处理</th>" : "<th>审核任务</th><th>对象</th><th>状态</th><th>决定</th>"}</tr></thead><tbody>${rows}</tbody></table></div>${paginationHtml(pagination, reports ? "社区举报" : "社区修订审核")}`;
     el.main.innerHTML = adminShell("community", body);
     bindAdminCommunityTabs();
@@ -9732,6 +9876,8 @@ function siteSettingsForm(site, home, homeContent = {}) {
       <section class="settings-section"><h2>基础信息</h2><div class="site-settings-grid">
         <label>站点标题<input name="name" value="${escapeHtml(site.name || "Wikist")}" /></label>
         <label>默认首页<input name="defaultPage" value="${escapeHtml(site.defaultPage || "home")}" /></label>
+        <label>部署模式<select name="deploymentMode"><option value="development" ${site.deploymentMode === "development" ? "selected" : ""}>本地开发</option><option value="single-production" ${site.deploymentMode === "single-production" ? "selected" : ""}>单机生产</option><option value="advanced" ${site.deploymentMode === "advanced" ? "selected" : ""}>高级 / 反向代理</option></select></label>
+        <label class="wide">站点公开地址<input name="publicUrl" type="url" value="${escapeHtml(site.publicUrl || "")}" placeholder="https://wiki.example.com" required /></label>
         <label>默认语言<select name="language">${settingsLanguages.map((lang) => `<option value="${lang}" ${lang === (site.language || "zh-CN") ? "selected" : ""}>${languageLabel(lang)}</option>`).join("")}</select></label>
         <label>协议<input name="license" value="${escapeHtml(site.license || "CC BY-SA 4.0")}" /></label>
         <label class="wide">站点语言列表<input name="languages" value="${escapeHtml(settingsLanguages.join(", "))}" placeholder="zh-CN, zh-TW, en, fr, ja" /></label>
@@ -9749,15 +9895,13 @@ function siteSettingsForm(site, home, homeContent = {}) {
         <label>SMTP &#x5BC6;&#x7801;<input name="smtpPass" type="password" value="" autocomplete="new-password" placeholder="${mail.smtpPassSet ? "&#x5DF2;&#x914D;&#x7F6E;&#xFF0C;&#x7559;&#x7A7A;&#x4E0D;&#x4FEE;&#x6539;" : "&#x672A;&#x914D;&#x7F6E;"}" /></label>
         <label>&#x53D1;&#x4EF6;&#x4EBA;&#x540D;&#x79F0;<input name="fromName" value="${escapeHtml(mail.fromName || site.name || "Wikist")}" /></label>
         <label>&#x53D1;&#x4EF6;&#x90AE;&#x7BB1;<input name="fromAddress" type="email" value="${escapeHtml(mail.fromAddress || "")}" placeholder="no-reply@example.com" /></label>
-        <label class="wide">&#x7AD9;&#x70B9;&#x5916;&#x90E8; URL<input name="mailBaseUrl" value="${escapeHtml(mail.baseUrl || "")}" placeholder="https://wiki.example.com" /></label>
         <label class="setting-toggle wide"><input name="requireEmailVerification" type="checkbox" ${passportSecurity.requireEmailVerification ? "checked" : ""} /><span><strong>&#x6CE8;&#x518C;&#x540E;&#x5FC5;&#x987B;&#x9A8C;&#x8BC1;&#x90AE;&#x7BB1;&#x624D;&#x80FD;&#x767B;&#x5F55;</strong><small>&#x5EFA;&#x8BAE;&#x5728; SMTP &#x6D4B;&#x8BD5;&#x7A33;&#x5B9A;&#x540E;&#x5F00;&#x542F;&#x3002;</small></span></label>
         <label>&#x9A8C;&#x8BC1;&#x90AE;&#x4EF6;&#x6709;&#x6548;&#x671F;&#xFF08;&#x79D2;&#xFF09;<input name="emailVerificationTTLSeconds" type="number" min="60" max="86400" value="${escapeHtml(passportSecurity.emailVerificationTTLSeconds || 1800)}" /></label>
         <label>&#x627E;&#x56DE;&#x5BC6;&#x7801;&#x6709;&#x6548;&#x671F;&#xFF08;&#x79D2;&#xFF09;<input name="passwordResetTTLSeconds" type="number" min="60" max="86400" value="${escapeHtml(passportSecurity.passwordResetTTLSeconds || 1200)}" /></label>
         <label>TOTP Issuer<input name="twoFactorIssuer" value="${escapeHtml(passportSecurity.twoFactorIssuer || site.name || "Wikist")}" /></label>
       </div></section>
-      <section class="settings-section"><h2>网页端自定义</h2><p class="muted-line">编辑全站 CSS 与 JS；保存前请确认代码来源可信。</p><div class="site-code-grid">
+      <section class="settings-section"><h2>网页端自定义</h2><p class="muted-line">使用样式覆盖调整站点外观。</p><div class="site-code-grid">
         <label>自定义 CSS<textarea name="customCss" class="site-code-textarea" spellcheck="false">${escapeHtml(site.customCss || "")}</textarea></label>
-        <label>自定义 JS<textarea name="customJs" class="site-code-textarea" spellcheck="false">${escapeHtml(site.customJs || "")}</textarea></label>
       </div></section>
       <section class="settings-section"><h2>首页展示内容</h2><div class="site-settings-grid">
         <label>首页眉标<input name="homeContent.heroKicker" value="${escapeHtml(homeContent.heroKicker || "")}" /></label>
@@ -9799,7 +9943,6 @@ async function renderAdminSettings() {
     sitePayload.smtpPort = Number(sitePayload.smtpPort || 587);
     sitePayload.emailVerificationTTLSeconds = Number(sitePayload.emailVerificationTTLSeconds || 1800);
     sitePayload.passwordResetTTLSeconds = Number(sitePayload.passwordResetTTLSeconds || 1200);
-    sitePayload.baseUrl = sitePayload.mailBaseUrl || "";
     const homePayload = {};
     const homeContentPayload = {};
     HOME_SETTING_FIELDS.forEach(([key]) => { homePayload[key] = data.has(key); });
@@ -9828,7 +9971,10 @@ async function renderAdminSettings() {
       applySiteIcon();
       updateLanguageChrome();
       renderPassportLink();
-      status.textContent = "站点设置已保存。";
+      status.textContent = saved.restartRequired
+        ? `站点设置已保存。公开地址或部署模式已改变，请在服务器执行：${saved.deploymentCommand}`
+        : "站点设置已保存。";
+      status.classList.toggle("requires-restart", Boolean(saved.restartRequired));
     } catch (error) {
       status.textContent = error.message;
     }

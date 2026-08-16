@@ -1,6 +1,8 @@
 ﻿{
   "name": "Wikist",
   "tagline": "Open mathematical knowledge",
+  "publicUrl": "https://wiki.example.com",
+  "deploymentMode": "single-production",
   "language": "zh-CN",
   "defaultPage": "home",
   "license": "CC BY-SA 4.0",
@@ -24,7 +26,7 @@
     "database": "data/wikist.sqlite",
     "sessionDays": 7,
     "captchaTTLSeconds": 300,
-    "sqliteBusyTimeoutMs": 8000
+    "sqliteBusyTimeoutMs": 10000
   },
   "security": {
     "firewall": {

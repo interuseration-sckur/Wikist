@@ -336,7 +336,7 @@ final class CommunityEventService
             'status' => in_array((string) $question->status, ['published', 'closed'], true) ? 'active' : (string) $question->status,
             'searchText' => implode(' ', [(string) $question->title, (string) $question->body_plain, implode(' ', $tags)]),
             'metadata' => ['numericId' => (int) $question->id, 'tags' => $tags, 'status' => (string) $question->status,
-                'visibility' => (string) $question->visibility, 'private' => (string) $question->visibility !== 'public'],
+                'visibility' => 'public'],
         ]);
     }
 
@@ -352,7 +352,7 @@ final class CommunityEventService
             'status' => (string) $answer->status === 'published' ? 'active' : (string) $answer->status,
             'searchText' => (string) $answer->body_plain,
             'metadata' => ['numericId' => (int) $answer->id, 'questionId' => (string) $question->public_id,
-                'accepted' => (bool) $answer->is_accepted, 'private' => (string) $question->visibility !== 'public'],
+                'accepted' => (bool) $answer->is_accepted],
         ]);
     }
 
@@ -381,8 +381,7 @@ final class CommunityEventService
             'status' => (string) $comment->status === 'published' ? 'active' : (string) $comment->status,
             'searchText' => (string) $comment->body_plain,
             'metadata' => ['numericId' => (int) $comment->id, 'questionId' => (string) $question->public_id,
-                'targetType' => (string) $comment->target_type, 'targetId' => (int) $comment->target_id,
-                'private' => (string) $question->visibility !== 'public'],
+                'targetType' => (string) $comment->target_type, 'targetId' => (int) $comment->target_id],
         ]);
     }
 

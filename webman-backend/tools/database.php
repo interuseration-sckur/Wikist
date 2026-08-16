@@ -13,7 +13,7 @@ function wikist_database(string $prefix = 'WIKIST'): array
 {
     $driver = strtolower(getenv("{$prefix}_DB_DRIVER") ?: 'sqlite');
     if ($driver === 'sqlite') {
-        $database = getenv("{$prefix}_DB_DATABASE") ?: dirname(__DIR__) . '/database/wikist.sqlite';
+        $database = getenv("{$prefix}_DB_DATABASE") ?: dirname(__DIR__, 2) . '/data/wikist.sqlite';
         if (!str_starts_with($database, '/') && !preg_match('/^[A-Za-z]:[\\\\\/]/', $database)) {
             $database = dirname(__DIR__) . '/' . $database;
         }
@@ -23,7 +23,16 @@ function wikist_database(string $prefix = 'WIKIST'): array
         }
         $pdo = new PDO('sqlite:' . $database);
         $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-        $pdo->exec('PRAGMA busy_timeout = 8000');
+        $busyTimeout = max(1000, (int) (getenv("{$prefix}_DB_BUSY_TIMEOUT") ?: 10000));
+        $pdo->setAttribute(PDO::ATTR_TIMEOUT, max(1, (int) ceil($busyTimeout / 1000)));
+        $synchronous = strtoupper(getenv("{$prefix}_DB_SYNCHRONOUS") ?: 'NORMAL');
+        if (!in_array($synchronous, ['OFF', 'NORMAL', 'FULL', 'EXTRA'], true)) {
+            $synchronous = 'NORMAL';
+        }
+        $pdo->exec("PRAGMA busy_timeout = {$busyTimeout}");
+        $pdo->exec('PRAGMA foreign_keys = ON');
+        $pdo->exec('PRAGMA journal_mode = WAL');
+        $pdo->exec("PRAGMA synchronous = {$synchronous}");
         return ['pdo' => $pdo, 'driver' => 'sqlite'];
     }
 

@@ -2,6 +2,41 @@ const { pluginSettings, renderPluginBlock, renderPluginFence, runMarkdownPreproc
 const { slugToId } = require("./slug");
 const { normalizeReferences, referenceQuality, formatReferenceText } = require("./citations");
 
+const MAX_MARKDOWN_CHARS = Math.max(65536, Number(process.env.WIKIST_MARKDOWN_MAX_CHARS) || 2 * 1024 * 1024);
+const MAX_MARKDOWN_LINES = Math.max(2000, Number(process.env.WIKIST_MARKDOWN_MAX_LINES) || 50000);
+const MAX_MARKDOWN_NESTING = 16;
+const MAX_MARKDOWN_INLINE_MARKERS = Math.max(4000, Number(process.env.WIKIST_MARKDOWN_MAX_INLINE_MARKERS) || 24000);
+const MAX_MARKDOWN_MARKER_RUN = 2048;
+
+function assertInlineComplexity(source) {
+  let fenced = false;
+  let markers = 0;
+  let previous = "";
+  let run = 0;
+  for (const line of String(source || "").split("\n")) {
+    if (/^\s*(?:```|~~~)/.test(line)) {
+      fenced = !fenced;
+      previous = "";
+      run = 0;
+      continue;
+    }
+    if (fenced) continue;
+    for (const char of line) {
+      if (!"[](){}".includes(char)) {
+        previous = "";
+        run = 0;
+        continue;
+      }
+      markers += 1;
+      run = char === previous ? run + 1 : 1;
+      previous = char;
+      if (markers > MAX_MARKDOWN_INLINE_MARKERS || run > MAX_MARKDOWN_MARKER_RUN) {
+        throw new Error("Markdown 内联标记超过安全预算。");
+      }
+    }
+  }
+}
+
 function escapeHtml(value) {
   return String(value || "")
     .replace(/&/g, "&amp;")
@@ -19,7 +54,9 @@ function sanitizeHref(href) {
 
 function sanitizeSrc(src) {
   const value = String(src || "").trim();
-  if (/^(https?:\/\/|data:image\/|\/|\.\/)/i.test(value)) return value.replace(/"/g, "%22");
+  if (/^(https?:\/\/|\/|\.\/)/i.test(value) || /^data:image\/(?:png|jpeg|gif|webp);base64,/i.test(value)) {
+    return value.replace(/"/g, "%22");
+  }
   return "";
 }
 
@@ -297,9 +334,9 @@ function renderInline(source, runtime = createRuntime()) {
     return stash(`<a href="#/page/${encodeURIComponent(label)}" class="wiki-link">${escapeHtml(label)}</a>`);
   });
   text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_match, label, href) => {
-    return stash(`<a href="${sanitizeHref(href)}" rel="noreferrer">${renderInline(label, runtime)}</a>`);
+    return stash(`<a href="${sanitizeHref(href)}" rel="nofollow ugc noopener noreferrer">${renderInline(label, runtime)}</a>`);
   });
-  text = text.replace(/<((?:https?:\/\/|mailto:)[^<>\s]+)>/g, (_match, href) => stash(`<a href="${sanitizeHref(href)}" rel="noreferrer">${escapeHtml(href)}</a>`));
+  text = text.replace(/<((?:https?:\/\/|mailto:)[^<>\s]+)>/g, (_match, href) => stash(`<a href="${sanitizeHref(href)}" rel="nofollow ugc noopener noreferrer">${escapeHtml(href)}</a>`));
 
   // Protect TeX before Markdown emphasis processing so identifiers such as
   // $S_3$ and $F^*(G)$ cannot be rewritten into malformed <em> markup.
@@ -317,7 +354,7 @@ function renderInline(source, runtime = createRuntime()) {
   text = text.replace(/(^|[^~])~([^~\s][^~]*?)~(?!~)/g, "$1<sub>$2</sub>");
   text = text.replace(/\*([^*]+)\*/g, "<em>$1</em>");
   text = text.replace(/_([^_]+)_/g, "<em>$1</em>");
-  text = text.replace(/(^|\s)((?:https?:\/\/)[^\s<]+)/g, (_match, prefix, href) => `${prefix}<a href="${sanitizeHref(href)}" rel="noreferrer">${escapeHtml(href)}</a>`);
+  text = text.replace(/(^|\s)((?:https?:\/\/)[^\s<]+)/g, (_match, prefix, href) => `${prefix}<a href="${sanitizeHref(href)}" rel="nofollow ugc noopener noreferrer">${escapeHtml(href)}</a>`);
 
   for (let index = 0; index < tokens.length; index += 1) {
     text = text.replace(`@@HTML${index}@@`, tokens[index]);
@@ -401,7 +438,7 @@ function referenceLinksHtml(reference) {
   const links = [];
   if (reference.doi) links.push(`<a href="https://doi.org/${encodeURIComponent(reference.doi).replace(/%2F/gi, "/")}" rel="noreferrer" target="_blank">DOI: ${escapeHtml(reference.doi)}</a>`);
   if (reference.arxiv) links.push(`<a href="https://arxiv.org/abs/${encodeURIComponent(reference.arxiv).replace(/%2F/gi, "/")}" rel="noreferrer" target="_blank">arXiv: ${escapeHtml(reference.arxiv)}</a>`);
-  if (reference.url) links.push(`<a href="${sanitizeHref(reference.url)}" rel="noreferrer" target="_blank">链接</a>`);
+  if (reference.url) links.push(`<a href="${sanitizeHref(reference.url)}" rel="nofollow ugc noopener noreferrer" target="_blank">链接</a>`);
   return links.length ? `<span class="reference-links">${links.join(" · ")}</span>` : "";
 }
 
@@ -511,7 +548,12 @@ function renderContainer(lines, start, context, runtime) {
     index += 1;
   }
   if (index < lines.length) index += 1;
-  const renderedBody = renderMarkdown(body.join("\n"), { ...context, nested: true, runtime }).html;
+  const renderedBody = renderMarkdown(body.join("\n"), {
+    ...context,
+    nested: true,
+    depth: Math.max(0, Number(context.depth) || 0) + 1,
+    runtime,
+  }).html;
   if (!isSupported) {
     const safeKind = slugToId(kind);
     return {
@@ -526,8 +568,15 @@ function renderContainer(lines, start, context, runtime) {
 }
 
 function renderMarkdown(source, context = {}) {
-  const preparedSource = runMarkdownPreprocessHooks(source, context);
+  const depth = Math.max(0, Number(context.depth) || 0);
+  if (depth > MAX_MARKDOWN_NESTING) throw new Error("Markdown 嵌套层级超过安全限制。");
+  const rawSource = String(source || "");
+  if (rawSource.length > MAX_MARKDOWN_CHARS) throw new Error("Markdown 正文超过渲染上限。");
+  const preparedSource = String(runMarkdownPreprocessHooks(rawSource, context) || "");
+  if (preparedSource.length > MAX_MARKDOWN_CHARS) throw new Error("Markdown 插件预处理结果超过渲染上限。");
+  assertInlineComplexity(preparedSource);
   const preparedLines = String(preparedSource || "").replace(/\r\n/g, "\n").split("\n");
+  if (preparedLines.length > MAX_MARKDOWN_LINES) throw new Error("Markdown 行数超过渲染上限。");
   const footnotesEnabled = markdownFeatureEnabled(context, "upstreamFootnote");
   const extracted = footnotesEnabled ? extractFootnotes(preparedLines) : { lines: preparedLines, footnotes: new Map() };
   const lines = extracted.lines;
@@ -646,7 +695,7 @@ function renderMarkdown(source, context = {}) {
       flushParagraph(paragraph, html, runtime);
       const { block, next } = collectBlock(lines, index, (item) => /^>\s?/.test(item.trim()));
       const quote = block.map((item) => item.replace(/^>\s?/, "")).join("\n");
-      html.push(`<blockquote>${renderMarkdown(quote, { ...context, nested: true, runtime }).html}</blockquote>`);
+      html.push(`<blockquote>${renderMarkdown(quote, { ...context, nested: true, depth: depth + 1, runtime }).html}</blockquote>`);
       index = next;
       continue;
     }

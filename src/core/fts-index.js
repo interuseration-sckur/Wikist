@@ -51,10 +51,11 @@ function facets(rows) {
 }
 
 class PersistentFtsIndex {
-  constructor(passport, settingsProvider = null) {
+  constructor(passport, settingsProvider = null, options = {}) {
     this.passport = passport || null;
     this.db = passport?.db || null;
     this.settingsProvider = settingsProvider;
+    this.schemaManagedExternally = options.schemaManagedExternally === true;
     this.initialized = false;
     this.available = null;
     this.error = "";
@@ -100,30 +101,35 @@ class PersistentFtsIndex {
     if (!this.db || this.available === false) return false;
     if (this.initialized) return true;
     try {
-      this.db.exec(`
-        CREATE TABLE IF NOT EXISTS ${STATE_TABLE} (
-          key TEXT PRIMARY KEY,
-          value TEXT NOT NULL DEFAULT '',
-          updated_at TEXT NOT NULL
-        );
-        CREATE VIRTUAL TABLE IF NOT EXISTS ${FTS_TABLE} USING fts5(
-          slug UNINDEXED,
-          title_terms,
-          summary_terms,
-          body_terms,
-          category_terms,
-          author_terms,
-          title UNINDEXED,
-          summary UNINDEXED,
-          body UNINDEXED,
-          categories UNINDEXED,
-          quality UNINDEXED,
-          difficulty UNINDEXED,
-          author UNINDEXED,
-          updated_at UNINDEXED,
-          tokenize = 'unicode61 remove_diacritics 2'
-        );
-      `);
+      if (this.schemaManagedExternally) {
+        const rows = this.db.prepare("SELECT name FROM sqlite_schema WHERE type = 'table' AND name IN (?, ?)").all(STATE_TABLE, FTS_TABLE);
+        if (rows.length !== 2) throw new Error("FTS5 schema is unavailable; run Webman migrations or use fallback search.");
+      } else {
+        this.db.exec(`
+          CREATE TABLE IF NOT EXISTS ${STATE_TABLE} (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL DEFAULT '',
+            updated_at TEXT NOT NULL
+          );
+          CREATE VIRTUAL TABLE IF NOT EXISTS ${FTS_TABLE} USING fts5(
+            slug UNINDEXED,
+            title_terms,
+            summary_terms,
+            body_terms,
+            category_terms,
+            author_terms,
+            title UNINDEXED,
+            summary UNINDEXED,
+            body UNINDEXED,
+            categories UNINDEXED,
+            quality UNINDEXED,
+            difficulty UNINDEXED,
+            author UNINDEXED,
+            updated_at UNINDEXED,
+            tokenize = 'unicode61 remove_diacritics 2'
+          );
+        `);
+      }
       this.initialized = true;
       this.available = true;
       this.setState("schema_version", INDEX_VERSION);

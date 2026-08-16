@@ -11,19 +11,15 @@ function removeTempRoot() {
 removeTempRoot();
 fs.mkdirSync(tempRoot, { recursive: true });
 
-function request() {
-  return {
-    headers: { cookie: "", "user-agent": "wikist-knowledge-test" },
-    socket: { remoteAddress: "127.0.0.1" },
-  };
-}
-
-function captcha(store) {
-  const item = store.createCaptcha();
-  const row = store.db.prepare("SELECT question FROM captchas WHERE id = ?").get(item.id);
-  const match = row.question.match(/(\d+)\s*([+-])\s*(\d+)/);
-  const answer = match[2] === "+" ? Number(match[1]) + Number(match[3]) : Number(match[1]) - Number(match[3]);
-  return { captchaId: item.id, captchaAnswer: String(answer) };
+function seedUser(store, username, displayName, email, role) {
+  const now = new Date().toISOString();
+  const result = store.db.prepare(`
+    INSERT INTO users (
+      username, email, display_name, password_hash, password_salt, role, status,
+      created_at, updated_at, password_updated_at, last_sync_at
+    ) VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?)
+  `).run(username, email, displayName, "fixture-password-hash", "fixture-password-salt", role, now, now, now, now);
+  return store.getUserProfile(Number(result.lastInsertRowid));
 }
 
 let store = null;
@@ -31,22 +27,10 @@ let store = null;
 try {
   const pages = new PageStore(tempRoot, {});
   store = new PassportStore(tempRoot, { database: "data/knowledge.sqlite" });
-  const admin = store.register({
-    username: "knowledge_admin",
-    displayName: "Knowledge Admin",
-    email: "knowledge-admin@example.com",
-    password: "Passw0rd!",
-    ...captcha(store),
-  }, request()).user;
-  const reader = store.register({
-    username: "knowledge_reader",
-    displayName: "Knowledge Reader",
-    email: "knowledge-reader@example.com",
-    password: "Passw0rd!",
-    ...captcha(store),
-  }, request()).user;
-  const adminSession = { user: store.getUserProfile(admin.id) };
-  const readerSession = { user: store.getUserProfile(reader.id) };
+  const admin = seedUser(store, "knowledge_admin", "Knowledge Admin", "knowledge-admin@example.com", "admin");
+  const reader = seedUser(store, "knowledge_reader", "Knowledge Reader", "knowledge-reader@example.com", "member");
+  const adminSession = { user: admin };
+  const readerSession = { user: reader };
 
   const source = pages.savePage("linear-algebra", {
     title: "Linear Algebra",

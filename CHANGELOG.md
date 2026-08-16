@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.1 - 2026-08-16
+
+- Hardened authentication, authorization, trusted-origin handling, attachment and path validation, secret management, log redaction, realtime channels, and administrative recovery without changing the Passport identity model.
+- Added upgrade preflight, verified backups, migration reporting, deployment diagnostics, repair and administrator recovery commands, service configuration generation, and release integrity tooling.
+- Improved SQLite write coordination and operational checks, added migrations `0017` through `0022`, and made organization knowledge communities consistently open while preserving role-based governance.
+- Fixed realtime reconnection, collaboration routing, static asset cache invalidation, administration API fallbacks, and responsive article, category, organization, Q&A, account and mobile layouts.
+- Updated the user documentation with current installation, deployment, backup, recovery, and in-place upgrade instructions.
+
 ## 1.0.0 - 2026-08-15
 
 - Unified Q&A comment actions with the answer composer, including equal clear/publish controls, a compact attachment toolbar, responsive sizing, and shared Design System states. Organization forum topics and replies now use the same knowledge-reference picker, canonical `{{ref:...}}` syntax, rendered reference cards, and global relation graph as Q&A and Messaging. Existing forum content is backfilled by migration `0016_organization_forum_knowledge.php`. Messaging member governance now uses an opaque, spacious top-layer ellipsis popover that cannot collide with member content; inherited context-panel rules are scoped to direct sections so popover padding and field rhythm remain intact. All-member mute and unmute changes persist as centered conversation timeline events and update through the existing realtime channel. Collaboration routes highlight exclusively, moderation updates preserve the realtime subscription, and lease-backed presence is merged with Centrifugo presence so mute changes cannot flip users offline. Added a CLI-only root `update.php` with pending-migration inspection, verified SQLite snapshots, migration reports, post-run checks, and safe coordination with `tools/update.js`; local-package updates now copy migration files as well as schemas. Promoted the framework to `1.0.0` with core assets `wikist-core-20260815-191`.

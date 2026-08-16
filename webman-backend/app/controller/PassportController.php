@@ -12,8 +12,6 @@ use app\service\MailService;
 use app\service\PassportSecurityService;
 use app\service\CentrifugoTokenService;
 use app\service\MessagingPermissionService;
-use app\service\AchievementService;
-use app\service\MessagingService;
 use app\repository\UserRepository;
 use support\Request;
 use support\Response;
@@ -27,7 +25,7 @@ final class PassportController
 
     public function behaviorCaptcha(Request $request): Response
     {
-        (new CaptchaRateLimiter())->hit($request->getRealIp());
+        (new CaptchaRateLimiter())->hit((string) $request->clientIp);
         return ApiResponse::data((new BehaviorCaptchaService())->create($request), 200, [
             'Cache-Control' => 'no-store, private',
             'Pragma' => 'no-cache',
@@ -36,7 +34,7 @@ final class PassportController
 
     public function checkBehaviorCaptcha(Request $request): Response
     {
-        (new CaptchaRateLimiter())->hit($request->getRealIp());
+        (new CaptchaRateLimiter())->hit((string) $request->clientIp);
         return ApiResponse::data((new BehaviorCaptchaService())->check($request, $this->input($request)));
     }
 
@@ -47,41 +45,40 @@ final class PassportController
         $users = new UserRepository();
         return ApiResponse::data([
             'usernameAvailable' => $username === '' ? null : !$users->usernameExists($username),
-            'emailAvailable' => $email === '' ? null : !$users->emailExists($email),
+            // Email ownership is intentionally not exposed through a public lookup.
+            'emailAvailable' => $email === '' ? null : true,
         ]);
     }
 
     public function me(Request $request): Response
     {
         $user = $request->identity ? (new UserRepository())->profile($request->identity->id) : null;
+        $csrfToken = '';
         if ($request->identity) {
-            try {
-                foreach ((new AchievementService())->sync($request->identity->id) as $achievement) {
-                    (new MessagingService())->notifyUser($request->identity, [
-                        'title' => '获得新成就',
-                        'bodyMd' => '你解锁了“' . $achievement['name'] . '”成就。',
-                        'source' => 'achievement',
-                        'eventType' => 'achievement.awarded',
-                        'metadata' => ['achievement' => $achievement],
-                    ]);
-                }
-            } catch (\Throwable) {
-                // Account refresh must remain available while migrations are being applied.
+            $csrfToken = (string) $request->session()->get('passport.csrf_token', '');
+            if ($csrfToken === '') {
+                $csrfToken = AuthService::csrfToken();
+                $request->session()->put('passport.csrf_token', $csrfToken);
             }
         }
-        return ApiResponse::data(['user' => $user]);
+        return ApiResponse::data(['user' => $user, 'csrfToken' => $csrfToken]);
     }
 
     public function login(Request $request): Response
     {
         $result = (new AuthService())->login($request, $this->input($request));
+        (new MessagingPermissionService())->synchronize($result['user']);
         $user = (new UserRepository())->profile($result['user']->id);
-        return $this->withLegacyCookie(ApiResponse::data(['user' => $user]), $result['legacyToken']);
+        return $this->withLegacyCookie(ApiResponse::data([
+            'user' => $user,
+            'csrfToken' => (string) $request->session()->get('passport.csrf_token', ''),
+        ]), $result['legacyToken']);
     }
 
     public function register(Request $request): Response
     {
         $result = (new AuthService())->register($request, $this->input($request));
+        (new MessagingPermissionService())->synchronize($result['user']);
         $verification = ['sent' => false, 'skipped' => $result['initialAdmin']];
         if (!$result['initialAdmin']) {
             try {
@@ -95,6 +92,7 @@ final class PassportController
             'user' => (new UserRepository())->profile($result['user']->id),
             'verification' => $verification,
             'initialAdmin' => $result['initialAdmin'],
+            'csrfToken' => (string) $request->session()->get('passport.csrf_token', ''),
         ]);
         return $this->withLegacyCookie($response, $result['legacyToken']);
     }
@@ -116,7 +114,6 @@ final class PassportController
 
     public function realtimeTicket(Request $request): Response
     {
-        (new MessagingPermissionService())->synchronize($request->identity);
         $credential = (new CentrifugoTokenService())->connectionToken($request->identity);
         return ApiResponse::data($credential + [
             'ticket' => $credential['token'],
@@ -141,6 +138,19 @@ final class PassportController
     {
         $ticket = (new PassportSecurityService())->createEmailTicket($request->identity->id);
         $mail = (new MailService())->sendVerification($ticket['user'], $ticket['token']);
+        return ApiResponse::data(['ok' => true, 'mail' => $mail, 'expiresAt' => $ticket['expiresAt']]);
+    }
+
+    public function changeEmail(Request $request): Response
+    {
+        $input = $this->input($request);
+        $ticket = (new PassportSecurityService())->requestEmailChange(
+            $request->identity->id,
+            (string) ($input['email'] ?? ''),
+            (string) ($input['currentPassword'] ?? ''),
+            (string) ($input['twoFactorCode'] ?? ''),
+        );
+        $mail = (new MailService())->sendEmailChange($ticket['email'], $ticket['token']);
         return ApiResponse::data(['ok' => true, 'mail' => $mail, 'expiresAt' => $ticket['expiresAt']]);
     }
 
@@ -190,7 +200,12 @@ final class PassportController
 
     public function setupTwoFactor(Request $request): Response
     {
-        return ApiResponse::data((new PassportSecurityService())->setupTwoFactor($request->identity->id), 200, [
+        $input = $this->input($request);
+        return ApiResponse::data((new PassportSecurityService())->setupTwoFactor(
+            $request->identity->id,
+            (string) ($input['currentPassword'] ?? ''),
+            (string) ($input['currentCode'] ?? ''),
+        ), 200, [
             'Cache-Control' => 'no-store, private',
             'Pragma' => 'no-cache',
         ]);
@@ -202,6 +217,7 @@ final class PassportController
             $request->identity->id,
             (string) ($this->input($request)['code'] ?? ''),
         );
+        $request->session()->put('passport.session_version', (new UserRepository())->sessionVersion($request->identity->id));
         return ApiResponse::data(['security' => $security]);
     }
 
@@ -213,6 +229,7 @@ final class PassportController
             (string) ($input['currentPassword'] ?? ''),
             (string) ($input['code'] ?? ''),
         );
+        $request->session()->put('passport.session_version', (new UserRepository())->sessionVersion($request->identity->id));
         return ApiResponse::data(['security' => $security]);
     }
 

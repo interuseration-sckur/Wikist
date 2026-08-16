@@ -26,17 +26,26 @@ class StaticFile implements MiddlewareInterface
 {
     public function process(Request $request, callable $handler): Response
     {
-        // Access to files beginning with. Is prohibited
+        // Access to dotfiles is prohibited.
         if (strpos($request->path(), '/.') !== false) {
             return response('<h1>403 forbidden</h1>', 403);
         }
         /** @var Response $response */
         $response = $handler($request);
-        // Add cross domain HTTP header
-        /*$response->withHeaders([
-            'Access-Control-Allow-Origin'      => '*',
-            'Access-Control-Allow-Credentials' => 'true',
-        ]);*/
-        return $response;
+        $path = $request->path();
+        $headers = ['X-Content-Type-Options' => 'nosniff'];
+
+        if ($path === '/' || $path === '/index.html') {
+            $headers['Cache-Control'] = 'no-cache, no-store, must-revalidate';
+            $headers['Pragma'] = 'no-cache';
+            $headers['Expires'] = '0';
+        } elseif (str_starts_with($path, '/assets/')) {
+            $version = trim((string) $request->get('v', ''));
+            $headers['Cache-Control'] = $version !== ''
+                ? 'public, max-age=31536000, immutable'
+                : 'no-cache, must-revalidate';
+        }
+
+        return $response->withHeaders($headers);
     }
 }

@@ -18,11 +18,14 @@ use app\process\Http;
 
 global $argv;
 
+$databaseDriver = strtolower((string) (getenv('WIKIST_DB_DRIVER') ?: 'sqlite'));
+$defaultWorkers = $databaseDriver === 'sqlite' ? 1 : max(1, cpu_count());
+
 $processes = [
     'webman' => [
         'handler' => Http::class,
-        'listen' => 'http://' . (getenv('WEBMAN_HOST') ?: '0.0.0.0') . ':' . (getenv('WEBMAN_PORT') ?: '8898'),
-        'count' => max(1, (int) (getenv('WEBMAN_WORKERS') ?: cpu_count())),
+        'listen' => 'http://' . (getenv('WEBMAN_HOST') ?: '0.0.0.0') . ':' . (getenv('WEBMAN_PORT') ?: '8899'),
+        'count' => max(1, (int) (getenv('WEBMAN_WORKERS') ?: $defaultWorkers)),
         'user' => getenv('WEBMAN_USER') ?: '',
         'group' => getenv('WEBMAN_GROUP') ?: '',
         'reusePort' => false,

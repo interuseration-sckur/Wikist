@@ -23,6 +23,8 @@ Route::get('/', [FrontendController::class, 'index']);
 Route::get('/passport', [PassportPageController::class, 'index']);
 Route::get('/passport/', [PassportPageController::class, 'index']);
 Route::get('/api/health', [HealthController::class, 'index']);
+Route::get('/api/health/ready', [HealthController::class, 'ready']);
+Route::get('/api/health/live', [HealthController::class, 'live']);
 
 Route::group('/api/passport', static function (): void {
     Route::get('/captcha', [PassportController::class, 'captcha']);
@@ -34,6 +36,8 @@ Route::group('/api/passport', static function (): void {
     Route::post('/register', [PassportController::class, 'register']);
     Route::post('/logout', [PassportController::class, 'logout']);
     Route::post('/email/verification', [PassportController::class, 'sendEmailVerification'])
+        ->middleware(RequireAuthMiddleware::class);
+    Route::post('/email/change', [PassportController::class, 'changeEmail'])
         ->middleware(RequireAuthMiddleware::class);
     Route::post('/email/verify', [PassportController::class, 'verifyEmail']);
     Route::post('/password/forgot', [PassportController::class, 'forgotPassword']);
@@ -53,6 +57,10 @@ Route::group('/api/passport', static function (): void {
     Route::post('/realtime-ticket', [PassportController::class, 'realtimeTicket'])
         ->middleware(RequireAuthMiddleware::class);
     Route::get('/achievements', [AchievementController::class, 'mine'])
+        ->middleware(RequireAuthMiddleware::class);
+    // This membership API still lives in the compatibility service during the
+    // staged migration, but remains an explicit authenticated Passport route.
+    Route::get('/organizations', [LegacyProxyController::class, 'forward'])
         ->middleware(RequireAuthMiddleware::class);
 });
 

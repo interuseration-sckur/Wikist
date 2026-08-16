@@ -2,7 +2,6 @@
 
 namespace app\repository;
 
-use app\domain\passport\RolePolicy;
 use app\domain\passport\UserIdentity;
 use Illuminate\Database\ConnectionInterface;
 use Illuminate\Database\Query\Builder;
@@ -71,7 +70,7 @@ final class CommunityRepository
     {
         $space = $this->connection()->table('community_spaces')
             ->where('organization_id', (int) $organization->id)->first();
-        $visibility = $this->normalizeVisibility((string) ($organization->visibility ?? 'public'));
+        $visibility = 'public';
         if ($space) {
             if ((string) $space->visibility !== $visibility || (string) $space->name !== (string) $organization->name) {
                 $this->connection()->table('community_spaces')->where('id', $space->id)->update([
@@ -111,7 +110,6 @@ final class CommunityRepository
         $organization = trim((string) ($filters['organization'] ?? ''));
         $origin = strtolower(trim((string) ($filters['origin'] ?? '')));
         $query = $this->questionQuery()->whereIn('q.status', ['published', 'closed'])->where('q.review_status', 'approved');
-        $this->applyVisibility($query, $viewer);
         if ($organization !== '') {
             $query->where('o.slug', $organization);
         }
@@ -175,7 +173,6 @@ final class CommunityRepository
         if (!$includeUnpublished) {
             $query->whereIn('q.status', ['published', 'closed'])->where('q.review_status', 'approved');
         }
-        $this->applyVisibility($query, $viewer);
         $row = $query->first();
         if (!$row) {
             return null;
@@ -921,7 +918,6 @@ final class CommunityRepository
             ->where('ca.event_type', 'not like', '%.reaction.%')
             ->select('ca.*', 'u.username as actor_username', 'u.display_name as actor_display_name', 'u.avatar_url as actor_avatar_url',
                 's.visibility as space_visibility', 's.scope as space_scope');
-        $this->applyActivityVisibility($query, $viewer);
         if (!empty($filters['userId'])) {
             $query->where('ca.actor_user_id', (int) $filters['userId']);
         }
@@ -1075,14 +1071,7 @@ final class CommunityRepository
 
     public function visibleOrganizationIds(?UserIdentity $viewer): ?array
     {
-        if ($viewer && RolePolicy::allows($viewer->role, 'senior_editor')) {
-            return null;
-        }
-        if (!$viewer) {
-            return [];
-        }
-        return array_values(array_map('intval', $this->connection()->table('organization_members')
-            ->where('user_id', $viewer->id)->where('status', 'active')->pluck('organization_id')->all()));
+        return null;
     }
 
     public function insertReport(array $data): object
@@ -1405,40 +1394,6 @@ final class CommunityRepository
                 'accepted.public_id as accepted_answer_public_id');
     }
 
-    private function applyVisibility(Builder $query, ?UserIdentity $viewer): void
-    {
-        if ($viewer && RolePolicy::allows($viewer->role, 'senior_editor')) {
-            return;
-        }
-        $viewerId = $viewer?->id ?? 0;
-        $query->where(function (Builder $scope) use ($viewerId): void {
-            $scope->whereNull('q.organization_id')->orWhere('q.visibility', 'public');
-            if ($viewerId > 0) {
-                $scope->orWhereIn('q.organization_id', function (Builder $members) use ($viewerId): void {
-                    $members->select('organization_id')->from('organization_members')
-                        ->where('user_id', $viewerId)->where('status', 'active');
-                });
-            }
-        });
-    }
-
-    private function applyActivityVisibility(Builder $query, ?UserIdentity $viewer): void
-    {
-        if ($viewer && RolePolicy::allows($viewer->role, 'senior_editor')) {
-            return;
-        }
-        $viewerId = $viewer?->id ?? 0;
-        $query->where(function (Builder $scope) use ($viewerId): void {
-            $scope->whereNull('ca.organization_id')->orWhere('s.visibility', 'public');
-            if ($viewerId > 0) {
-                $scope->orWhereIn('ca.organization_id', function (Builder $members) use ($viewerId): void {
-                    $members->select('organization_id')->from('organization_members')
-                        ->where('user_id', $viewerId)->where('status', 'active');
-                });
-            }
-        });
-    }
-
     private function whereIdentifier(Builder $query, string $alias, string|int $identifier): Builder
     {
         $id = trim((string) $identifier);
@@ -1682,15 +1637,6 @@ final class CommunityRepository
     private function page(array $items, int $page, int $limit, int $total): array
     {
         return ['items' => $items, 'page' => $page, 'limit' => $limit, 'total' => $total, 'pages' => max(1, (int) ceil($total / $limit))];
-    }
-
-    private function normalizeVisibility(string $visibility): string
-    {
-        return match (strtolower(trim($visibility))) {
-            'private' => 'private',
-            'members', 'members_only', 'internal' => 'members_only',
-            default => 'public',
-        };
     }
 
     private function tagSlug(string $value): string

@@ -59,15 +59,15 @@ const store = new PassportStore(process.cwd(), {
   twoFactorIssuer: "Wikist Test",
 });
 
-const bootstrap = store.register({
+const firstRegisteredUser = store.register({
   username: "bootstrap_admin",
   displayName: "Bootstrap Admin",
   email: "bootstrap-admin@example.com",
   password: "Passw0rd!",
   ...captcha(store),
 }, req()).user;
-if (bootstrap.role !== "admin" || bootstrap.emailVerified !== true) {
-  console.error(JSON.stringify({ ok: false, failed: ["initialAdminBootstrap"] }, null, 2));
+if (firstRegisteredUser.role === "admin" || firstRegisteredUser.emailVerified === true) {
+  console.error(JSON.stringify({ ok: false, failed: ["legacyFirstUserPrivilegeEscalation"] }, null, 2));
   process.exit(1);
 }
 

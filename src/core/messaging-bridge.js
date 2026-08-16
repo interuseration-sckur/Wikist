@@ -1,3 +1,5 @@
+// @deprecated compatibility-only: Webman Messaging is the source of truth.
+// This bridge serves unported Node content events and must not own schema or request-time synchronization.
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");

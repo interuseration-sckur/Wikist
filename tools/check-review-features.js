@@ -4,24 +4,10 @@ const path = require("path");
 const { PassportStore } = require("../src/core/passport-store");
 const { PageStore } = require("../src/core/page-store");
 const { buildLineDiff } = require("../src/core/revision-review");
+const { seedTestUser } = require("./legacy-test-fixtures");
 const appSource = fs.readFileSync(path.join(process.cwd(), "src", "server", "app.js"), "utf8");
 
 const tempRoot = path.join(process.cwd(), "data", "wikist-review-test");
-
-function request() {
-  return {
-    headers: { cookie: "", "user-agent": "wikist-review-test" },
-    socket: { remoteAddress: "127.0.0.1" },
-  };
-}
-
-function captcha(store) {
-  const item = store.createCaptcha();
-  const row = store.db.prepare("SELECT question FROM captchas WHERE id = ?").get(item.id);
-  const match = row.question.match(/(\d+)\s*([+-])\s*(\d+)/);
-  const answer = match[2] === "+" ? Number(match[1]) + Number(match[3]) : Number(match[1]) - Number(match[3]);
-  return { captchaId: item.id, captchaAnswer: String(answer) };
-}
 
 fs.rmSync(tempRoot, { recursive: true, force: true, maxRetries: 8, retryDelay: 120 });
 fs.mkdirSync(tempRoot, { recursive: true });
@@ -30,20 +16,17 @@ let passport = null;
 try {
   const pages = new PageStore(tempRoot, {});
   passport = new PassportStore(tempRoot, { database: "data/review.sqlite" });
-  const admin = passport.register({
+  const admin = seedTestUser(passport, {
     username: "review_admin",
     displayName: "Review Admin",
     email: "review-admin@example.com",
-    password: "Passw0rd!",
-    ...captcha(passport),
-  }, request()).user;
-  const member = passport.register({
+    role: "admin",
+  });
+  const member = seedTestUser(passport, {
     username: "review_member",
     displayName: "Review Member",
     email: "review-member@example.com",
-    password: "Passw0rd!",
-    ...captcha(passport),
-  }, request()).user;
+  });
   const adminSession = { user: passport.getUserProfile(admin.id) };
   const memberSession = { user: passport.getUserProfile(member.id) };
 

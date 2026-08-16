@@ -43,12 +43,6 @@ final class CommunityPermissionService
         if ((string) $question->status === 'deleted') {
             throw new ApiException('问题不存在。', 404, 'community_question_not_found');
         }
-        if (!$question->organization_id || (string) $question->visibility === 'public' || ($identity && $this->isSiteModerator($identity))) {
-            return;
-        }
-        if (!$identity || !$this->community->organizationMembership((int) $question->organization_id, $identity->id)) {
-            throw new ApiException('问题不存在。', 404, 'community_question_not_found');
-        }
     }
 
     public function assertCanWriteQuestion(UserIdentity $identity, object $question): void

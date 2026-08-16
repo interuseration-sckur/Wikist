@@ -59,9 +59,6 @@ final class UserRepository
         }
         $data = (array) $row;
         $role = RolePolicy::normalize((string) ($data['role'] ?? 'member'));
-        if (in_array((string) ($data['username'] ?? ''), config('wikist.passport.admin_usernames', []), true)) {
-            $role = 'admin';
-        }
         $status = in_array(($data['status'] ?? 'active'), ['active', 'ok'], true) ? 'active' : 'disabled';
         $links = json_decode((string) ($data['social_links_json'] ?? '{}'), true);
 
@@ -159,19 +156,22 @@ final class UserRepository
         if ($email !== '' && $this->query()->whereRaw('LOWER(email) = ?', [$email])->where('id', '!=', $id)->exists()) {
             throw new \InvalidArgumentException('邮箱已被其他账号使用。');
         }
-        if ($avatar !== '' && !preg_match('#^(https?://|data:image/)#i', $avatar)) {
-            throw new \InvalidArgumentException('头像地址必须是 http(s) 或 data:image。');
+        if ($avatar !== '' && !preg_match('#^(https?://|data:image/(?:png|jpe?g|webp|gif);base64,)#i', $avatar)) {
+            throw new \InvalidArgumentException('头像地址必须是 http(s) 或 raster data:image。');
         }
         $wasActiveAdmin = RolePolicy::normalize((string) $current->role) === 'admin' && (string) $current->status === 'active';
         if ($wasActiveAdmin && ($role !== 'admin' || $status !== 'active') && $this->activeAdminCount() <= 1) {
             throw new \InvalidArgumentException('不能降级或封禁最后一个有效管理员。');
         }
         $emailChanged = mb_strtolower((string) ($current->email ?? '')) !== $email;
+        $securityChanged = $emailChanged
+            || RolePolicy::normalize((string) ($current->role ?? 'member')) !== $role
+            || (string) ($current->status ?? 'active') !== $status;
         $verifiedAt = ($input['emailVerified'] ?? null) === true
             ? gmdate('c')
             : ($emailChanged ? '' : (string) ($current->email_verified_at ?? ''));
         $now = gmdate('c');
-        $this->query()->where('id', $id)->update([
+        $values = [
             'display_name' => $displayName,
             'email' => $email !== '' ? $email : null,
             'email_verified_at' => $verifiedAt,
@@ -182,8 +182,13 @@ final class UserRepository
             'page_md' => $pageMd,
             'updated_at' => $now,
             'last_sync_at' => $now,
-        ]);
-        if ($status === 'disabled') {
+        ];
+        if ($securityChanged) {
+            $values['session_version'] = Db::connection($this->connection)->raw('session_version + 1');
+            $values['last_security_at'] = $now;
+        }
+        $this->query()->where('id', $id)->update($values);
+        if ($securityChanged) {
             $this->deleteSessions($id);
         }
         return $this->profile($id);
@@ -191,8 +196,31 @@ final class UserRepository
 
     public function create(array $input, string $passwordHash, string $passwordSalt): UserIdentity
     {
+        return $this->insertUser($input, $passwordHash, $passwordSalt, 'member');
+    }
+
+    public function createInitialAdmin(array $input, string $passwordHash, string $passwordSalt): UserIdentity
+    {
+        $connection = Db::connection($this->connection);
+        return $connection->transaction(function () use ($connection, $input, $passwordHash, $passwordSalt): UserIdentity {
+            if ($this->count() !== 0) {
+                throw new \RuntimeException('初始管理员只能在空用户库中创建。');
+            }
+            $claimed = $connection->table('wikist_security_state')->insertOrIgnore([
+                'state_key' => 'initial_admin_created',
+                'state_value' => 'installer',
+                'updated_at' => gmdate('c'),
+            ]);
+            if ($claimed !== 1) {
+                throw new \RuntimeException('初始管理员已经创建。');
+            }
+            return $this->insertUser($input, $passwordHash, $passwordSalt, 'admin');
+        });
+    }
+
+    private function insertUser(array $input, string $passwordHash, string $passwordSalt, string $role): UserIdentity
+    {
         $now = gmdate('c');
-        $role = $this->count() === 0 ? 'admin' : 'member';
         $id = $this->query()->insertGetId([
             'username' => $input['username'],
             'email' => $input['email'] !== '' ? $input['email'] : null,
@@ -210,6 +238,11 @@ final class UserRepository
             'two_factor_enabled' => 0,
             'two_factor_confirmed_at' => '',
             'two_factor_recovery_json' => '[]',
+            'pending_two_factor_secret' => '',
+            'pending_two_factor_created_at' => '',
+            'pending_email' => '',
+            'pending_email_requested_at' => '',
+            'session_version' => 1,
             'last_security_at' => $now,
             'created_at' => $now,
             'updated_at' => $now,
@@ -239,7 +272,9 @@ final class UserRepository
             'password_updated_at' => $now,
             'last_security_at' => $now,
             'last_sync_at' => $now,
+            'session_version' => Db::connection($this->connection)->raw('session_version + 1'),
         ]);
+        $this->deleteSessions($id);
     }
 
     public function updateProfile(int $id, array $input): UserIdentity
@@ -259,11 +294,14 @@ final class UserRepository
         if ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
             throw new \InvalidArgumentException('邮箱格式不正确。');
         }
-        if ($avatar !== '' && !preg_match('#^(https?://|data:image/)#i', $avatar)) {
-            throw new \InvalidArgumentException('头像地址必须是 http(s) 或 data:image。');
+        if ($avatar !== '' && !preg_match('#^(https?://|data:image/(?:png|jpe?g|webp|gif);base64,)#i', $avatar)) {
+            throw new \InvalidArgumentException('头像地址必须是 http(s) 或 raster data:image。');
         }
         if ($email !== '' && $this->query()->whereRaw('LOWER(email) = ?', [$email])->where('id', '!=', $id)->exists()) {
             throw new \InvalidArgumentException('邮箱已被其他账号使用。');
+        }
+        if ($email !== mb_strtolower((string) ($current->email ?? ''))) {
+            throw new \InvalidArgumentException('请在安全中心验证新邮箱后再完成变更。');
         }
         $allowedSocial = ['website', 'blog', 'github', 'zhihu', 'bilibili', 'x', 'mastodon'];
         $social = [];
@@ -276,10 +314,7 @@ final class UserRepository
             }
         }
         $now = gmdate('c');
-        $emailChanged = mb_strtolower((string) ($current->email ?? '')) !== $email;
         $this->query()->where('id', $id)->update([
-            'email' => $email !== '' ? $email : null,
-            'email_verified_at' => $emailChanged ? '' : (string) ($current->email_verified_at ?? ''),
             'display_name' => $displayName,
             'bio' => $bio,
             'avatar_url' => $avatar,
@@ -302,10 +337,54 @@ final class UserRepository
         return $this->findById($id);
     }
 
-    public function updateTwoFactor(int $id, array $values): void
+    public function setPendingEmail(int $id, string $email): void
+    {
+        $now = gmdate('c');
+        $this->query()->where('id', $id)->update([
+            'pending_email' => $email,
+            'pending_email_requested_at' => $now,
+            'updated_at' => $now,
+            'last_security_at' => $now,
+        ]);
+    }
+
+    public function confirmPendingEmail(int $id, string $email): UserIdentity
+    {
+        $now = gmdate('c');
+        $updated = $this->query()
+            ->where('id', $id)
+            ->whereRaw('LOWER(pending_email) = ?', [mb_strtolower($email)])
+            ->update([
+                'email' => $email,
+                'email_verified_at' => $now,
+                'pending_email' => '',
+                'pending_email_requested_at' => '',
+                'updated_at' => $now,
+                'last_security_at' => $now,
+                'session_version' => Db::connection($this->connection)->raw('session_version + 1'),
+            ]);
+        if ($updated !== 1) {
+            throw new \InvalidArgumentException('待验证邮箱已经变化，请重新申请。');
+        }
+        $this->deleteSessions($id);
+        return $this->findById($id);
+    }
+
+    public function updateTwoFactor(int $id, array $values, bool $invalidateSessions = false): void
     {
         $values['last_security_at'] = gmdate('c');
+        if ($invalidateSessions) {
+            $values['session_version'] = Db::connection($this->connection)->raw('session_version + 1');
+        }
         $this->query()->where('id', $id)->update($values);
+        if ($invalidateSessions) {
+            $this->deleteSessions($id);
+        }
+    }
+
+    public function sessionVersion(int $id): int
+    {
+        return max(1, (int) ($this->query()->where('id', $id)->value('session_version') ?: 1));
     }
 
     public function deleteSessions(int $id): void

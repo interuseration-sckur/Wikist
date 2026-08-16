@@ -1,25 +1,15 @@
 const fs = require("fs");
 const path = require("path");
 const { PassportStore } = require("../src/core/passport-store");
+const { seedTestUser } = require("./legacy-test-fixtures");
 
 const dbPath = path.join(process.cwd(), "data", "wikist-message-priority-test.sqlite");
 for (const suffix of ["", "-wal", "-shm"]) {
   try { fs.unlinkSync(dbPath + suffix); } catch (_error) {}
 }
 
-function req() {
-  return { headers: { cookie: "", "user-agent": "wikist-priority-test" }, socket: { remoteAddress: "127.0.0.1" } };
-}
-
-function captcha(store) {
-  const item = store.createCaptcha();
-  const question = store.db.prepare("SELECT question FROM captchas WHERE id = ?").get(item.id).question.match(/(\d+)\s*([+-])\s*(\d+)/);
-  const answer = question[2] === "+" ? Number(question[1]) + Number(question[3]) : Number(question[1]) - Number(question[3]);
-  return { captchaId: item.id, captchaAnswer: String(answer) };
-}
-
 function register(store, username) {
-  return store.register({ username, displayName: username, email: username + "@example.com", password: "Passw0rd!", ...captcha(store) }, req()).user;
+  return seedTestUser(store, { username });
 }
 
 const store = new PassportStore(process.cwd(), { database: dbPath });

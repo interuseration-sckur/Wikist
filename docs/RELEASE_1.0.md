@@ -2,7 +2,7 @@
 
 发布日期：2026-08-15  
 数据库迁移上限：`0016_organization_forum_knowledge`  
-核心前端资源：`wikist-core-20260815-191`
+核心前端资源：`wikist-core-20260816-203`
 
 ## 发布边界
 
@@ -134,7 +134,7 @@ npm run check:community
 npm run check:v10
 ```
 
-预期版本为 `1.0.0`，数据库显示 `No pending migrations.`。浏览器应请求带 `wikist-core-20260815-191` 的核心 CSS/JS。
+预期版本为 `1.0.0`，数据库显示 `No pending migrations.`。浏览器应请求带 `wikist-core-20260816-203` 的核心 CSS/JS。
 
 重点人工检查：
 

@@ -10,6 +10,8 @@ use support\Request;
 
 final class AuthService
 {
+    private static ?string $dummyPasswordHash = null;
+
     public function __construct(
         private readonly UserRepository $users = new UserRepository(),
         private readonly CompatibilitySessionRepository $compatibilitySessions = new CompatibilitySessionRepository(),
@@ -32,11 +34,14 @@ final class AuthService
         if ($sessionCookie) {
             $userId = (int) $request->session()->get('passport.user_id', 0);
             if ($userId > 0) {
-                $identity = $this->users->findById($userId);
-                if ($identity?->isActive()) {
+                $raw = $this->users->findRawById($userId);
+                $identity = $this->users->identity($raw);
+                $sessionVersion = (int) $request->session()->get('passport.session_version', 0);
+                $currentVersion = max(1, (int) ($raw->session_version ?? 1));
+                if ($identity?->isActive() && $sessionVersion === $currentVersion) {
                     return $request->identity = $identity;
                 }
-                $request->session()->forget(['passport.user_id', 'passport.authenticated_at']);
+                $request->session()->forget(['passport.user_id', 'passport.authenticated_at', 'passport.session_version', 'passport.csrf_token']);
             }
         }
 
@@ -47,6 +52,8 @@ final class AuthService
                 $request->session()->put([
                     'passport.user_id' => $identity->id,
                     'passport.authenticated_at' => time(),
+                    'passport.session_version' => $this->users->sessionVersion($identity->id),
+                    'passport.csrf_token' => self::csrfToken(),
                 ]);
                 return $request->identity = $identity;
             }
@@ -57,12 +64,15 @@ final class AuthService
     /** @return array{user:UserIdentity,legacyToken:string,legacyExpiresAt:string} */
     public function login(Request $request, array $input): array
     {
-        (new LoginRateLimiter())->hit($request->getRealIp());
+        (new LoginRateLimiter())->hit((string) $request->clientIp);
         (new CaptchaService())->verifyInput($request, $input);
         $identifier = trim((string) ($input['identifier'] ?? $input['user'] ?? ''));
         $password = (string) ($input['password'] ?? '');
         $row = $this->users->findByIdentifier($identifier);
-        if (!$row || !$this->passwords->verify($password, (string) $row->password_hash, (string) ($row->password_salt ?? ''))) {
+        $hash = $row ? (string) $row->password_hash : (self::$dummyPasswordHash ??= $this->passwords->hash(bin2hex(random_bytes(24))));
+        $salt = $row ? (string) ($row->password_salt ?? '') : '';
+        $validPassword = $this->passwords->verify($password, $hash, $salt);
+        if (!$row || !$validPassword) {
             throw new ApiException('账号或密码不正确。', 401, 'invalid_credentials');
         }
         $identity = $this->users->identity($row);
@@ -74,16 +84,20 @@ final class AuthService
             throw new ApiException('请先完成邮箱验证后再登录。', 403, 'email_verification_required');
         }
         (new PassportSecurityService())->verifyLoginTwoFactor($row, (string) ($input['twoFactorCode'] ?? ''));
+        $sessionVersion = $this->users->sessionVersion($identity->id);
         if (config('wikist.passport.rehash_on_login', false) && $this->passwords->needsRehash((string) $row->password_hash)) {
             $this->users->replacePassword($identity->id, $this->passwords->hash($password));
+            $sessionVersion = $this->users->sessionVersion($identity->id);
         }
 
         $request->sessionRegenerateId(true);
         $request->session()->put([
             'passport.user_id' => $identity->id,
             'passport.authenticated_at' => time(),
+            'passport.session_version' => $sessionVersion,
+            'passport.csrf_token' => self::csrfToken(),
         ]);
-        $legacy = $this->compatibilitySessions->create($identity->id, $request->getRealIp(), (string) $request->header('user-agent'));
+        $legacy = $this->compatibilitySessions->create($identity->id, (string) $request->clientIp, (string) $request->header('user-agent'));
         $request->identity = $identity;
         return ['user' => $identity, 'legacyToken' => $legacy['token'], 'legacyExpiresAt' => $legacy['expiresAt']];
     }
@@ -91,7 +105,7 @@ final class AuthService
     /** @return array{user:UserIdentity,legacyToken:string,legacyExpiresAt:string,initialAdmin:bool} */
     public function register(Request $request, array $input): array
     {
-        (new LoginRateLimiter())->hit($request->getRealIp());
+        (new LoginRateLimiter())->hit((string) $request->clientIp);
         (new CaptchaService())->verifyInput($request, $input);
         $username = trim((string) ($input['username'] ?? ''));
         $displayName = trim((string) ($input['displayName'] ?? ''));
@@ -115,11 +129,25 @@ final class AuthService
             throw new ApiException('用户名或邮箱已被使用。', 409, 'identity_exists');
         }
 
-        $identity = $this->users->create(compact('username', 'displayName', 'email'), $this->passwords->hash($password), '');
-        $initialAdmin = $identity->role === 'admin';
+        $initialAdmin = $this->users->count() === 0;
+        if ($initialAdmin) {
+            $expected = (string) config('wikist.install.bootstrap_secret', '');
+            $provided = (string) ($input['bootstrapSecret'] ?? '');
+            if ($expected === '' || $provided === '' || !hash_equals($expected, $provided)) {
+                throw new ApiException('创建初始管理员需要服务器启动时显示的一次性安装密钥。', 403, 'install_bootstrap_required');
+            }
+            $identity = $this->users->createInitialAdmin(compact('username', 'displayName', 'email'), $this->passwords->hash($password), '');
+        } else {
+            $identity = $this->users->create(compact('username', 'displayName', 'email'), $this->passwords->hash($password), '');
+        }
         $request->sessionRegenerateId(true);
-        $request->session()->put(['passport.user_id' => $identity->id, 'passport.authenticated_at' => time()]);
-        $legacy = $this->compatibilitySessions->create($identity->id, $request->getRealIp(), (string) $request->header('user-agent'));
+        $request->session()->put([
+            'passport.user_id' => $identity->id,
+            'passport.authenticated_at' => time(),
+            'passport.session_version' => $this->users->sessionVersion($identity->id),
+            'passport.csrf_token' => self::csrfToken(),
+        ]);
+        $legacy = $this->compatibilitySessions->create($identity->id, (string) $request->clientIp, (string) $request->header('user-agent'));
         $request->identity = $identity;
         return ['user' => $identity, 'legacyToken' => $legacy['token'], 'legacyExpiresAt' => $legacy['expiresAt'], 'initialAdmin' => $initialAdmin];
     }
@@ -129,5 +157,10 @@ final class AuthService
         $this->compatibilitySessions->delete((string) $request->cookie(config('wikist.legacy_bridge.cookie'), ''));
         $request->session()->flush();
         $request->identity = null;
+    }
+
+    public static function csrfToken(): string
+    {
+        return rtrim(strtr(base64_encode(random_bytes(32)), '+/', '-_'), '=');
     }
 }

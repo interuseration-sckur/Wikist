@@ -674,6 +674,12 @@ body.portal-mode .site-footer {
   background: var(--success-soft);
 }
 
+/* Title badges are intrinsic labels, never layout columns. */
+.article-title-row > .quality-badge {
+  width: max-content;
+  max-width: 100%;
+}
+
 .article-author-chip {
   text-decoration: none;
 }
@@ -10225,11 +10231,18 @@ html[data-theme="light"] .plugin-hook-card { background: var(--panel); border-co
   }
 
   .article-head .article-title-row {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr);
-    justify-items: stretch;
-    gap: 14px;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: clamp(10px, 2vw, 18px);
+    flex-wrap: nowrap;
     text-align: left;
+  }
+
+  .article-head .article-title-row > h1 {
+    flex: 1 1 180px;
+    width: auto;
+    min-width: 0;
   }
 
   .article-head h1 {
@@ -10237,44 +10250,11 @@ html[data-theme="light"] .plugin-hook-card { background: var(--panel); border-co
   }
 
   .article-title-actions {
-    width: 100%;
-    justify-items: stretch;
-  }
-
-  .article-title-primary-actions {
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr) minmax(0, 1fr);
-    width: 100%;
-    justify-content: stretch;
-    gap: 8px;
-  }
-
-  .article-title-primary-actions .quality-badge,
-  .article-title-primary-actions .article-favorite-button,
-  .article-title-primary-actions .article-watch-button {
     min-width: 0;
-    min-height: 38px;
-    justify-content: center;
-  }
-
-  .article-title-actions .article-section-shortcuts {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    width: 100%;
-    justify-content: stretch;
-    gap: 8px;
-  }
-
-  .article-section-shortcuts button {
-    width: 100%;
-    min-width: 0;
-    min-height: 38px;
-    justify-content: center;
-    padding-inline: 8px;
-  }
-
-  .article-section-shortcuts button[data-rating-shortcut] {
-    grid-column: 1 / -1;
+    width: auto;
+    max-width: min(100%, 460px);
+    flex: 0 1 auto;
+    justify-items: end;
   }
 
   .page-tool-nav {
@@ -10637,39 +10617,6 @@ body.wikist-protection-active { overflow: hidden; }
 .wikist-route-state.is-missing .wikist-system-kicker { border-color: color-mix(in srgb, var(--cyan) 60%, var(--line)); color: var(--cyan); background: color-mix(in srgb, var(--cyan) 9%, transparent); }
 .wikist-route-state-actions { display: flex; flex-wrap: wrap; gap: 10px; width: 100%; margin-top: 6px; }
 .wikist-route-state-actions .command-button { flex: 1 1 160px; text-align: center; text-decoration: none; }
-
-@media (max-width: 960px) {
-  .article-head .article-title-row {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr);
-    justify-items: stretch;
-  }
-
-  .article-title-actions,
-  .article-title-primary-actions,
-  .article-title-actions .article-section-shortcuts {
-    width: 100%;
-  }
-
-  .article-title-actions { justify-items: stretch; }
-  .article-title-primary-actions,
-  .article-title-actions .article-section-shortcuts {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    justify-content: stretch;
-    gap: 8px;
-  }
-
-  .article-title-primary-actions .quality-badge,
-  .article-title-primary-actions .article-favorite-button,
-  .article-title-primary-actions .article-watch-button,
-  .article-section-shortcuts button {
-    width: 100%;
-    min-width: 0;
-    min-height: 38px;
-    justify-content: center;
-  }
-}
 
 @media (max-width: 560px) {
   .topbar-actions { grid-template-columns: repeat(5, minmax(38px, 1fr)); }
@@ -13796,12 +13743,10 @@ body.admin-mode .content-surface {
 }
 
 .organization-chat-link {
-  min-width: 128px;
+  width: 40px;
+  min-width: 40px;
   min-height: 40px;
-  padding: 0 16px;
-  font-size: .82rem;
-  font-weight: 800;
-  white-space: nowrap;
+  padding: 0;
 }
 
 .user-presence-status {
@@ -14673,18 +14618,6 @@ body.admin-mode .app-grid {
   padding: 0 11px;
 }
 
-@media (max-width: 960px) {
-  .article-title-primary-actions {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
-
-  .article-title-primary-actions .article-share-button {
-    width: 100%;
-    min-width: 0;
-    min-height: 38px;
-  }
-}
-
 @media (max-width: 620px) {
   .article-title-primary-actions {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -14936,4 +14869,314 @@ body.admin-mode .admin-head .article-summary {
 
 @media (max-width: 720px) {
   .account-community-library-panel { min-height: 0; }
+}
+
+/* Account, governance and organization visibility refinements. */
+.profile-email-note {
+  color: var(--muted);
+  font-size: .76rem;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.achievement-grid.is-empty {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.achievement-grid.is-empty > .empty-state {
+  grid-column: 1 / -1;
+  width: 100%;
+  min-height: 180px;
+  box-sizing: border-box;
+}
+
+.admin-community-queue-filter {
+  display: grid;
+  grid-template-columns: minmax(320px, 1fr) max-content;
+  align-items: center;
+  gap: 12px;
+  width: min(100%, 760px);
+}
+
+body.admin-mode .admin-community-queue-filter select {
+  width: 100%;
+  min-width: 0;
+  flex: none;
+}
+
+body.admin-mode .admin-community-queue-filter .command-button {
+  width: auto;
+  min-width: 82px;
+  max-width: 96px;
+  justify-self: end;
+  padding-inline: 16px;
+  flex: none;
+}
+
+.organization-admin-controls {
+  display: grid;
+  grid-template-columns: minmax(96px, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+}
+
+.organization-admin-controls select,
+.organization-admin-controls button {
+  width: 100%;
+  min-width: 0;
+}
+
+@media (max-width: 680px) {
+  .topbar {
+    padding-right: 12px;
+    padding-left: 12px;
+  }
+
+  .topbar-actions {
+    padding-right: 48px;
+    box-sizing: border-box;
+  }
+
+  .top-search {
+    width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+  }
+
+  .topbar-actions .passport-button:not(.signed-in) #passportText {
+    display: none;
+  }
+
+  .topbar-actions .passport-button:not(.signed-in) .passport-account-icon {
+    display: inline-grid;
+    place-items: center;
+    width: 26px;
+    height: 26px;
+    min-width: 26px;
+    margin: auto;
+  }
+
+  /* The mobile details menu is the only page-tool navigation at this width. */
+  .page-tool-nav-list {
+    display: none;
+  }
+
+  .page-tool-nav-mobile {
+    display: block;
+  }
+
+  .article-head .article-title-row,
+  .taxonomy-head .article-title-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 14px;
+    justify-items: center;
+    text-align: center;
+  }
+
+  .article-head .article-title-row > h1,
+  .article-head .article-summary,
+  .article-head .meta-row {
+    width: 100%;
+    text-align: center;
+  }
+
+  .article-head .meta-row {
+    justify-content: center;
+  }
+
+  .article-title-actions {
+    width: min(100%, 360px);
+    max-width: 100%;
+    margin-inline: auto;
+    grid-template-columns: minmax(0, 1fr);
+    justify-content: stretch;
+    justify-items: center;
+    box-sizing: border-box;
+    text-align: center;
+  }
+
+  .article-title-primary-actions,
+  .article-title-actions .article-section-shortcuts {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+    gap: 8px;
+    justify-content: stretch;
+  }
+
+  .article-head-with-image .article-title-row,
+  .article-head-with-image .article-summary,
+  .article-head-with-image .meta-row,
+  .article-head-with-image .chip-row {
+    width: auto;
+    max-width: none;
+    margin-right: 16px;
+    margin-left: 16px;
+    box-sizing: border-box;
+  }
+
+  .article-head .system-kicker,
+  .taxonomy-head .system-kicker,
+  .community-head .system-kicker,
+  .search-head .system-kicker,
+  .organization-workspace-title .system-kicker {
+    width: 100%;
+    text-align: center;
+  }
+
+  .community-head > .system-kicker,
+  .search-head > div,
+  .organization-workspace-kicker {
+    justify-items: center;
+    text-align: center;
+  }
+
+  .search-head > div,
+  .search-head h1,
+  .search-head .article-summary {
+    width: 100%;
+    text-align: center;
+  }
+
+  .organization-workspace-title .article-title-row {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    flex-wrap: nowrap;
+    text-align: center;
+  }
+
+  .organization-workspace-title .organization-title-with-avatar {
+    justify-content: center;
+  }
+
+  .organization-workspace-title .organization-workspace-actions {
+    justify-self: auto;
+    flex-wrap: nowrap;
+  }
+
+  .organization-workspace-title .article-summary {
+    margin-inline: auto;
+    text-align: center;
+  }
+
+  .organization-workspace-kicker,
+  .organization-workspace-stats {
+    justify-content: center;
+    width: 100%;
+    text-align: center;
+  }
+
+  .article-title-primary-actions > *,
+  .article-title-actions .article-section-shortcuts > button,
+  .article-section-shortcuts button[data-rating-shortcut] {
+    grid-column: auto;
+    width: 100%;
+    min-width: 0;
+    min-height: 40px;
+    justify-content: center;
+    text-align: center;
+  }
+
+  .article-head .article-title-row,
+  .article-head .article-summary,
+  .article-head .meta-row,
+  .article-head .chip-row,
+  .article-title-actions {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .article-title-row > .quality-badge,
+  .taxonomy-head .quality-badge,
+  .community-head .quality-badge {
+    width: max-content;
+    max-width: 100%;
+    min-height: 30px;
+    justify-self: center;
+    align-self: center;
+    white-space: nowrap;
+  }
+
+  .citation-quality-panel,
+  .page-review-status {
+    grid-template-columns: minmax(0, 1fr);
+    justify-items: center;
+    align-items: center;
+    text-align: center;
+  }
+
+  .citation-quality-metrics,
+  .page-review-status-actions {
+    justify-content: center;
+  }
+
+  .citation-quality-panel > .mini-link,
+  .page-review-status .review-status-action {
+    width: max-content;
+    max-width: 100%;
+    justify-self: center;
+  }
+
+  .rating-card {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 12px 8px;
+  }
+
+  .rating-summary {
+    min-width: 0;
+    text-align: left;
+  }
+
+  .rating-control {
+    grid-column: 2;
+    grid-row: 1;
+    flex-wrap: nowrap;
+    justify-content: flex-end;
+    gap: 2px;
+  }
+
+  .rating-star {
+    width: 32px;
+    height: 32px;
+  }
+
+  .rating-distribution {
+    grid-column: 1 / -1;
+  }
+
+  .admin-community-queue-filter {
+    grid-template-columns: minmax(0, 1fr) auto;
+    width: 100%;
+    gap: 8px;
+  }
+
+  body.admin-mode .admin-community-queue-filter .command-button {
+    width: auto;
+    min-width: 76px;
+  }
+
+  .organization-admin-controls {
+    min-width: 190px;
+  }
+}
+
+@media (max-width: 900px) {
+  .sidebar .nav-section,
+  .sidebar .sidebar-footer {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+}
+
+@media (max-width: 420px) {
+  .rating-star {
+    width: 29px;
+    height: 29px;
+    padding: 0;
+  }
 }

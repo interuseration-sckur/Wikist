@@ -3,6 +3,7 @@
 namespace app\controller;
 
 use app\http\ApiResponse;
+use app\service\OperationalMetrics;
 use support\Db;
 use support\Request;
 use support\Response;
@@ -24,15 +25,33 @@ final class HealthController
             'ok' => $status === 'ok',
             'status' => $status,
             'service' => 'wikist-webman',
-            'version' => 'hybrid-phase-1',
+            'version' => '1.0.1',
             'runtime' => ['php' => PHP_VERSION, 'webman' => '2.2'],
             'components' => [
                 'database' => $database,
                 'passport' => ['owner' => 'webman', 'database' => 'wikist'],
-                'legacyProxy' => ['enabled' => (bool) config('wikist.legacy_proxy.enabled'), 'scope' => 'unported-api-only'],
-                'realtime' => ['enabled' => (bool) config('wikist.realtime.enabled')],
+                'community' => ['owner' => 'webman'],
+                'messaging' => ['owner' => 'webman'],
+                'legacyProxy' => ['owner' => 'node-compatibility', 'enabled' => (bool) config('wikist.legacy_proxy.enabled'), 'scope' => 'unported-api-only'],
+                'realtime' => ['owner' => 'centrifugo-transport', 'enabled' => (bool) config('wikist.realtime.enabled')],
             ],
+            'metrics' => OperationalMetrics::snapshot(),
             'requestId' => $request->requestId,
         ], $status === 'ok' ? 200 : 503);
+    }
+
+    public function ready(Request $request): Response
+    {
+        return $this->index($request);
+    }
+
+    public function live(Request $request): Response
+    {
+        return ApiResponse::data([
+            'ok' => true,
+            'status' => 'alive',
+            'service' => 'wikist-webman',
+            'requestId' => $request->requestId,
+        ]);
     }
 }

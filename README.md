@@ -8,7 +8,7 @@
   面向数学与科学知识社区的开放 Wiki 框架
 </p>
 
-> 当前稳定版本：`1.0.0`
+> 当前稳定版本：`1.0.1`
 
 Wikist 用于建设专业、可验证、可持续协作的知识站点。它将 Wiki、问答、组织协作、翻译、评论、消息与内容审阅放在同一套用户和知识体系中，适合个人、团队、学校社团和中小型专业社区部署。
 
@@ -31,8 +31,8 @@ Wikist 用于建设专业、可验证、可持续协作的知识站点。它将 
 
 ### 环境要求
 
-- PHP `8.1` 或更高版本，并启用 PDO、mbstring、OpenSSL、cURL 和 GD。
-- Node.js `18` 或更高版本，推荐使用 Node.js `24 LTS`。
+- PHP `8.4.1` 或更高版本，并启用 PDO、mbstring、OpenSSL、cURL、GD、intl、XML 和 ZIP。
+- Node.js `22.5` 或更高版本，推荐使用当前 LTS 版本。
 - Composer。
 - Git。
 
@@ -41,9 +41,17 @@ Wikist 用于建设专业、可验证、可持续协作的知识站点。它将 
 ```bash
 git clone https://github.com/interuseration-sckur/Wikist.git
 cd Wikist
-npm install
+npm ci
 npm run setup:stack
 npm start
+```
+
+Ubuntu 22.04/24.04 也可以使用一键安装脚本：
+
+```bash
+git clone https://github.com/interuseration-sckur/Wikist.git
+cd Wikist
+sudo bash tools/install-ubuntu.sh --public-url=https://wiki.example.com
 ```
 
 首次启动时，Wikist 会准备所需组件并执行数据库升级。随后访问：
@@ -77,7 +85,7 @@ npm run check      # 执行发布前检查
 ## 首次使用
 
 1. 打开安装页并完成基础配置。
-2. 创建首个账号；空站点的首个账号会进入管理员初始化流程。
+2. 按安装页的一次性初始化流程创建首位管理员；普通公开注册不会自动取得管理员身份。
 3. 在后台设置站点标题、简介、导航、首页内容、邮件和安全策略。
 4. 创建第一篇词条，并根据需要填写分类、来源、别名和语言信息。
 5. 在后台生成一次全站备份，确认备份下载和恢复入口可用。
@@ -133,14 +141,31 @@ npm run check      # 执行发布前检查
 
 站点自己的数据库、配置、词条、上传文件和日志不会提交到公开仓库。
 
-## 更新
+SQLite 适合单机和中小型社区，默认采用单写入进程配置。持续高并发写入的站点应先运行健康检查，并在切换受支持的外部数据库前完成迁移演练。
+
+## 升级
 
 更新前请先在后台生成全站备份，并确认工作目录中没有尚未保存的核心代码改动。
 
-推荐使用更新脚本：
+推荐使用内置升级脚本。它会在拉取代码前检查环境、工作目录和数据库迁移，并在执行前创建恢复点。
+
+先执行不会停止服务的预检：
+
+```bash
+npm run update -- --preflight-only --yes
+```
+
+预检通过后再执行正式更新：
 
 ```bash
 npm run update -- --strategy=git --remote=origin --branch=main --service=wikist --yes
+```
+
+从 Wikist `1.0.0` 升级到 `1.0.1` 也使用同一命令，无需重新安装或清空数据库。升级完成后确认版本与运行状态：
+
+```bash
+npm run doctor
+npm run status
 ```
 
 如果本地存在需要临时保留的代码改动：
@@ -189,7 +214,7 @@ npm run restart
 
 ### 提示缺少 PHP 或 Composer
 
-确认 PHP 版本不低于 8.1，并能在终端执行 `php -v` 和 `composer --version`。Windows 也可以通过 `WIKIST_PHP` 与 `WIKIST_COMPOSER` 指定路径。
+确认 PHP 版本不低于 8.4.1，并能在终端执行 `php -v` 和 `composer --version`。Windows 也可以通过 `WIKIST_PHP` 与 `WIKIST_COMPOSER` 指定路径。
 
 ### 8899 端口已被占用
 
@@ -221,6 +246,8 @@ npm run restart
 ## 文档
 
 - [安装与部署](docs/INSTALL.md)
+- [安全加固验收](docs/HARDENING_ACCEPTANCE_2026-08-16.md)
+- [1.0.1 发布说明](docs/RELEASE_1.0.1.md)
 - [1.0 发布说明](docs/RELEASE_1.0.md)
 - [升级日志](docs/UPGRADE_CHANGELOG.md)
 - [写作与内容质量](docs/CONTENT_QUALITY.md)
@@ -253,12 +280,12 @@ Wikist is an open wiki framework for mathematical and scientific knowledge commu
 
 ### Quick Start
 
-Requirements: PHP 8.1+, Node.js 18+, Composer, and Git.
+Requirements: PHP 8.4.1+, Node.js 22.5+, Composer, and Git.
 
 ```bash
 git clone https://github.com/interuseration-sckur/Wikist.git
 cd Wikist
-npm install
+npm ci
 npm run setup:stack
 npm start
 ```
@@ -283,4 +310,4 @@ Create a full backup first, then run:
 npm run update -- --strategy=git --remote=origin --branch=main --service=wikist --yes
 ```
 
-See [Installation](docs/INSTALL.md), [Release 1.0](docs/RELEASE_1.0.md), and the [Upgrade Changelog](docs/UPGRADE_CHANGELOG.md) for further guidance.
+See [Installation](docs/INSTALL.md), [Release 1.0.1](docs/RELEASE_1.0.1.md), and the [Upgrade Changelog](docs/UPGRADE_CHANGELOG.md) for further guidance.

@@ -8,8 +8,8 @@ if (PHP_SAPI !== 'cli') {
     exit;
 }
 
-if (PHP_VERSION_ID < 80100) {
-    fwrite(STDERR, "Wikist 1.0 update.php requires PHP 8.1 or newer.\n");
+if (PHP_VERSION_ID < 80401) {
+    fwrite(STDERR, "Wikist update.php requires PHP 8.4.1 or newer.\n");
     exit(1);
 }
 
@@ -140,6 +140,37 @@ function wikist_update_sqlite_backup(PDO $pdo, string $root): ?array
     if (!is_file($destination) || filesize($destination) === 0) {
         wikist_update_fail('SQLite backup verification failed.');
     }
+    $snapshot = new PDO('sqlite:' . $destination);
+    $snapshot->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+    $snapshot->exec('PRAGMA foreign_keys = OFF');
+    $snapshot->beginTransaction();
+    try {
+        foreach (['sessions', 'passport_tokens', 'captchas', 'messaging_presence_leases'] as $table) {
+            $statement = $snapshot->prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?");
+            $statement->execute([$table]);
+            if ($statement->fetchColumn()) {
+                $snapshot->exec("DELETE FROM {$table}");
+            }
+        }
+        $columns = [];
+        foreach ($snapshot->query('PRAGMA table_info(users)')?->fetchAll(PDO::FETCH_ASSOC) ?: [] as $column) {
+            $columns[(string) ($column['name'] ?? '')] = true;
+        }
+        $assignments = [];
+        foreach (['pending_email', 'pending_email_requested_at', 'pending_two_factor_secret', 'pending_two_factor_created_at'] as $column) {
+            if (isset($columns[$column])) $assignments[] = "{$column} = ''";
+        }
+        if ($assignments !== []) {
+            $snapshot->exec('UPDATE users SET ' . implode(', ', $assignments));
+        }
+        $snapshot->commit();
+    } catch (Throwable $error) {
+        if ($snapshot->inTransaction()) $snapshot->rollBack();
+        @unlink($destination);
+        throw $error;
+    }
+    $snapshot = null;
+    @chmod($destination, 0600);
     return [
         'path' => $destination,
         'bytes' => filesize($destination),
@@ -168,6 +199,33 @@ try {
         wikist_update_fail('Composer dependencies are missing. Run composer install in webman-backend first.');
     }
     require_once $backend . DIRECTORY_SEPARATOR . 'tools' . DIRECTORY_SEPARATOR . 'database.php';
+
+    if (!getenv('APP_SECRET') && ($legacySecret = (string) (getenv('WIKIST_PASSPORT_SECRET') ?: '')) !== '') {
+        if (strlen($legacySecret) < 32 && in_array(strtolower((string) (getenv('APP_ENV') ?: 'development')), ['production', 'prod'], true)) {
+            wikist_update_fail('The legacy Passport secret is too short for production. Set APP_SECRET explicitly before updating.');
+        }
+        if (preg_match('/[\r\n\0]/', $legacySecret)) {
+            wikist_update_fail('The legacy Passport secret cannot be migrated because it contains invalid control characters.');
+        }
+        putenv('APP_SECRET=' . $legacySecret);
+        $_ENV['APP_SECRET'] = $legacySecret;
+        $envPath = $backend . DIRECTORY_SEPARATOR . '.env';
+        if (is_file($envPath) && !is_link($envPath)) {
+            $currentEnv = rtrim((string) file_get_contents($envPath));
+            $escaped = str_replace(['\\', '"'], ['\\\\', '\\"'], $legacySecret);
+            $temporaryEnv = $envPath . '.' . getmypid() . '.tmp';
+            if (file_put_contents($temporaryEnv, $currentEnv . PHP_EOL . 'APP_SECRET="' . $escaped . '"' . PHP_EOL, LOCK_EX) === false) {
+                wikist_update_fail('Unable to persist the migrated APP_SECRET.');
+            }
+            @chmod($temporaryEnv, 0600);
+            if (!rename($temporaryEnv, $envPath)) {
+                @unlink($temporaryEnv);
+                wikist_update_fail('Unable to atomically replace the environment file during secret migration.');
+            }
+            @chmod($envPath, 0600);
+            echo "Migrated legacy Passport secret to APP_SECRET." . PHP_EOL;
+        }
+    }
 
     if (!getenv('WIKIST_DB_DATABASE')) {
         $sitePath = $root . DIRECTORY_SEPARATOR . 'config' . DIRECTORY_SEPARATOR . 'site.config.json';
@@ -232,6 +290,7 @@ try {
     $pdo = null;
 
     wikist_update_run([PHP_BINARY, $backend . DIRECTORY_SEPARATOR . 'tools' . DIRECTORY_SEPARATOR . 'migrate.php'], $backend);
+    wikist_update_run([PHP_BINARY, $backend . DIRECTORY_SEPARATOR . 'tools' . DIRECTORY_SEPARATOR . 'migrate-secrets.php'], $backend);
     if ($options['check']) {
         wikist_update_run([PHP_BINARY, $backend . DIRECTORY_SEPARATOR . 'tools' . DIRECTORY_SEPARATOR . 'check.php'], $backend);
     }

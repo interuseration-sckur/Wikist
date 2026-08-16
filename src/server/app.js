@@ -2,9 +2,10 @@ const crypto = require("crypto");
 const fs = require("fs");
 const http = require("http");
 const path = require("path");
-const { createBackupPackage, inspectBackupPackage, restoreBackupPackage, exerciseBackupPackage } = require("../core/backup");
+const { redactString } = require("../core/log-redaction");
+const { createBackupPackage, createBackupPackageFile, inspectBackupPackage, restoreBackupPackage, exerciseBackupPackage } = require("../core/backup");
 const { normalizeArxiv, normalizeCitationId, normalizeDoi, normalizeUrl } = require("../core/citations");
-const { hasSiteConfig, loadConfig, uninstallSiteConfig, writeInitialConfig } = require("../core/config");
+const { cleanPublicUrl, hasSiteConfig, loadConfig, uninstallSiteConfig, writeInitialConfig, writeSiteConfigFile } = require("../core/config");
 const { readJsonBody, safeJoin, sendJson, sendText, serveStatic } = require("../core/http");
 const { fetchWikipediaPage, parseWikistImport } = require("../core/import-export");
 const { categoryDetail, categorySnapshot, topicDetail } = require("../core/knowledge-navigation");
@@ -141,6 +142,18 @@ function requireUserAdmin(passport, session) {
   passport.assertCanManageUsers(session);
 }
 
+function requireSystemAdmin(passport, session) {
+  requireUserAdmin(passport, session);
+}
+
+function verifyBootstrapSecret(input = {}) {
+  const expected = Buffer.from(String(process.env.WIKIST_INSTALL_BOOTSTRAP_SECRET || ""));
+  const provided = Buffer.from(String(input.bootstrapSecret || ""));
+  return expected.length >= 32
+    && expected.length === provided.length
+    && crypto.timingSafeEqual(expected, provided);
+}
+
 function requireImportAccount(passport, session) {
   if (!passport || !session?.user) {
     const error = new Error("请先登录后再导入或同步词条。");
@@ -162,6 +175,33 @@ function sendDownload(res, backup) {
     "x-wikist-backup-manifest": encodeURIComponent(JSON.stringify(backup.manifest || {})),
   });
   res.end(backup.buffer);
+}
+
+function sendDownloadFile(res, backup) {
+  const stat = fs.statSync(backup.filePath);
+  res.writeHead(200, {
+    "content-type": backup.contentType || "application/octet-stream",
+    "content-length": stat.size,
+    "content-disposition": `attachment; filename="${backup.filename}"`,
+    "cache-control": "no-store",
+    "x-content-type-options": "nosniff",
+    "x-wikist-backup-manifest": encodeURIComponent(JSON.stringify(backup.manifest || {})),
+  });
+  const stream = fs.createReadStream(backup.filePath);
+  let cleaned = false;
+  const cleanup = () => {
+    if (cleaned) return;
+    cleaned = true;
+    backup.cleanup?.();
+  };
+  stream.once("error", (error) => {
+    cleanup();
+    if (!res.headersSent) res.writeHead(500, { "content-type": "text/plain; charset=utf-8" });
+    res.destroy(error);
+  });
+  stream.once("close", cleanup);
+  res.once("close", cleanup);
+  stream.pipe(res);
 }
 
 function citationInputError(references) {
@@ -328,7 +368,7 @@ function sanitizeHomeContent(input, current = {}) {
       tag: cleanSettingText(item?.tag, 60),
       title: cleanSettingText(item?.title, 120),
       body: cleanSettingText(item?.body, 300),
-      href: cleanSettingText(item?.href, 500),
+      href: cleanNavigationUrl(item?.href, ""),
       date: cleanSettingText(item?.date, 80),
     })).filter((item) => item.title);
   }
@@ -338,7 +378,7 @@ function sanitizeHomeContent(input, current = {}) {
       tag: cleanSettingText(item?.tag, 60),
       title: cleanSettingText(item?.title, 120),
       body: cleanSettingText(item?.body, 300),
-      href: cleanSettingText(item?.href, 500),
+      href: cleanNavigationUrl(item?.href, ""),
     })).filter((item) => item.title);
   }
   if (/^(欢迎来到|Welcome to)\s*Wikist$/i.test(String(next.heroTitle || "").trim())) next.heroTitle = "首页";
@@ -349,7 +389,7 @@ function saveSiteConfig(rootDir, runtimeConfig, changes) {
   const configPath = path.join(rootDir, "config", "site.config.json");
   const disk = fs.existsSync(configPath) ? JSON.parse(fs.readFileSync(configPath, "utf8").replace(/^\uFEFF/, "")) : {};
   const next = { ...disk, ...changes };
-  fs.writeFileSync(configPath, `${JSON.stringify(next, null, 2)}\n`, "utf8");
+  writeSiteConfigFile(rootDir, next);
   Object.assign(runtimeConfig, changes);
   return changes;
 }
@@ -359,7 +399,7 @@ function recordAudit(passport, req, session, input) {
   try {
     return passport.recordAuditLog(req, session, input);
   } catch (error) {
-    console.warn("Wikist audit log failed:", error.message);
+    console.warn("Wikist audit log failed:", redactString(error.message));
     return null;
   }
 }
@@ -395,6 +435,8 @@ function siteSettingsPayload(config) {
   return {
     name: config.name || "Wikist",
     tagline: config.tagline || "",
+    publicUrl: config.publicUrl || "",
+    deploymentMode: config.deploymentMode || "development",
     language: normalizeLanguageCode(config.language || "zh-CN", "zh-CN"),
     languages: normalizeLanguageList(config.languages || ["zh-CN", "zh-TW", "en"], []),
     defaultPage: config.defaultPage || "home",
@@ -405,7 +447,6 @@ function siteSettingsPayload(config) {
       ? "/assets/wikist-icon.png"
       : (config.assets?.siteIcon || "/assets/wikist-icon.png"),
     customCss: config.assets?.customCss || "",
-    customJs: config.assets?.customJs || "",
     mail: {
       ...publicMailSettings(config),
       smtpPassSet: Boolean(config.mail?.smtp?.pass),
@@ -423,6 +464,15 @@ function cleanAssetUrl(value, fallback = "") {
   if (!text) return fallback;
   if (/^https?:\/\/[^\s"'<>]+$/i.test(text)) return text;
   if (/^\/[^\s"'<>\\]+$/.test(text) && !text.startsWith("//")) return text;
+  return fallback;
+}
+
+function cleanNavigationUrl(value, fallback = "") {
+  const text = cleanSettingText(value, 500);
+  if (!text) return fallback;
+  if (/^https?:\/\/[^\s"'<>]+$/i.test(text)) return text;
+  if (/^#\/[A-Za-z0-9%._~!$&()*+,;=:@/?-]*$/.test(text)) return text;
+  if (/^\/(?!\/)[^\s"'<>\\]*$/.test(text)) return text;
   return fallback;
 }
 
@@ -452,8 +502,30 @@ function normalizeLanguageList(value, current = []) {
   return merged.slice(0, 40);
 }
 
+function sanitizeCustomCss(value) {
+  const css = String(value || "").replace(/\0/g, "").slice(0, 20000);
+  const blocked = [
+    [/@(?:import|charset|namespace)\b/i, "不允许使用 @import、@charset 或 @namespace"],
+    [/url\s*\(/i, "不允许从自定义 CSS 加载外部资源"],
+    [/(?:expression|behavior|-moz-binding)\s*:/i, "不允许使用可执行或旧式浏览器声明"],
+    [/(?:javascript|vbscript|data\s*:\s*text\/html)\s*:/i, "不允许使用可执行 URL 协议"],
+    [/<\/?(?:style|script)\b/i, "这里只接受 CSS 内容"],
+  ];
+  for (const [pattern, message] of blocked) {
+    if (!pattern.test(css)) continue;
+    const error = new Error(`自定义 CSS 未保存：${message}。`);
+    error.statusCode = 400;
+    throw error;
+  }
+  return css;
+}
+
 function sanitizeSiteSettings(input, current = {}) {
   const source = input && typeof input === "object" ? input : {};
+  const deploymentMode = ["development", "single-production", "advanced"].includes(source.deploymentMode)
+    ? source.deploymentMode
+    : (current.deploymentMode || "development");
+  const publicUrl = cleanPublicUrl(source.publicUrl ?? current.publicUrl ?? current.mail?.baseUrl ?? process.env.APP_URL, deploymentMode);
   const languages = normalizeLanguageList(source.languages ?? current.languages, current.languages || []);
   const language = normalizeLanguageCode(source.language ?? current.language ?? "zh-CN", "zh-CN");
   if (!languages.includes(language)) languages.push(language);
@@ -465,7 +537,7 @@ function sanitizeSiteSettings(input, current = {}) {
     enabled: incomingMail.mailEnabled === true || incomingMail.enabled === true,
     fromName: cleanSettingText(incomingMail.fromName ?? currentMail.fromName ?? current.name ?? "Wikist", 120),
     fromAddress: cleanSettingText(incomingMail.fromAddress ?? currentMail.fromAddress ?? "", 220),
-    baseUrl: cleanSettingText(incomingMail.baseUrl ?? currentMail.baseUrl ?? "", 500),
+    baseUrl: publicUrl,
     smtp: {
       ...(currentMail.smtp || {}),
       host: cleanSettingText(incomingMail.smtpHost ?? incomingMail.host ?? currentMail.smtp?.host ?? "", 220),
@@ -486,17 +558,20 @@ function sanitizeSiteSettings(input, current = {}) {
   return {
     name: cleanSettingText(source.name ?? current.name ?? "Wikist", 80) || "Wikist",
     tagline: cleanSettingText(source.tagline ?? current.tagline ?? "", 220),
+    publicUrl,
+    deploymentMode,
     language,
     defaultPage: cleanSettingText(source.defaultPage ?? current.defaultPage ?? "home", 120) || "home",
     license: cleanSettingText(source.license ?? current.license ?? "CC BY-SA 4.0", 120),
     languages,
-    math: { ...(current.math || {}), cdn: cleanSettingText(source.mathCdn ?? current.math?.cdn ?? "", 500) },
+    math: { ...(current.math || {}), cdn: cleanAssetUrl(source.mathCdn ?? current.math?.cdn ?? "", current.math?.cdn || "") },
     assets: {
       ...(current.assets || {}),
-      cdnBase: cleanSettingText(source.cdnBase ?? current.assets?.cdnBase ?? "", 500),
+      cdnBase: cleanAssetUrl(source.cdnBase ?? current.assets?.cdnBase ?? "", ""),
       siteIcon: cleanAssetUrl(source.siteIcon ?? current.assets?.siteIcon ?? "/assets/wikist-icon.png", "/assets/wikist-icon.png"),
-      customCss: String(source.customCss ?? current.assets?.customCss ?? "").slice(0, 20000),
-      customJs: String(source.customJs ?? current.assets?.customJs ?? "").slice(0, 20000),
+      customCss: sanitizeCustomCss(source.customCss ?? current.assets?.customCss ?? ""),
+      // Raw same-origin JavaScript is not a supported customization surface.
+      customJs: "",
     },
     mail,
     passport,
@@ -582,7 +657,7 @@ function createPluginManifest(rootDir, input = {}) {
     id,
     name: cleanSettingText(input.name || id, 80) || id,
     type: cleanSettingText(input.type || "extension", 40) || "extension",
-    version: cleanSettingText(input.version || "1.0.0", 30) || "1.0.0",
+    version: cleanSettingText(input.version || "1.0.1", 30) || "1.0.1",
     source: cleanSettingText(input.source || `local:${dirName}`, 220),
     repository: cleanSettingText(input.repository || "", 240),
     vendorDirectory: cleanSettingText(input.vendorDirectory || "", 120),
@@ -731,8 +806,20 @@ function requestPrefersHtml(req) {
   return accept.includes("text/html") && !accept.includes("application/json");
 }
 
+function escapeStatusHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 function systemStatusDocument({ statusCode = 500, title = "服务暂时不可用", copy = "请求暂时无法完成，请稍后再试。", kicker = "WIKIST SYSTEM STATE", retryAfter = 0 } = {}) {
   const retry = Math.max(0, Number(retryAfter) || 0);
+  title = escapeStatusHtml(title);
+  copy = escapeStatusHtml(copy);
+  kicker = escapeStatusHtml(kicker);
   const warning = Number(statusCode) === 404 ? "#38e8ff" : "#ffd166";
   const action = retry ? `<p class="countdown">冷却时间 <strong>${retry}s</strong></p>` : "";
   return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title><style>:root{color-scheme:dark light}*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px;background:#07100e;background-image:linear-gradient(rgba(56,232,255,.07) 1px,transparent 1px),linear-gradient(90deg,rgba(56,232,255,.07) 1px,transparent 1px);background-size:44px 44px;color:#eaf7f0;font:16px/1.6 system-ui,-apple-system,"Segoe UI",sans-serif}.panel{width:min(580px,100%);padding:clamp(28px,6vw,48px);border:1px solid ${warning};border-radius:12px;background:linear-gradient(135deg,color-mix(in srgb,${warning} 10%,transparent),transparent 42%),rgba(11,23,20,.94);box-shadow:0 28px 90px rgba(0,0,0,.44)}.mark{display:grid;width:52px;height:52px;place-items:center;border:1px solid ${warning};border-radius:50%;color:${warning};font:800 24px/1 ui-monospace,Consolas,monospace}.eyebrow{margin:20px 0 5px;color:${warning};font:700 12px/1.2 ui-monospace,Consolas,monospace;letter-spacing:.08em}h1{margin:0;font-size:clamp(28px,5vw,42px);line-height:1.1;letter-spacing:0}p{color:#abc4ba}.countdown{display:flex;align-items:baseline;justify-content:space-between;gap:16px;padding:12px 14px;border:1px solid rgba(56,232,255,.3);border-radius:8px;background:rgba(56,232,255,.06);color:#cde5dc}.countdown strong{color:#38e8ff;font:800 22px ui-monospace,Consolas,monospace}a{display:inline-flex;align-items:center;justify-content:center;min-height:42px;margin-top:12px;padding:0 18px;border:1px solid #7cffb4;border-radius:7px;color:#eaf7f0;text-decoration:none;background:rgba(124,255,180,.08)}a:hover{background:rgba(124,255,180,.16)}</style></head><body><main class="panel"><div class="mark">${Number(statusCode) === 404 ? "?" : "&#9670;"}</div><p class="eyebrow">${kicker}</p><h1>${title}</h1><p>${copy}</p>${action}<a href="/">返回首页</a></main></body></html>`;
@@ -775,7 +862,10 @@ function createWikistServer(options) {
   const config = loadConfig(rootDir);
   const migratedPlugins = pluginConfigurationReport(config, rootDir);
   if (configuredAtStartup && migratedPlugins.changed) saveSiteConfig(rootDir, config, { plugins: migratedPlugins.settings });
-  const installerForceMode = process.env.WIKIST_INSTALL_MODE === "1";
+  const installerStartedAt = Date.now();
+  const installerTtlMs = Math.max(60, Math.min(Number(process.env.WIKIST_INSTALL_MODE_TTL_SECONDS) || 900, 3600)) * 1000;
+  const installerForceMode = () => process.env.WIKIST_INSTALL_MODE === "1"
+    && Date.now() - installerStartedAt <= installerTtlMs;
   let installWroteConfig = false;
   let installRemovedConfig = false;
   const installerStatus = () => {
@@ -783,25 +873,72 @@ function createWikistServer(options) {
     const installedConfig = configured ? loadConfig(rootDir) : config;
     return {
       configured,
-      setupAllowed: !configured || installerForceMode,
-      forceMode: installerForceMode,
-      uninstallAllowed: configured && installerForceMode,
+      setupAllowed: !configured || installerForceMode(),
+      forceMode: installerForceMode(),
+      uninstallAllowed: configured && installerForceMode(),
+      forceModeExpiresAt: process.env.WIKIST_INSTALL_MODE === "1"
+        ? new Date(installerStartedAt + installerTtlMs).toISOString()
+        : "",
       restartRequired: installWroteConfig || installRemovedConfig || (configured && !configuredAtStartup),
       database: String(installedConfig.passport?.database || "data/wikist.sqlite"),
     };
   };
   const pages = new PageStore(rootDir, config);
   const passport = configuredAtStartup && config.passport?.enabled ? new PassportStore(rootDir, config.passport) : null;
-  const persistentSearch = passport ? new PersistentFtsIndex(passport, () => ({ plugins: pluginSettings(config, rootDir) })) : null;
+  const persistentSearch = passport ? new PersistentFtsIndex(
+    passport,
+    () => ({ plugins: pluginSettings(config, rootDir) }),
+    { schemaManagedExternally: process.env.WIKIST_COMPATIBILITY_MODE === "1" },
+  ) : null;
   const search = new SearchIndex(pages, () => ({ plugins: pluginSettings(config, rootDir) }), persistentSearch);
   const runtimeMetrics = new RuntimeMetrics();
   const firewall = new RequestFirewall(() => config, runtimeMetrics);
   setPluginRuntimeObserver(({ pluginId, hook, error }) => runtimeMetrics.observePluginFailure({ pluginId, hook, error }));
-  const liveBackup = (options = {}) => createBackupPackage(rootDir, {
-    database: config.passport?.database || "data/wikist.sqlite",
-    databaseSnapshot: options.includeUserData === false ? null : passport?.createDatabaseSnapshot(),
-    includeUserData: options.includeUserData,
-  });
+  let backupOperationActive = false;
+  let backupLastCompletedAt = 0;
+  const liveBackup = (options = {}) => {
+    const cooldownMs = Math.max(1000, Math.min(Number(process.env.WIKIST_BACKUP_COOLDOWN_MS) || 10000, 300000));
+    if (backupOperationActive || (!options.allowRapid && Date.now() - backupLastCompletedAt < cooldownMs)) {
+      const error = new Error("备份操作正在执行或刚刚完成，请稍后再试。");
+      error.statusCode = 429;
+      error.retryAfter = Math.max(1, Math.ceil((cooldownMs - (Date.now() - backupLastCompletedAt)) / 1000));
+      throw error;
+    }
+    backupOperationActive = true;
+    try {
+      return createBackupPackage(rootDir, {
+        database: config.passport?.database || "data/wikist.sqlite",
+        databaseSnapshot: options.includeUserData === false ? null : passport?.createDatabaseSnapshot(),
+        includeUserData: options.includeUserData,
+      });
+    } finally {
+      backupOperationActive = false;
+      backupLastCompletedAt = Date.now();
+    }
+  };
+  const liveBackupFile = async (options = {}) => {
+    const cooldownMs = Math.max(1000, Math.min(Number(process.env.WIKIST_BACKUP_COOLDOWN_MS) || 10000, 300000));
+    if (backupOperationActive || (!options.allowRapid && Date.now() - backupLastCompletedAt < cooldownMs)) {
+      const error = new Error("备份操作正在执行或刚刚完成，请稍后再试。");
+      error.statusCode = 429;
+      error.retryAfter = Math.max(1, Math.ceil((cooldownMs - (Date.now() - backupLastCompletedAt)) / 1000));
+      throw error;
+    }
+    backupOperationActive = true;
+    let snapshot = null;
+    try {
+      snapshot = options.includeUserData === false ? null : passport?.createDatabaseSnapshotFile();
+      return await createBackupPackageFile(rootDir, {
+        database: config.passport?.database || "data/wikist.sqlite",
+        databaseSnapshotPath: snapshot?.path || "",
+        includeUserData: options.includeUserData,
+      });
+    } finally {
+      snapshot?.cleanup?.();
+      backupOperationActive = false;
+      backupLastCompletedAt = Date.now();
+    }
+  };
   const runtimeHealth = (options = {}) => {
     const index = search.persistentStatus();
     const plugins = pluginConfigurationReport(config, rootDir);
@@ -850,6 +987,10 @@ function createWikistServer(options) {
         && ["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(remoteAddress)
         && String(req.headers["x-wikist-internal-token"] || "") === internalToken
       );
+      if (process.env.WIKIST_COMPATIBILITY_MODE === "1" && !internalRequest) {
+        sendJson(res, 404, { error: "Not found." });
+        return;
+      }
       const firewallResult = internalRequest
         ? { allowed: true, statusCode: 200, retryAfter: 0, policy: "internal-webman", remaining: 0 }
         : firewall.evaluate(req, pathname);
@@ -924,7 +1065,12 @@ function createWikistServer(options) {
           sendJson(res, 409, { error: "当前站点已经配置完成。如需重新生成配置，请以 WIKIST_INSTALL_MODE=1 重启服务后再操作。" });
           return;
         }
-        const result = writeInitialConfig(rootDir, await readJsonBody(req), { force: installerForceMode });
+        const input = await readJsonBody(req);
+        if (!verifyBootstrapSecret(input)) {
+          sendJson(res, 403, { error: "安装密钥不正确。请使用服务器启动时显示的一次性密钥。" });
+          return;
+        }
+        const result = writeInitialConfig(rootDir, input, { force: installerForceMode() });
         installWroteConfig = true;
         sendJson(res, 200, {
           ok: true,
@@ -932,6 +1078,11 @@ function createWikistServer(options) {
           site: {
             name: result.config.name,
             language: result.config.language,
+            publicUrl: result.config.publicUrl,
+            deploymentMode: result.config.deploymentMode,
+            trustedOrigin: result.config.publicUrl,
+            realtimeUrl: result.config.publicUrl.replace(/^http:/i, "ws:").replace(/^https:/i, "wss:") + "/connection/websocket",
+            secureCookie: result.config.publicUrl.startsWith("https://"),
             database: result.config.passport.database,
             mailEnabled: result.config.mail.enabled,
           },
@@ -945,11 +1096,15 @@ function createWikistServer(options) {
           sendJson(res, 403, { error: firewallCheck.reason });
           return;
         }
-        if (!installerForceMode) {
+        const body = await readJsonBody(req);
+        if (!verifyBootstrapSecret(body)) {
+          sendJson(res, 403, { error: "维护密钥不正确。请使用本次服务器启动时显示的密钥。" });
+          return;
+        }
+        if (!installerForceMode()) {
           sendJson(res, 403, { error: "卸载安装配置必须先以 WIKIST_INSTALL_MODE=1 重启服务。" });
           return;
         }
-        const body = await readJsonBody(req);
         if (body.confirm !== "UNINSTALL_CONFIG") {
           sendJson(res, 400, { error: "请确认输入 UNINSTALL_CONFIG 后再卸载安装配置。" });
           return;
@@ -975,9 +1130,22 @@ function createWikistServer(options) {
 
       if (pathname === "/api/site" && req.method === "GET") {
         sendJson(res, 200, {
-          ...config,
+          name: config.name || "Wikist",
+          tagline: config.tagline || "",
+          publicUrl: config.publicUrl || "",
+          defaultPage: config.defaultPage || "home",
+          license: config.license || "CC BY-SA 4.0",
           language: normalizeLanguageCode(config.language || "zh-CN", "zh-CN"),
           languages: normalizeLanguageList(config.languages || ["zh-CN", "zh-TW", "en"], []),
+          math: {
+            provider: config.math?.provider || "mathjax",
+            cdn: cleanAssetUrl(config.math?.cdn || "", ""),
+          },
+          assets: {
+            cdnBase: cleanAssetUrl(config.assets?.cdnBase || "", ""),
+            siteIcon: cleanAssetUrl(config.assets?.siteIcon || "/assets/wikist-icon.png", "/assets/wikist-icon.png"),
+            customCss: String(config.assets?.customCss || "").slice(0, 20000),
+          },
           home: homeSettingsPayload(config),
           homeContent: homeContentPayload(config),
           plugins: pluginSettings(config, rootDir),
@@ -1250,7 +1418,11 @@ function createWikistServer(options) {
           return;
         }
         const pagination = readPagination(url, 12, 60);
-        const result = passport.listOrganizations({ query: url.searchParams.get("q") || "", limit: pagination.limit, offset: pagination.offset });
+        const result = passport.listOrganizations({
+          query: url.searchParams.get("q") || "",
+          limit: pagination.limit,
+          offset: pagination.offset,
+        });
         sendJson(res, 200, {
           ...paginationPayload(result.items, result.total, pagination),
           quota: session?.user ? passport.organizationQuota(session.user.id) : null,
@@ -1685,7 +1857,7 @@ function createWikistServer(options) {
       }
 
       if (pathname === "/api/admin/messages" && req.method === "GET") {
-        requireDashboard(passport, session);
+        requireSystemAdmin(passport, session);
         const pagination = readPagination(url, 20, 100);
         const options = {
           query: url.searchParams.get("q") || "",
@@ -1741,7 +1913,7 @@ function createWikistServer(options) {
       }
 
       if (pathname === "/api/admin/messages/broadcast" && req.method === "POST") {
-        requireDashboard(passport, session);
+        requireSystemAdmin(passport, session);
         const result = passport.broadcastMessage(session, await readJsonBody(req));
         sendJson(res, 200, result);
         return;
@@ -1749,14 +1921,14 @@ function createWikistServer(options) {
 
       const adminMessageRevokeMatch = pathname.match(/^\/api\/admin\/messages\/(\d+)\/revoke$/);
       if (adminMessageRevokeMatch && req.method === "POST") {
-        requireDashboard(passport, session);
+        requireSystemAdmin(passport, session);
         const result = passport.revokeBroadcastMessage(session, Number(adminMessageRevokeMatch[1]));
         sendJson(res, 200, result);
         return;
       }
 
       if (pathname === "/api/admin/logs" && req.method === "GET") {
-        requireDashboard(passport, session);
+        requireSystemAdmin(passport, session);
         const pagination = readPagination(url, 30, 200);
         const options = {
           query: url.searchParams.get("q") || "",
@@ -1772,13 +1944,13 @@ function createWikistServer(options) {
       }
 
       if (pathname === "/api/admin/health" && req.method === "GET") {
-        requireDashboard(passport, session);
+        requireSystemAdmin(passport, session);
         sendJson(res, 200, { health: runtimeHealth({ integrity: true }) });
         return;
       }
 
       if (pathname === "/api/admin/health/check" && req.method === "POST") {
-        requireDashboard(passport, session);
+        requireSystemAdmin(passport, session);
         const health = runtimeHealth({ integrity: true });
         recordAudit(passport, req, session, { action: "runtime.health.check", targetType: "runtime", targetId: "health", targetLabel: "运行健康", summary: "执行运行健康检查", metadata: { ok: health.ok, index: health.searchIndex.coverage } });
         sendJson(res, health.ok ? 200 : 503, { health });
@@ -1786,7 +1958,7 @@ function createWikistServer(options) {
       }
 
       if (pathname === "/api/admin/health/backup-drill" && req.method === "POST") {
-        requireDashboard(passport, session);
+        requireSystemAdmin(passport, session);
         const body = await readJsonBody(req);
         const backup = liveBackup({ includeUserData: body.includeUserData === true });
         const drill = exerciseBackupPackage(backup.buffer, {
@@ -1799,13 +1971,13 @@ function createWikistServer(options) {
       }
 
       if (pathname === "/api/admin/runtime/firewall" && req.method === "GET") {
-        requireDashboard(passport, session);
+        requireSystemAdmin(passport, session);
         sendJson(res, 200, { firewall: firewall.status() });
         return;
       }
 
       if (pathname === "/api/admin/runtime/firewall" && req.method === "PUT") {
-        requireDashboard(passport, session);
+        requireSystemAdmin(passport, session);
         const body = await readJsonBody(req);
         const currentFirewall = config.security?.firewall || {};
         const security = { ...(config.security || {}), firewall: cleanFirewallConfig(body.firewall || body, currentFirewall) };
@@ -1816,14 +1988,14 @@ function createWikistServer(options) {
       }
 
       if (pathname === "/api/admin/backup" && req.method === "GET") {
-        requireDashboard(passport, session);
-        const backup = liveBackup();
-        sendDownload(res, backup);
+        requireSystemAdmin(passport, session);
+        const backup = await liveBackupFile();
+        sendDownloadFile(res, backup);
         return;
       }
 
       if (pathname === "/api/admin/backup/inspect" && req.method === "POST") {
-        requireDashboard(passport, session);
+        requireSystemAdmin(passport, session);
         const body = await readJsonBody(req, 128 * 1024 * 1024);
         sendJson(res, 200, { backup: inspectBackupPackage(body) });
         return;
@@ -1852,7 +2024,7 @@ function createWikistServer(options) {
       }
 
       if (pathname === "/api/admin/backup/restore" && req.method === "POST") {
-        requireDashboard(passport, session);
+        requireSystemAdmin(passport, session);
         const body = await readJsonBody(req, 128 * 1024 * 1024);
         const restoresUserData = body.includeUserData === true;
         if (restoresUserData) {
@@ -1991,7 +2163,8 @@ function createWikistServer(options) {
       const adminOrganizationMatch = pathname.match(/^\/api\/admin\/organizations\/([^/]+)$/);
       if (adminOrganizationMatch && req.method === "PUT") {
         requireUserAdmin(passport, session);
-        const organization = passport.updateOrganizationStatus(session, decodePathPart(adminOrganizationMatch[1]), (await readJsonBody(req)).status);
+        const body = await readJsonBody(req);
+        const organization = passport.updateOrganizationStatus(session, decodePathPart(adminOrganizationMatch[1]), body.status);
         recordAudit(passport, req, session, { action: "organization.adminStatus", targetType: "organization", targetId: organization.slug, targetLabel: organization.name, summary: `更新协作组织状态为 ${organization.status}`, metadata: { status: organization.status } });
         sendJson(res, 200, { organization: organizationPayload(organization) });
         return;
@@ -2209,7 +2382,7 @@ function createWikistServer(options) {
       }
 
       if (pathname === "/api/admin/plugins" && req.method === "POST") {
-        requireDashboard(passport, session);
+        requireSystemAdmin(passport, session);
         const manifest = createPluginManifest(rootDir, await readJsonBody(req));
         recordAudit(passport, req, session, { action: "plugin.create", targetType: "plugin", targetId: manifest.id, targetLabel: manifest.name, summary: "创建插件 Manifest" });
         sendJson(res, 200, { plugin: manifest, pluginCatalog: pluginCatalog(rootDir), plugins: pluginSettings(config, rootDir) });
@@ -2217,7 +2390,7 @@ function createWikistServer(options) {
       }
 
       if (pathname === "/api/admin/plugins/vendor" && req.method === "POST") {
-        requireDashboard(passport, session);
+        requireSystemAdmin(passport, session);
         const vendor = syncVendorPlugin(rootDir, await readJsonBody(req));
         recordAudit(passport, req, session, { action: "plugin.vendor", targetType: "plugin", targetId: vendor.pluginId || vendor.id || "", targetLabel: vendor.repository || "vendor", summary: "同步插件上游仓库", metadata: vendor });
         sendJson(res, 200, { vendor, pluginCatalog: pluginCatalog(rootDir), plugins: pluginSettings(config, rootDir) });
@@ -2225,23 +2398,43 @@ function createWikistServer(options) {
       }
 
       if (pathname === "/api/admin/settings" && req.method === "GET") {
-        requireDashboard(passport, session);
+        requireSystemAdmin(passport, session);
         sendJson(res, 200, { site: siteSettingsPayload(config), home: homeSettingsPayload(config), homeContent: homeContentPayload(config), plugins: pluginSettings(config, rootDir), pluginCatalog: pluginCatalog(rootDir) });
         return;
       }
 
       if (pathname === "/api/admin/settings" && req.method === "PUT") {
-        requireDashboard(passport, session);
+        requireSystemAdmin(passport, session);
         const body = await readJsonBody(req);
         const changes = {};
+        const deploymentBefore = {
+          publicUrl: String(config.publicUrl || ""),
+          deploymentMode: String(config.deploymentMode || "development"),
+        };
         if (Object.prototype.hasOwnProperty.call(body, "site")) Object.assign(changes, sanitizeSiteSettings(body.site, config));
         if (Object.prototype.hasOwnProperty.call(body, "home")) changes.home = sanitizeHomeSettings(body.home, config.home);
         if (Object.prototype.hasOwnProperty.call(body, "homeContent")) changes.homeContent = sanitizeHomeContent(body.homeContent, config.homeContent);
         if (Object.prototype.hasOwnProperty.call(body, "plugins")) changes.plugins = sanitizePluginSettings(body.plugins, config.plugins, rootDir);
         saveSiteConfig(rootDir, config, changes);
         pages.clearCache();
+        const deploymentAfter = {
+          publicUrl: String(config.publicUrl || ""),
+          deploymentMode: String(config.deploymentMode || "development"),
+        };
+        const restartRequired = deploymentBefore.publicUrl !== deploymentAfter.publicUrl
+          || deploymentBefore.deploymentMode !== deploymentAfter.deploymentMode;
         recordAudit(passport, req, session, { action: "settings.update", targetType: "site", targetId: "site.config", targetLabel: "站点设置", summary: "更新站点设置", metadata: { keys: Object.keys(changes) } });
-        sendJson(res, 200, { site: siteSettingsPayload(config), home: homeSettingsPayload(config), homeContent: homeContentPayload(config), plugins: pluginSettings(config, rootDir), pluginCatalog: pluginCatalog(rootDir) });
+        sendJson(res, 200, {
+          site: siteSettingsPayload(config),
+          home: homeSettingsPayload(config),
+          homeContent: homeContentPayload(config),
+          plugins: pluginSettings(config, rootDir),
+          pluginCatalog: pluginCatalog(rootDir),
+          restartRequired,
+          deploymentCommand: restartRequired
+            ? `npm run migrate:server -- --public-url=${deploymentAfter.publicUrl} --mode=${deploymentAfter.deploymentMode} --yes`
+            : "",
+        });
         return;
       }
 
@@ -3264,9 +3457,14 @@ function createWikistServer(options) {
       }
 
       if (pathname.startsWith("/plugins/")) {
-        const pluginAssetPath = safeJoin(path.join(rootDir, "plugins"), stripPrefix(pathname, "/plugins/"));
+        const pluginRelativePath = stripPrefix(pathname, "/plugins/");
+        if (/^vendor(?:\/|$)/i.test(pluginRelativePath)) {
+          sendText(res, 404, "Not found");
+          return;
+        }
+        const pluginAssetPath = safeJoin(path.join(rootDir, "plugins"), pluginRelativePath);
         const ext = pluginAssetPath ? path.extname(pluginAssetPath).toLowerCase() : "";
-        const allowed = new Set([".js", ".mjs", ".css", ".svg", ".png", ".jpg", ".jpeg", ".webp"]);
+        const allowed = new Set([".js", ".mjs", ".css", ".png", ".jpg", ".jpeg", ".webp"]);
         if (!pluginAssetPath || !allowed.has(ext)) {
           sendText(res, 403, "禁止访问");
           return;
@@ -3300,7 +3498,7 @@ function createWikistServer(options) {
       if (pathname.startsWith("/uploads/")) {
         const uploadPath = safeJoin(path.join(publicDir, "uploads"), stripPrefix(pathname, "/uploads/"));
         const ext = uploadPath ? path.extname(uploadPath).toLowerCase() : "";
-        const allowed = new Set([".svg", ".png", ".jpg", ".jpeg", ".webp", ".ico"]);
+        const allowed = new Set([".png", ".jpg", ".jpeg", ".webp", ".ico"]);
         if (!uploadPath || !allowed.has(ext)) {
           sendText(res, 403, "禁止访问");
           return;
@@ -3363,14 +3561,17 @@ function createWikistServer(options) {
         code: "site_entry_missing",
       });
     } catch (error) {
-      const statusCode = error.statusCode || 500;
+      const databaseBusy = /(?:SQLITE_BUSY|database is locked|database table is locked)/i.test(String(error?.message || ""));
+      const statusCode = error.statusCode || (databaseBusy ? 503 : 500);
+      const publicMessage = statusCode >= 500 ? "服务器内部错误。" : (error.message || "请求未能完成。");
       sendWikistStatus(req, res, {
         statusCode,
-        error: error.message || "服务器内部错误。",
+        error: publicMessage,
         title: statusCode === 404 ? "未找到这个入口" : "服务暂时中断",
-        copy: error.message || "服务器内部错误。",
+        copy: publicMessage,
         kicker: `WIKIST ERROR / ${statusCode}`,
-        code: statusCode === 404 ? "not_found" : "server_error",
+        retryAfter: Number(error?.retryAfter || (databaseBusy ? 1 : 0)),
+        code: statusCode === 404 ? "not_found" : statusCode === 429 ? "operation_rate_limited" : databaseBusy ? "database_busy" : "server_error",
       });
     }
   });

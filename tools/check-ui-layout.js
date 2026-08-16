@@ -85,7 +85,8 @@ requireCss("desktop admin columns", ".admin-layout { display: grid; grid-templat
 requireCss("admin dual-sidebar shell", "body.admin-mode .app-grid { grid-template-columns: var(--shell-sidebar) minmax(0, 1fr);");
 requireCss("wide right-rail collapse", "@media (max-width: 1180px) { .app-grid { grid-template-columns: 252px minmax(0, 1fr); } .right-rail { display: none;");
 requireCss("mobile off-canvas shell", "@media (max-width: 900px) { body.mobile-nav-open, body.admin-mobile-nav-open { overflow: hidden; } .app-grid, body.admin-mode .app-grid { display: block;");
-requireCss("mobile article action grid", ".article-title-primary-actions { display: grid; grid-template-columns: auto minmax(0, 1fr) minmax(0, 1fr);");
+requireCss("transition article title row", ".article-head .article-title-row { display: flex; align-items: flex-start; justify-content: space-between; gap: clamp(10px, 2vw, 18px); flex-wrap: nowrap; text-align: left;");
+requireCss("mobile article action grid", ".article-title-primary-actions, .article-title-actions .article-section-shortcuts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));");
 requireCss("mobile page tools", ".page-tool-nav-mobile-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));");
 requireCss("route loader logo bound", ".wikist-route-loader-core img { display: block; width: 52px; height: 52px; max-width: 52px; max-height: 52px;");
 requireCss("uniform article entry surface", ".article-entry-head { overflow: hidden; padding: clamp(18px, 3vw, 28px); border: 1px solid var(--line); border-radius: 22px;");
@@ -119,7 +120,9 @@ requireCss("parent-width messaging composer", ".messaging-composer-shell > #mess
 requireCss("empty composer status collapses", ".messaging-composer-shell > .status-line:empty { display: none;");
 requireCss("filled messaging thread", ".messaging-thread { display: grid; grid-template-rows: max-content minmax(0, 1fr) max-content;");
 requireCss("full-width forum", ".forum-workbench { display: grid; grid-template-columns: minmax(0, 1fr) minmax(278px, 340px); gap: 16px; align-items: start; width: 100%;");
-requireCss("substantial organization chat action", ".organization-chat-link { min-width: 128px; min-height: 40px;");
+requireCss("compact organization chat action", ".organization-chat-link { width: 40px; min-width: 40px; min-height: 40px;");
+requirePattern("desktop organization governance filter", communityCss, /\.organization-governance-filter\s*\{[^}]*grid-template-columns:\s*minmax\(320px,\s*1fr\)\s+max-content;[^}]*width:\s*min\(100%,\s*760px\);/);
+requireCss("centered mobile article action track", ".article-title-actions { width: min(100%, 360px); max-width: 100%; margin-inline: auto; grid-template-columns: minmax(0, 1fr); justify-content: stretch;");
 requireCss("single social relation divider", ".follow-user-list > .follow-user-card:first-child { border-top: 0;");
 requireCss("unified admin table cell borders", ".admin-table th, .admin-table td { border: 0; border-bottom: 1px solid");
 requireCss("messaging image preview cursor", ".wiki-image img[data-wiki-image-trigger], .messaging-attachment.image[data-messaging-image-preview] { cursor: zoom-in;");

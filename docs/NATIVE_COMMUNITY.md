@@ -15,7 +15,7 @@ Wikist Community is a Webman-native Q&A domain. Questions, answers, comments, vo
 
 Native tables use the `community_*` prefix. Stable public IDs are separate from database row IDs, and every public object is synchronized to `knowledge_objects`. Cross-object links are written to `knowledge_relations`, allowing reverse lookup without coupling Community to another product schema.
 
-Private organization content is filtered independently in feeds, detail reads, search, previews, relations, notifications and moderation. A missing permission is returned as not found so private object existence is not leaked.
+Organization Community content is openly readable and searchable. Organization membership still controls publishing, collaboration, moderation and member management, so knowledge remains open without weakening governance.
 
 ## Runtime
 

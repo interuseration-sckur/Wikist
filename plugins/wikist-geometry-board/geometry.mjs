@@ -1,6 +1,11 @@
 let assetsPromise = null;
 let resizeObserver = null;
 
+const ASSET_INTEGRITY = Object.freeze({
+  "https://cdn.jsdelivr.net/npm/jsxgraph@1.10.1/distrib/jsxgraphcore.js": "sha384-j2eb15DvbzHR1bFK9+SR9DPOYNtKl240eV6GAKCqB4q9WZn1i4JiTACFmlzymI3A",
+  "https://cdn.jsdelivr.net/npm/jsxgraph@1.10.1/distrib/jsxgraph.css": "sha384-5po7shfMYRqeiRGGNe15zR3Eut1Eycer67e2j0zws+iUa+bgsMoF4VUyJ5TfXQPQ",
+});
+
 function loadScript(src) {
   return new Promise((resolve, reject) => {
     if (window.JXG) { resolve(); return; }
@@ -12,6 +17,10 @@ function loadScript(src) {
     }
     const script = document.createElement("script");
     script.src = src;
+    if (ASSET_INTEGRITY[src]) {
+      script.integrity = ASSET_INTEGRITY[src];
+      script.crossOrigin = "anonymous";
+    }
     script.async = true;
     script.onload = resolve;
     script.onerror = () => reject(new Error("JSXGraph 资源加载失败。"));
@@ -24,6 +33,10 @@ function ensureAssets(settings) {
     const link = document.createElement("link");
     link.rel = "stylesheet";
     link.href = settings.cssCdn || "https://cdn.jsdelivr.net/npm/jsxgraph@1.10.1/distrib/jsxgraph.css";
+    if (ASSET_INTEGRITY[link.href]) {
+      link.integrity = ASSET_INTEGRITY[link.href];
+      link.crossOrigin = "anonymous";
+    }
     link.dataset.wikistJsxgraph = "true";
     document.head.appendChild(link);
   }

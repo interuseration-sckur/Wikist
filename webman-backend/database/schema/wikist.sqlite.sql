@@ -20,11 +20,22 @@ CREATE TABLE IF NOT EXISTS users (
     two_factor_enabled INTEGER NOT NULL DEFAULT 0,
     two_factor_confirmed_at TEXT NOT NULL DEFAULT '',
     two_factor_recovery_json TEXT NOT NULL DEFAULT '[]',
+    pending_two_factor_secret TEXT NOT NULL DEFAULT '',
+    pending_two_factor_created_at TEXT NOT NULL DEFAULT '',
+    pending_email TEXT NOT NULL DEFAULT '',
+    pending_email_requested_at TEXT NOT NULL DEFAULT '',
+    session_version INTEGER NOT NULL DEFAULT 1,
     last_security_at TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     password_updated_at TEXT NOT NULL,
     last_sync_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS wikist_security_state (
+    state_key TEXT PRIMARY KEY,
+    state_value TEXT NOT NULL DEFAULT '',
+    updated_at TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS sessions (
@@ -148,6 +159,7 @@ CREATE TABLE IF NOT EXISTS messaging_user_preferences (
     open_mode INTEGER NOT NULL DEFAULT 0,
     auto_reply_enabled INTEGER NOT NULL DEFAULT 0,
     auto_reply_text TEXT NOT NULL DEFAULT '',
+    show_online_status INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );

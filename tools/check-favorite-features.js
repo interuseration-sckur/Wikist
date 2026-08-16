@@ -1,32 +1,19 @@
 const fs = require("fs");
 const path = require("path");
 const { PassportStore } = require("../src/core/passport-store");
+const { seedTestAccount } = require("./legacy-test-fixtures");
 
 const dbPath = path.join(process.cwd(), "data", "wikist-favorite-test.sqlite");
 for (const suffix of ["", "-wal", "-shm"]) {
   try { fs.unlinkSync(`${dbPath}${suffix}`); } catch (_error) {}
 }
 
-function req() {
-  return { headers: { cookie: "", "user-agent": "wikist-favorite-test" }, socket: { remoteAddress: "127.0.0.1" } };
-}
-
-function solveCaptcha(store) {
-  const captcha = store.createCaptcha();
-  const row = store.db.prepare("SELECT question FROM captchas WHERE id = ?").get(captcha.id);
-  const match = row.question.match(/(\d+)\s*([+-])\s*(\d+)/);
-  const answer = match[2] === "+" ? Number(match[1]) + Number(match[3]) : Number(match[1]) - Number(match[3]);
-  return { captchaId: captcha.id, captchaAnswer: String(answer) };
-}
-
 const store = new PassportStore(process.cwd(), { enabled: true, database: dbPath });
-const account = store.register({
+const account = seedTestAccount(store, {
   username: "favorite_user",
   displayName: "Favorite User",
   email: "favorite@example.com",
-  password: "Passw0rd!",
-  ...solveCaptcha(store),
-}, req());
+});
 const session = { user: account.user };
 
 const first = store.setPageFavorite(session, { slug: "abstract-algebra", title: "Abstract Algebra" }, true);

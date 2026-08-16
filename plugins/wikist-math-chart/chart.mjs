@@ -1,4 +1,6 @@
 let assetsPromise = null;
+const CHART_CDN = "https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.min.js";
+const CHART_INTEGRITY = "sha384-jb8JQMbMoBUzgWatfe6COACi2ljcDdZQ2OxczGA3bGNeWe+6DChMTBJemed7ZnvJ";
 
 function loadScript(src) {
   return new Promise((resolve, reject) => {
@@ -11,6 +13,10 @@ function loadScript(src) {
     }
     const script = document.createElement("script");
     script.src = src;
+    if (src === CHART_CDN) {
+      script.integrity = CHART_INTEGRITY;
+      script.crossOrigin = "anonymous";
+    }
     script.async = true;
     script.onload = resolve;
     script.onerror = () => reject(new Error("Chart.js 资源加载失败。"));
@@ -40,7 +46,7 @@ function themeColors() {
 
 async function renderFigure(figure, settings) {
   const config = readConfig(figure);
-  if (!assetsPromise) assetsPromise = loadScript(settings.cdn || "https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.min.js");
+  if (!assetsPromise) assetsPromise = loadScript(settings.cdn || CHART_CDN);
   await assetsPromise;
   const target = figure.querySelector(".math-chart-target");
   const canvas = target?.querySelector("canvas");

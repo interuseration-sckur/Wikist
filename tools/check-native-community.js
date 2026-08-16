@@ -15,14 +15,14 @@ function resolvePhp() {
     process.platform === "win32" ? "php.exe" : "php",
   ].filter(Boolean);
   return candidates.find((candidate) => {
-    const result = spawnSync(candidate, ["-r", "exit(PHP_VERSION_ID >= 80100 ? 0 : 1);"], { windowsHide: true });
+    const result = spawnSync(candidate, ["-r", "exit(PHP_VERSION_ID >= 80401 ? 0 : 1);"], { windowsHide: true });
     return !result.error && result.status === 0;
   }) || "";
 }
 
 const php = resolvePhp();
 if (!php) {
-  throw new Error("Native Community checks require PHP 8.1 or newer. Set WIKIST_PHP when PHP is not in PATH.");
+  throw new Error("Native Community checks require PHP 8.4.1 or newer. Set WIKIST_PHP when PHP is not in PATH.");
 }
 
 const result = spawnSync(php, [path.join(backend, "tools", "check-native-community.php")], {

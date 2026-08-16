@@ -142,9 +142,9 @@ function cleanSearchOptions(options = {}) {
     limit,
     offset: (page - 1) * limit,
     mode,
-    category: String(options.category || "").trim(),
-    quality: String(options.quality || "").trim(),
-    difficulty: String(options.difficulty || "").trim(),
+    category: String(options.category || "").trim().slice(0, 120),
+    quality: String(options.quality || "").trim().slice(0, 40),
+    difficulty: String(options.difficulty || "").trim().slice(0, 80),
     fuzzy: options.fuzzy !== false,
     prefix: options.prefix !== false,
     weights: {
@@ -411,7 +411,7 @@ class SearchIndex {
     }
 
     const startedAt = Date.now();
-    const raw = String(query || "").trim();
+    const raw = String(query || "").trim().slice(0, 256);
     const plugin = this.pluginSettings();
     const options = cleanSearchOptions({
       ...plugin,

@@ -15,14 +15,14 @@ rem Development fallback for the bundled Codex runtime on this machine.
 if not defined NODE_BIN if exist "%USERPROFILE%\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe" set "NODE_BIN=%USERPROFILE%\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe"
 
 if not defined NODE_BIN (
-  echo Could not find Node.js 18 or newer.
+  echo Could not find Node.js 22.5 or newer.
   echo Install Node.js, add node.exe to PATH, or place it at runtime\node\node.exe.
   exit /b 1
 )
 
-"%NODE_BIN%" -e "process.exit(Number(process.versions.node.split('.')[0]) >= 18 ? 0 : 1)" >nul 2>nul
+"%NODE_BIN%" -e "const [major,minor]=process.versions.node.split('.').map(Number);try{require('node:sqlite')}catch{process.exit(1)}process.exit(major>22||(major===22&&minor>=5)?0:1)" >nul 2>nul
 if errorlevel 1 (
-  echo Node.js 18 or newer is required.
+  echo Node.js 22.5 or newer with node:sqlite support is required.
   exit /b 1
 )
 

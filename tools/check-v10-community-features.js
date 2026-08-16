@@ -1,9 +1,9 @@
 const assert = require("assert");
-const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 const { PageStore } = require("../src/core/page-store");
 const { PassportStore } = require("../src/core/passport-store");
+const { seedTestUser } = require("./legacy-test-fixtures");
 
 const tempRoot = path.join(process.cwd(), "data", "wikist-v10-community-test");
 const appSource = fs.readFileSync(path.join(process.cwd(), "src", "server", "app.js"), "utf8");
@@ -12,31 +12,12 @@ function removeTempRoot() {
   fs.rmSync(tempRoot, { recursive: true, force: true, maxRetries: 8, retryDelay: 120 });
 }
 
-function request() {
-  return { headers: { cookie: "", "user-agent": "wikist-v10-community-test" }, socket: { remoteAddress: "127.0.0.1" } };
-}
-
-function captcha(store) {
-  // Community checks should not depend on the presentation grammar of a visual CAPTCHA.
-  const id = crypto.randomUUID();
-  const answer = "42";
-  const createdAt = new Date().toISOString();
-  const expiresAt = new Date(Date.now() + 60 * 1000).toISOString();
-  store.db.prepare(`
-    INSERT INTO captchas (id, answer_hash, question, svg, created_at, expires_at)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `).run(id, store.captchaAnswerHash(id, answer), "40 + 2", '<svg xmlns="http://www.w3.org/2000/svg"/>', createdAt, expiresAt);
-  return { captchaId: id, captchaAnswer: answer };
-}
-
 function register(store, username) {
-  return store.register({
+  return seedTestUser(store, {
     username,
     displayName: username.replace(/_/g, " "),
     email: `${username}@example.com`,
-    password: "Passw0rd!",
-    ...captcha(store),
-  }, request()).user;
+  });
 }
 
 function prepareKnowledgeGraph(store) {
@@ -89,6 +70,7 @@ try {
   const reviewer = register(passport, "v10_reviewer");
   const translator = register(passport, "v10_translator");
   const reader = register(passport, "v10_reader");
+  passport.db.prepare("UPDATE users SET role = 'admin' WHERE id = ?").run(owner.id);
   const ownerSession = { user: passport.getUserProfile(owner.id) };
   const reviewerSession = { user: passport.getUserProfile(reviewer.id) };
   const translatorSession = { user: passport.getUserProfile(translator.id) };

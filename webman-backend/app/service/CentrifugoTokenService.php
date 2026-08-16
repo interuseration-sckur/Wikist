@@ -4,12 +4,15 @@ namespace app\service;
 
 use app\domain\passport\UserIdentity;
 use app\repository\MessagingRepository;
+use app\repository\UserRepository;
 use Firebase\JWT\JWT;
 
 final class CentrifugoTokenService
 {
-    public function __construct(private readonly MessagingRepository $messages = new MessagingRepository())
-    {
+    public function __construct(
+        private readonly MessagingRepository $messages = new MessagingRepository(),
+        private readonly UserRepository $users = new UserRepository(),
+    ) {
     }
 
     public function connectionToken(UserIdentity $identity): array
@@ -30,6 +33,7 @@ final class CentrifugoTokenService
                 'displayName' => $identity->displayName,
                 'avatarUrl' => $identity->avatarUrl,
                 'role' => $identity->role,
+                'sessionVersion' => $this->users->sessionVersion($identity->id),
             ],
             'channels' => $channels,
         ], $this->secret(), 'HS256');
@@ -46,7 +50,7 @@ final class CentrifugoTokenService
                 'channel' => $channel,
                 'iat' => $now,
                 'exp' => $now + $ttl,
-                'info' => ['role' => $identity->role],
+                'info' => ['role' => $identity->role, 'sessionVersion' => $this->users->sessionVersion($identity->id)],
             ], $this->secret(), 'HS256'),
             'expiresIn' => $ttl,
         ];
@@ -55,6 +59,9 @@ final class CentrifugoTokenService
     private function secret(): string
     {
         $secret = (string) config('wikist.centrifugo.token_hmac_secret', '');
-        return $secret !== '' ? $secret : (string) config('wikist.secret');
+        if (strlen($secret) < 32) {
+            throw new \RuntimeException('Centrifugo token secret is not configured.');
+        }
+        return $secret;
     }
 }

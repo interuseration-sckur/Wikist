@@ -4,6 +4,7 @@ namespace app\repository;
 
 use Illuminate\Database\ConnectionInterface;
 use Illuminate\Database\Query\Builder;
+use app\service\SqliteWriteGuard;
 use support\Db;
 
 final class MessagingRepository
@@ -42,6 +43,7 @@ final class MessagingRepository
             'openMode' => (bool) ($row->open_mode ?? false),
             'autoReplyEnabled' => (bool) ($row->auto_reply_enabled ?? false),
             'autoReplyText' => (string) ($row->auto_reply_text ?? ''),
+            'showOnlineStatus' => (bool) ($row->show_online_status ?? false),
         ];
     }
 
@@ -53,11 +55,43 @@ final class MessagingRepository
             'open_mode' => !empty($preferences['openMode']) ? 1 : 0,
             'auto_reply_enabled' => !empty($preferences['autoReplyEnabled']) ? 1 : 0,
             'auto_reply_text' => (string) ($preferences['autoReplyText'] ?? ''),
+            'show_online_status' => !empty($preferences['showOnlineStatus']) ? 1 : 0,
             'updated_at' => $now,
         ];
         $table->insertOrIgnore(['user_id' => $userId, 'created_at' => $now] + $values);
         $table->where('user_id', $userId)->update($values);
         return $this->messagingPreferences($userId);
+    }
+
+    public function visiblePresenceUserIds(int $viewerId, array $candidateUserIds): array
+    {
+        $ids = array_values(array_unique(array_filter(array_map('intval', $candidateUserIds), static fn (int $id): bool => $id > 0)));
+        if ($ids === []) {
+            return [];
+        }
+        return array_map('intval', $this->connection()->table('users as u')
+            ->whereIn('u.id', $ids)
+            ->where(function (Builder $query) use ($viewerId): void {
+                $query->where('u.id', $viewerId)
+                    ->orWhereExists(function (Builder $preference) use ($viewerId): void {
+                        $preference->selectRaw('1')
+                            ->from('messaging_user_preferences as mup')
+                            ->whereColumn('mup.user_id', 'u.id')
+                            ->where('mup.show_online_status', 1);
+                    })
+                    ->orWhereExists(function (Builder $shared) use ($viewerId): void {
+                        $shared->selectRaw('1')
+                            ->from('messaging_conversation_members as mine')
+                            ->join('messaging_conversation_members as theirs', 'theirs.conversation_id', '=', 'mine.conversation_id')
+                            ->join('messaging_conversations as shared_conversation', 'shared_conversation.id', '=', 'mine.conversation_id')
+                            ->where('mine.user_id', $viewerId)
+                            ->where('mine.status', 'active')
+                            ->whereColumn('theirs.user_id', 'u.id')
+                            ->where('theirs.status', 'active')
+                            ->whereIn('shared_conversation.kind', ['direct', 'organization']);
+                    });
+            })
+            ->pluck('u.id')->all());
     }
 
     public function areMutualFollowers(int $firstUserId, int $secondUserId): bool
@@ -224,33 +258,37 @@ final class MessagingRepository
 
     public function upsertMember(int $conversationId, int $userId, string $role = 'member', string $status = 'active'): void
     {
-        $now = gmdate('c');
-        $existing = $this->connection()->table('messaging_conversation_members')
-            ->where('conversation_id', $conversationId)
-            ->where('user_id', $userId)
-            ->first();
-        if ($existing) {
-            $this->connection()->table('messaging_conversation_members')
+        $connection = $this->connection();
+        SqliteWriteGuard::idempotent($connection, function () use ($connection, $conversationId, $userId, $role, $status): void {
+            $now = gmdate('c');
+            $existing = $connection->table('messaging_conversation_members')
                 ->where('conversation_id', $conversationId)
                 ->where('user_id', $userId)
-                ->update(['role' => $role, 'status' => $status, 'updated_at' => $now]);
-            return;
-        }
-        $this->connection()->table('messaging_conversation_members')->insert([
-            'conversation_id' => $conversationId,
-            'user_id' => $userId,
-            'role' => $role,
-            'status' => $status,
-            'notification_level' => 'all',
-            'last_read_message_id' => null,
-            'last_read_at' => '',
-            'muted_until' => '',
-            'pinned_at' => '',
-            'archived_at' => '',
-            'joined_at' => $now,
-            'updated_at' => $now,
-            'metadata_json' => '{}',
-        ]);
+                ->first();
+            if ($existing) {
+                if ((string) $existing->role === $role && (string) $existing->status === $status) return;
+                $connection->table('messaging_conversation_members')
+                    ->where('conversation_id', $conversationId)
+                    ->where('user_id', $userId)
+                    ->update(['role' => $role, 'status' => $status, 'updated_at' => $now]);
+                return;
+            }
+            $connection->table('messaging_conversation_members')->insert([
+                'conversation_id' => $conversationId,
+                'user_id' => $userId,
+                'role' => $role,
+                'status' => $status,
+                'notification_level' => 'all',
+                'last_read_message_id' => null,
+                'last_read_at' => '',
+                'muted_until' => '',
+                'pinned_at' => '',
+                'archived_at' => '',
+                'joined_at' => $now,
+                'updated_at' => $now,
+                'metadata_json' => '{}',
+            ]);
+        });
     }
 
     public function initializeSiteAnnouncementReadBaseline(int $conversationId, int $userId, string $registeredAt): void
@@ -360,36 +398,100 @@ final class MessagingRepository
         ];
     }
 
+    public function organizationConversationMembersPage(int $organizationId, int $conversationId, int $page, int $limit): array
+    {
+        $page = max(1, $page);
+        $limit = max(1, min(50, $limit));
+        $query = $this->connection()->table('organization_members as om')
+            ->join('users as u', 'u.id', '=', 'om.user_id')
+            ->where('om.organization_id', $organizationId)
+            ->where('om.status', 'active')
+            ->whereIn('u.status', ['active', 'ok']);
+        $total = (clone $query)->count('om.user_id');
+        $rows = $query
+            ->select('om.user_id as id', 'om.role as organization_role', 'u.username', 'u.display_name', 'u.avatar_url', 'u.bio', 'u.social_links_json', 'u.status as user_status')
+            ->orderByRaw("CASE om.role WHEN 'owner' THEN 0 WHEN 'coordinator' THEN 1 ELSE 2 END")
+            ->orderBy('u.display_name')
+            ->orderBy('u.id')
+            ->limit($limit)
+            ->offset(($page - 1) * $limit)
+            ->get()->all();
+        if ($rows !== []) {
+            $userIds = array_map(static fn (object $row): int => (int) $row->id, $rows);
+            $chatMembers = $this->connection()->table('messaging_conversation_members')
+                ->where('conversation_id', $conversationId)
+                ->whereIn('user_id', $userIds)
+                ->get()->keyBy('user_id');
+            $mutes = $this->connection()->table('messaging_conversation_mutes')
+                ->where('conversation_id', $conversationId)
+                ->whereIn('user_id', $userIds)
+                ->get()->keyBy('user_id');
+            foreach ($rows as $row) {
+                $chatMember = $chatMembers->get((int) $row->id);
+                $row->role = (string) ($chatMember->role ?? match ((string) $row->organization_role) {
+                    'owner' => 'owner',
+                    'coordinator' => 'admin',
+                    default => 'member',
+                });
+                $mute = $mutes->get((int) $row->id);
+                $row->moderation_muted_until = (string) ($mute->muted_until ?? '');
+                $row->moderation_mute_reason = (string) ($mute->reason ?? '');
+            }
+        }
+        return [
+            'items' => array_map(fn (object $row): array => $this->memberData($row), $rows),
+            'page' => $page,
+            'limit' => $limit,
+            'total' => $total,
+            'pages' => max(1, (int) ceil($total / $limit)),
+        ];
+    }
+
     public function touchPresence(int $userId, string $context = '', string $clientId = 'legacy'): array
     {
         $now = gmdate('c');
-        $previous = (string) ($this->connection()->table('messaging_user_presence')
+        $presence = $this->connection()->table('messaging_user_presence')
             ->where('user_id', $userId)
-            ->value('last_seen_at') ?? '');
+            ->first();
+        $previous = (string) ($presence->last_seen_at ?? '');
         $ttl = (int) config('wikist.messaging.presence_ttl', 40);
         $clientId = preg_match('/^[A-Za-z0-9._:-]{8,100}$/', $clientId) ? $clientId : 'legacy';
-        $this->connection()->table('messaging_presence_leases')->updateOrInsert(
+        $normalizedContext = mb_substr(trim($context), 0, 100);
+        $writeInterval = max(5, min(max(5, $ttl - 5), (int) config('wikist.messaging.presence_write_interval', 20)));
+        $lease = $this->connection()->table('messaging_presence_leases')
+            ->where('user_id', $userId)
+            ->where('client_id', $clientId)
+            ->first();
+        if ($lease
+            && (string) ($lease->last_context ?? '') === $normalizedContext
+            && strtotime((string) ($lease->last_seen_at ?? '')) >= time() - $writeInterval) {
+            return [
+                'lastSeenAt' => (string) $lease->last_seen_at,
+                'becameOnline' => false,
+                'writeCoalesced' => true,
+            ];
+        }
+        $connection = $this->connection();
+        SqliteWriteGuard::idempotent($connection, fn () => $connection->table('messaging_presence_leases')->updateOrInsert(
             ['user_id' => $userId, 'client_id' => $clientId],
             [
                 'last_seen_at' => $now,
-                'last_context' => mb_substr(trim($context), 0, 100),
+                'last_context' => $normalizedContext,
                 'updated_at' => $now,
             ],
-        );
-        $this->connection()->table('messaging_presence_leases')
-            ->where('last_seen_at', '<', gmdate('c', time() - max(60, $ttl * 3)))
-            ->delete();
-        $this->connection()->table('messaging_user_presence')->updateOrInsert(
+        ));
+        SqliteWriteGuard::idempotent($connection, fn () => $connection->table('messaging_user_presence')->updateOrInsert(
             ['user_id' => $userId],
             [
                 'last_seen_at' => $now,
-                'last_context' => mb_substr(trim($context), 0, 100),
+                'last_context' => $normalizedContext,
                 'updated_at' => $now,
             ],
-        );
+        ));
         return [
             'lastSeenAt' => $now,
             'becameOnline' => $previous === '' || $previous < gmdate('c', time() - $ttl),
+            'writeCoalesced' => false,
         ];
     }
 
@@ -1163,6 +1265,17 @@ final class MessagingRepository
             ->where('status', 'processing')
             ->where('updated_at', '<', gmdate('c', time() - 120))
             ->update(['status' => 'pending', 'available_at' => gmdate('c'), 'updated_at' => gmdate('c')]);
+    }
+
+    public function purgeOperationalResidue(): array
+    {
+        $presenceCutoff = gmdate('c', time() - max(120, (int) config('wikist.messaging.presence_ttl', 40) * 4));
+        $publishedCutoff = gmdate('c', time() - max(86400, (int) (getenv('MESSAGING_OUTBOX_RETENTION_SECONDS') ?: 604800)));
+        return [
+            'presenceLeases' => $this->connection()->table('messaging_presence_leases')->where('last_seen_at', '<', $presenceCutoff)->delete(),
+            'presenceUsers' => $this->connection()->table('messaging_user_presence')->where('last_seen_at', '<', $presenceCutoff)->delete(),
+            'publishedOutbox' => $this->connection()->table('messaging_outbox_events')->where('status', 'published')->where('published_at', '<', $publishedCutoff)->delete(),
+        ];
     }
 
     public function searchUsers(string $query, int $viewerId, int $limit = 12): array

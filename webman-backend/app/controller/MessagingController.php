@@ -4,6 +4,7 @@ namespace app\controller;
 
 use app\http\ApiResponse;
 use app\service\CentrifugoTokenService;
+use app\service\AttachmentSecurityService;
 use app\service\KnowledgeObjectResolver;
 use app\service\MessagingAttachmentService;
 use app\service\MessagingChannels;
@@ -215,18 +216,17 @@ final class MessagingController
     public function attachment(Request $request, string $id): Response
     {
         $file = (new MessagingAttachmentService())->authorize($request->identity, $id);
-        $inline = str_starts_with($file['mimeType'], 'image/') || $file['mimeType'] === 'application/pdf';
-        $name = str_replace(["\r", "\n", '"'], '', $file['name']);
+        $inline = str_starts_with($file['mimeType'], 'image/');
         return response()->file($file['path'])
             ->header('Content-Type', $file['mimeType'])
-            ->header('Content-Disposition', ($inline ? 'inline' : 'attachment') . '; filename="' . $name . '"')
+            ->header('Content-Disposition', (new AttachmentSecurityService())->contentDisposition($file['name'], $inline))
             ->header('X-Content-Type-Options', 'nosniff')
+            ->header('Content-Security-Policy', "default-src 'none'; sandbox")
             ->header('Cache-Control', 'private, max-age=300');
     }
 
     public function connectionToken(Request $request): Response
     {
-        (new MessagingPermissionService())->synchronize($request->identity);
         return ApiResponse::data((new CentrifugoTokenService())->connectionToken($request->identity) + [
             'url' => (string) config('wikist.centrifugo.public_url'),
             'enabled' => (bool) config('wikist.centrifugo.enabled', false),

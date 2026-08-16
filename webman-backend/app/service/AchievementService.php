@@ -64,7 +64,6 @@ final class AchievementService
     {
         $page = max(1, $page);
         $limit = max(1, min(24, $limit));
-        $this->sync($userId, true);
         $db = Db::connection($this->connection);
         $stats = $this->stats($userId);
         $awards = [];
@@ -139,13 +138,6 @@ final class AchievementService
         $cachedStats = $state ? json_decode((string) $state->stats_json, true) : null;
         $cacheIsFresh = $state && strtotime((string) $state->evaluated_at) >= time() - 300;
         $stats = $cacheIsFresh && is_array($cachedStats) ? $cachedStats : $this->stats($userId);
-        if (!$cacheIsFresh) {
-            $now = gmdate('c');
-            $db->table('achievement_sync_state')->updateOrInsert(
-                ['user_id' => $userId],
-                ['stats_json' => json_encode($stats, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), 'evaluated_at' => $now, 'updated_at' => $now],
-            );
-        }
         $earned = 0;
         $points = 0;
         $badges = $db->table('community_badges')->where('status', 'active')->get()->all();

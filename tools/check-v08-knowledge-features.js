@@ -1,10 +1,10 @@
 const assert = require("assert");
-const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 const { PageStore } = require("../src/core/page-store");
 const { PassportStore } = require("../src/core/passport-store");
 const { categoryDetail, categorySnapshot, topicDetail } = require("../src/core/knowledge-navigation");
+const { seedTestUser } = require("./legacy-test-fixtures");
 
 const tempRoot = path.join(process.cwd(), "data", "wikist-v08-knowledge-test");
 const appSource = fs.readFileSync(path.join(process.cwd(), "src", "server", "app.js"), "utf8");
@@ -20,20 +20,6 @@ function request() {
   };
 }
 
-function captcha(store) {
-  // This suite exercises knowledge navigation, not the visual CAPTCHA grammar.
-  // Keep its registration fixture deterministic so a CAPTCHA display change cannot block upgrades.
-  const id = crypto.randomUUID();
-  const answer = "42";
-  const createdAt = new Date().toISOString();
-  const expiresAt = new Date(Date.now() + 60 * 1000).toISOString();
-  store.db.prepare(`
-    INSERT INTO captchas (id, answer_hash, question, svg, created_at, expires_at)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `).run(id, store.captchaAnswerHash(id, answer), "40 + 2", '<svg xmlns="http://www.w3.org/2000/svg"/>', createdAt, expiresAt);
-  return { captchaId: id, captchaAnswer: answer };
-}
-
 removeTempRoot();
 fs.mkdirSync(tempRoot, { recursive: true });
 
@@ -41,27 +27,22 @@ let passport = null;
 try {
   const pages = new PageStore(tempRoot, {});
   passport = new PassportStore(tempRoot, { database: "data/v08-knowledge.sqlite" });
-  const admin = passport.register({
+  const admin = seedTestUser(passport, {
     username: "v08_admin",
     displayName: "V08 Admin",
     email: "v08-admin@example.com",
-    password: "Passw0rd!",
-    ...captcha(passport),
-  }, request()).user;
-  const translator = passport.register({
+    role: "admin",
+  });
+  const translator = seedTestUser(passport, {
     username: "v08_translator",
     displayName: "V08 Translator",
     email: "v08-translator@example.com",
-    password: "Passw0rd!",
-    ...captcha(passport),
-  }, request()).user;
-  const reader = passport.register({
+  });
+  const reader = seedTestUser(passport, {
     username: "v08_reader",
     displayName: "V08 Reader",
     email: "v08-reader@example.com",
-    password: "Passw0rd!",
-    ...captcha(passport),
-  }, request()).user;
+  });
   const adminSession = { user: passport.getUserProfile(admin.id) };
   const translatorSession = { user: passport.getUserProfile(translator.id) };
   const readerSession = { user: passport.getUserProfile(reader.id) };

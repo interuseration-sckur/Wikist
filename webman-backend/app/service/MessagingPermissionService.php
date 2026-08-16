@@ -74,24 +74,12 @@ final class MessagingPermissionService
             if (!$membership && $identity->role !== 'admin') {
                 throw new ApiException('你不是该组织的有效成员。', 403, 'organization_membership_required');
             }
-            if ($membership) {
-                $this->messages->syncOrganizationMember(
-                    (int) $conversation->id,
-                    $identity->id,
-                    (string) $membership->role,
-                );
-            } else {
-                $this->messages->upsertMember((int) $conversation->id, $identity->id, 'admin');
-            }
             return;
         }
 
         $member = $this->messages->member((int) $conversation->id, $identity->id);
         if ((!$member || (string) $member->status !== 'active') && $identity->role !== 'admin') {
             throw new ApiException('你无权访问该会话。', 403, 'conversation_access_denied');
-        }
-        if (!$member && $identity->role === 'admin' && (string) $conversation->kind === 'system') {
-            $this->messages->upsertMember((int) $conversation->id, $identity->id, 'admin');
         }
     }
 

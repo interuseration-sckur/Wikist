@@ -22,6 +22,7 @@ const state = {
   site: { name: "Wikist", tagline: "开放、严谨、可验证的数学知识共同体" },
   user: null,
   captcha: null,
+  csrfToken: "",
 };
 
 const elements = {
@@ -64,9 +65,13 @@ function safeAssetUrl(value, fallback = "/assets/wikist-icon.png") {
 }
 
 async function api(path, options = {}) {
+  const method = String(options.method || "GET").toUpperCase();
+  const csrfHeaders = !["GET", "HEAD", "OPTIONS"].includes(method) && state.csrfToken
+    ? { "x-csrf-token": state.csrfToken }
+    : {};
   const response = await fetch(path, {
     credentials: "same-origin",
-    headers: { "content-type": "application/json", ...(options.headers || {}) },
+    headers: { "content-type": "application/json", ...csrfHeaders, ...(options.headers || {}) },
     ...options,
   });
   const payload = await response.json().catch(() => ({}));
@@ -141,6 +146,7 @@ function registerForm() {
       <label class="passport-field"><span>显示名称</span><input name="displayName" autocomplete="nickname" maxlength="80" placeholder="你的公开知识署名" required /><small class="field-hint">将显示在贡献、审阅与讨论记录中</small></label>
     </div>
     <label class="passport-field"><span>邮箱</span><input name="email" type="email" autocomplete="email" maxlength="254" placeholder="name@example.com" required /><small class="field-hint" id="emailHint">用于验证身份与找回密码，不会公开展示</small></label>
+    ${state.setup ? '<label class="passport-field"><span>服务器安装密钥</span><input name="bootstrapSecret" type="password" autocomplete="one-time-code" maxlength="128" placeholder="启动日志中显示的一次性密钥" required /><small class="field-hint">该密钥只用于确认你拥有服务器控制权</small></label>' : ""}
     <div class="field-grid">
       <div>${passwordField("password", "密码", "new-password")}<div class="password-meter" id="passwordMeter" data-score="0" aria-label="密码强度"><i></i><i></i><i></i><i></i></div></div>
       ${passwordField("confirmPassword", "确认密码", "new-password", "再次输入密码")}
@@ -500,6 +506,7 @@ async function submitForm(event) {
     if (mode === "login") {
       const result = await api("/api/passport/login", { method: "POST", body: JSON.stringify(payload) });
       state.user = result.user;
+      state.csrfToken = result.csrfToken || "";
       setStatus("身份验证成功，正在进入账户中心…", "success");
       location.href = safeReturnTarget();
       return;
@@ -507,6 +514,7 @@ async function submitForm(event) {
     if (mode === "register") {
       const result = await api("/api/passport/register", { method: "POST", body: JSON.stringify(payload) });
       state.user = result.user;
+      state.csrfToken = result.csrfToken || "";
       const verification = result.verification || {};
       const message = result.initialAdmin
         ? "首位管理员已创建，正在进入后台。"
@@ -750,6 +758,7 @@ async function bootstrap() {
   ]);
   state.site = site || state.site;
   state.user = session?.user || null;
+  state.csrfToken = session?.csrfToken || "";
   if (state.site?.setup?.needsAdmin && !["reset", "verify"].includes(state.mode)) {
     state.mode = "register";
     state.setup = true;

@@ -28,6 +28,7 @@ final class MessagingAttachmentService
     public function __construct(
         private readonly MessagingRepository $messages = new MessagingRepository(),
         private readonly MessagingPermissionService $permissions = new MessagingPermissionService(),
+        private readonly AttachmentSecurityService $security = new AttachmentSecurityService(),
     ) {
     }
 
@@ -47,24 +48,21 @@ final class MessagingAttachmentService
         if (!$extension) {
             throw new ApiException('不支持该附件类型。', 422, 'attachment_type_not_allowed', ['mimeType' => $mime]);
         }
+        $metadata = $this->security->inspect($source, $mime, $size);
         $publicId = $this->messages->newPublicId('att');
         $relative = gmdate('Y/m') . '/' . $publicId . '.' . $extension;
         $root = $this->storageRoot();
+        $this->security->purgeExpiredPending('messaging_attachments', $root);
+        $this->security->enforceUserQuota($identity->id, $size);
+        $this->security->assertStorageCapacity($root, $size);
         $target = $root . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $relative);
         $directory = dirname($target);
         if (!is_dir($directory) && !mkdir($directory, 0770, true) && !is_dir($directory)) {
             throw new \RuntimeException('无法创建消息附件目录。');
         }
         $sha256 = hash_file('sha256', $source);
-        $width = null;
-        $height = null;
-        if (str_starts_with($mime, 'image/')) {
-            $dimensions = @getimagesize($source);
-            if (is_array($dimensions)) {
-                $width = (int) $dimensions[0];
-                $height = (int) $dimensions[1];
-            }
-        }
+        $width = $metadata['width'] ?? null;
+        $height = $metadata['height'] ?? null;
         $name = mb_substr(basename((string) ($upload->getUploadName() ?: 'attachment.' . $extension)), 0, 240);
         try {
             $upload->move($target);

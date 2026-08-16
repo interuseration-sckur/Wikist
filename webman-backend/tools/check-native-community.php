@@ -66,7 +66,7 @@ try {
     ] as $user) {
         $insertUser->execute([$user[0], $user[1], $user[2], 'test', '', $user[3], 'active', '', '', '{}', '', $now, '', 0, '', '[]', $now, $now, $now, $now, $now]);
     }
-    $pdo->exec("INSERT INTO writing_organizations (slug,name,description,description_md,hero_image,avatar_image,focus_json,visibility,review_threshold,status,created_by,created_at,updated_at) VALUES ('private-lab','Private Lab','','','','','[]','private',2,'active',1,'{$now}','{$now}')");
+    $pdo->exec("INSERT INTO writing_organizations (slug,name,description,description_md,hero_image,avatar_image,focus_json,visibility,review_threshold,status,created_by,created_at,updated_at) VALUES ('open-lab','Open Lab','','','','','[]','public',2,'active',1,'{$now}','{$now}')");
     $pdo->exec("INSERT INTO organization_members (organization_id,user_id,role,status,intro,joined_at,updated_at) VALUES (1,1,'owner','active','','{$now}','{$now}'),(1,2,'member','active','','{$now}','{$now}'),(1,3,'reviewer','active','','{$now}','{$now}')");
 
     $admin = new UserIdentity(1, 'admin', 'admin@example.test', 'Admin', 'admin', 'active');
@@ -126,25 +126,18 @@ MD);
     $sourceFiltered = $service->questions(['origin' => 'selection', 'page' => 1, 'limit' => 20], $outsider);
     $assert($sourceFiltered['total'] === 1 && $sourceFiltered['items'][0]['id'] === $questionId, 'Question source filtering did not return the selection-backed question.');
 
-    $private = $service->createQuestion($alice, [
-        'title' => '组织内部的有限群分类讨论',
-        'content' => '这是一条仅供组织成员讨论并验证权限隔离的问题。',
+    $organizationQuestion = $service->createQuestion($alice, [
+        'title' => '协作组织的有限群分类讨论',
+        'content' => '这是一条公开展示、由组织成员共同维护的问题。',
         'tags' => ['群论'],
-        'organization' => 'private-lab',
+        'organization' => 'open-lab',
     ]);
-    $privateId = (string) $private['question']['id'];
-    $assert($service->question($privateId, $bob)['question']['organization']['slug'] === 'private-lab', 'Organization member could not read a private question.');
-    $privateReport = $service->report($alice, 'question', $privateId, ['reason' => 'incorrect', 'details' => '组织内审核测试。']);
-    $assert($service->reports($bob, 'pending', 1, 20, 1)['items'][0]['id'] === $privateReport['id'], 'Wikist reviewer role was not mapped to organization moderation.');
-    $service->resolveReport($bob, $privateReport['id'], ['status' => 'resolved', 'resolution' => '组织审阅者已处理。']);
-    $privateHidden = false;
-    try {
-        $service->question($privateId, $outsider);
-    } catch (ApiException $error) {
-        $privateHidden = $error->status() === 404;
-    }
-    $assert($privateHidden, 'Private organization question leaked to an outsider.');
-    $assert($service->questions(['query' => '分类讨论'], $outsider)['total'] === 0, 'Private organization question leaked through feed search.');
+    $organizationQuestionId = (string) $organizationQuestion['question']['id'];
+    $assert($service->question($organizationQuestionId, $outsider)['question']['organization']['slug'] === 'open-lab', 'Organization question was not publicly readable.');
+    $organizationReport = $service->report($alice, 'question', $organizationQuestionId, ['reason' => 'incorrect', 'details' => '组织审核测试。']);
+    $assert($service->reports($bob, 'pending', 1, 20, 1)['items'][0]['id'] === $organizationReport['id'], 'Wikist reviewer role was not mapped to organization moderation.');
+    $service->resolveReport($bob, $organizationReport['id'], ['status' => 'resolved', 'resolution' => '组织审阅者已处理。']);
+    $assert($service->questions(['query' => '分类讨论'], $outsider)['total'] === 1, 'Organization question was missing from the public feed search.');
 
     $invitation = $service->inviteAnswer($alice, $questionId, ['username' => 'bob', 'message' => '请补充陪集证明。']);
     $assert($invitation['invitation']['status'] === 'pending', 'Answer invitation was not persisted.');
@@ -244,7 +237,7 @@ MD);
     $assert($service->reports($admin, 'pending', 1, 20, null)['total'] === 0, 'Resolved report remained in the pending queue.');
 
     $search = $service->search(['query' => '拉格朗日', 'page' => 1, 'limit' => 20], $outsider);
-    $assert($search['total'] >= 1 && !in_array($privateId, array_column($search['items'], 'key'), true), 'Unified search missed public content or leaked private content.');
+    $assert($search['total'] >= 1, 'Unified search missed public Community content.');
     $service->setQuestionOpen($alice, $questionId, false, '回归测试关闭状态');
     $closedItems = $service->questions(['query' => '拉格朗日', 'page' => 1, 'limit' => 20], $outsider)['items'];
     $closedQuestion = array_values(array_filter($closedItems, static fn (array $item): bool => $item['id'] === $questionId))[0] ?? null;

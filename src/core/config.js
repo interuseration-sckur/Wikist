@@ -5,12 +5,14 @@ const { DEFAULT_PLUGINS } = require("./plugin-registry");
 const defaults = {
   name: "Wikist",
   tagline: "Open mathematical knowledge",
+  publicUrl: "",
+  deploymentMode: "development",
   language: "zh-CN",
   defaultPage: "home",
   license: "CC BY-SA 4.0",
   math: {
     provider: "mathjax",
-    cdn: "https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js",
+    cdn: "https://cdn.jsdelivr.net/npm/mathjax@3.2.2/es5/tex-chtml.js",
   },
   assets: {
     cdnBase: "",
@@ -33,7 +35,7 @@ const defaults = {
     passwordResetTTLSeconds: 1200,
     twoFactorIssuer: "Wikist",
     twoFactorWindow: 1,
-    sqliteBusyTimeoutMs: 8000,
+    sqliteBusyTimeoutMs: 10000,
   },
   security: {
     firewall: {
@@ -89,6 +91,30 @@ function siteConfigPath(rootDir) {
   return path.join(rootDir, "config", "site.config.json");
 }
 
+function writeSiteConfigFile(rootDir, value) {
+  const configPath = siteConfigPath(rootDir);
+  fs.mkdirSync(path.dirname(configPath), { recursive: true });
+  if (fs.existsSync(configPath) && fs.lstatSync(configPath).isSymbolicLink()) {
+    throw new Error("站点配置文件不能是符号链接。");
+  }
+  const temporary = `${configPath}.${process.pid}.${Date.now()}.tmp`;
+  const fd = fs.openSync(temporary, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | (fs.constants.O_NOFOLLOW || 0), 0o600);
+  try {
+    fs.writeFileSync(fd, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+    fs.fsyncSync(fd);
+  } finally {
+    fs.closeSync(fd);
+  }
+  try {
+    fs.renameSync(temporary, configPath);
+    try { fs.chmodSync(configPath, 0o600); } catch (_) {}
+  } catch (error) {
+    fs.rmSync(temporary, { force: true });
+    throw error;
+  }
+  return configPath;
+}
+
 function hasSiteConfig(rootDir) {
   return fs.existsSync(siteConfigPath(rootDir));
 }
@@ -139,6 +165,36 @@ function cleanAssetUrl(value, fallback = "") {
   return fallback;
 }
 
+function cleanPublicUrl(value, deploymentMode = "development") {
+  const text = cleanText(value, 500).replace(/\/+$/, "");
+  let parsed;
+  try {
+    parsed = new URL(text);
+  } catch (_) {
+    parsed = null;
+  }
+  const mode = ["development", "single-production", "advanced"].includes(deploymentMode)
+    ? deploymentMode
+    : "development";
+  const localHost = parsed && ["localhost", "127.0.0.1", "::1"].includes(parsed.hostname.toLowerCase());
+  const valid = parsed
+    && ["http:", "https:"].includes(parsed.protocol)
+    && parsed.host
+    && !parsed.username
+    && !parsed.password
+    && !parsed.search
+    && !parsed.hash
+    && ["", "/"].includes(parsed.pathname);
+  if (!valid || (mode === "single-production" && parsed.protocol !== "https:") || (mode !== "development" && localHost)) {
+    const error = new Error(mode === "single-production"
+      ? "单机生产模式必须填写公开的 HTTPS 站点地址。"
+      : "站点公开地址必须是完整的 http(s) Origin，且不能包含路径、账号、查询参数或片段。");
+    error.statusCode = 400;
+    throw error;
+  }
+  return parsed.origin;
+}
+
 function cleanDatabasePath(value) {
   const database = cleanText(value || "data/wikist.sqlite", 260).replace(/\\/g, "/");
   if (!database || database.startsWith("/") || database.includes(":") || database.split("/").some((part) => part === ".." || !part)) {
@@ -157,6 +213,10 @@ function cleanDatabasePath(value) {
 function createInitialConfig(input = {}) {
   const name = cleanText(input.name || "Wikist", 80) || "Wikist";
   const language = cleanLanguage(input.language);
+  const deploymentMode = ["development", "single-production", "advanced"].includes(String(input.deploymentMode || ""))
+    ? String(input.deploymentMode)
+    : "development";
+  const publicUrl = cleanPublicUrl(input.publicUrl || input.baseUrl, deploymentMode);
   const mailEnabled = cleanBoolean(input.mailEnabled);
   const smtpHost = cleanText(input.smtpHost, 180);
   if (mailEnabled && !smtpHost) {
@@ -167,6 +227,8 @@ function createInitialConfig(input = {}) {
   return mergeDeep(defaults, {
     name,
     tagline: cleanText(input.tagline || "Open mathematical knowledge", 240),
+    publicUrl,
+    deploymentMode,
     language,
     languages: ["zh-CN", "zh-TW", "en"],
     license: cleanText(input.license || "CC BY-SA 4.0", 80),
@@ -191,7 +253,7 @@ function createInitialConfig(input = {}) {
       enabled: mailEnabled,
       fromName: cleanText(input.fromName || name, 80),
       fromAddress: cleanText(input.fromAddress, 160),
-      baseUrl: cleanText(input.baseUrl, 500).replace(/\/$/, ""),
+      baseUrl: publicUrl,
       smtp: {
         host: smtpHost,
         port: cleanInteger(input.smtpPort, 587, 1, 65535),
@@ -218,8 +280,7 @@ function writeInitialConfig(rootDir, input = {}, options = {}) {
     throw error;
   }
   const config = createInitialConfig(input);
-  fs.mkdirSync(path.dirname(configPath), { recursive: true });
-  fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, "utf8");
+  writeSiteConfigFile(rootDir, config);
   return { config, configPath };
 }
 
@@ -229,6 +290,21 @@ function loadConfig(rootDir) {
     ? JSON.parse(fs.readFileSync(configPath, "utf8").replace(/^\uFEFF/, ""))
     : {};
   const config = mergeDeep(defaults, userConfig);
+  const legacyPublicUrl = userConfig.publicUrl || userConfig.mail?.baseUrl || process.env.WIKIST_PUBLIC_URL || process.env.APP_URL || "";
+  if (legacyPublicUrl) {
+    try {
+      config.publicUrl = cleanPublicUrl(legacyPublicUrl, userConfig.deploymentMode || "development");
+    } catch (_) {
+      config.publicUrl = "";
+    }
+  }
+  config.deploymentMode = ["development", "single-production", "advanced"].includes(userConfig.deploymentMode)
+    ? userConfig.deploymentMode
+    : "development";
+  if (!config.mail.baseUrl && config.publicUrl) config.mail.baseUrl = config.publicUrl;
+  if (config.math?.cdn === "https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js") {
+    config.math.cdn = defaults.math.cdn;
+  }
   if (process.env.WIKIST_PASSPORT_DATABASE) {
     config.passport.database = cleanDatabasePath(process.env.WIKIST_PASSPORT_DATABASE);
   }
@@ -244,10 +320,12 @@ function loadConfig(rootDir) {
 }
 
 module.exports = {
+  cleanPublicUrl,
   createInitialConfig,
   hasSiteConfig,
   loadConfig,
   siteConfigPath,
+  writeSiteConfigFile,
   uninstallSiteConfig,
   writeInitialConfig,
 };

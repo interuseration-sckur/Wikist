@@ -148,9 +148,29 @@ function selectCompression(req, contentType, size, options) {
 }
 
 function safeJoin(baseDir, requestedPath) {
+  const raw = String(requestedPath || "");
+  if (/^[a-z]:/i.test(raw) || /^[/\\]{2}/.test(raw) || /[\u0000-\u001f]/u.test(raw)) {
+    return null;
+  }
   const resolvedBase = path.resolve(baseDir);
-  const resolved = path.resolve(baseDir, requestedPath.replace(/^[/\\]+/, ""));
+  const resolved = path.resolve(baseDir, raw.replace(/^[/\\]+/, ""));
   if (resolved !== resolvedBase && !resolved.startsWith(resolvedBase + path.sep)) {
+    return null;
+  }
+  try {
+    const baseReal = fs.realpathSync(resolvedBase);
+    const relative = path.relative(resolvedBase, resolved);
+    let cursor = resolvedBase;
+    for (const part of relative.split(path.sep).filter(Boolean)) {
+      cursor = path.join(cursor, part);
+      if (!fs.existsSync(cursor)) break;
+      if (fs.lstatSync(cursor).isSymbolicLink()) return null;
+    }
+    if (fs.existsSync(resolved)) {
+      const targetReal = fs.realpathSync(resolved);
+      if (targetReal !== baseReal && !targetReal.startsWith(baseReal + path.sep)) return null;
+    }
+  } catch (_error) {
     return null;
   }
   return resolved;

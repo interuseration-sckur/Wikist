@@ -6,6 +6,10 @@ const { spawnSync } = require("child_process");
 
 const root = path.resolve(__dirname, "..");
 const backend = path.join(root, "webman-backend");
+process.env.APP_ENV ||= "development";
+process.env.APP_SECRET ||= "wikist-check-app-secret-000000000000000000000000";
+process.env.CENTRIFUGO_TOKEN_HMAC_SECRET ||= "wikist-check-token-secret-00000000000000000000";
+process.env.CENTRIFUGO_API_KEY ||= "wikist-check-api-key-000000000000000000000000";
 const legacyProxySource = fs.readFileSync(path.join(backend, "app", "controller", "LegacyProxyController.php"), "utf8");
 const nodeServerSource = fs.readFileSync(path.join(root, "src", "server", "app.js"), "utf8");
 
@@ -25,7 +29,7 @@ function resolvePhp() {
     process.platform === "win32" ? "php.exe" : "php",
   ].filter(Boolean);
   return candidates.find((candidate) => {
-    const result = spawnSync(candidate, ["-r", "exit(PHP_VERSION_ID >= 80100 ? 0 : 1);"], { windowsHide: true });
+    const result = spawnSync(candidate, ["-r", "exit(PHP_VERSION_ID >= 80401 ? 0 : 1);"], { windowsHide: true });
     return !result.error && result.status === 0;
   }) || "";
 }
@@ -48,7 +52,7 @@ function run(command, args, cwd = root) {
 
 const php = resolvePhp();
 if (!php) {
-  throw new Error("Wikist Webman checks require PHP 8.1 or newer. Set WIKIST_PHP when PHP is not in PATH.");
+  throw new Error("Wikist Webman checks require PHP 8.4.1 or newer. Set WIKIST_PHP when PHP is not in PATH.");
 }
 if (!fs.existsSync(path.join(backend, "vendor", "autoload.php"))) {
   throw new Error("Webman dependencies are missing. Run Composer install in webman-backend first.");

@@ -3,12 +3,17 @@
 $database = static function (string $prefix, string $defaultName): array {
     $driver = strtolower(getenv("{$prefix}_DB_DRIVER") ?: 'mysql');
     if ($driver === 'sqlite') {
-        $path = getenv("{$prefix}_DB_DATABASE") ?: base_path("database/{$defaultName}.sqlite");
+        $path = getenv("{$prefix}_DB_DATABASE") ?: dirname(base_path()) . "/data/{$defaultName}.sqlite";
+        $busyTimeout = max(1000, (int) (getenv("{$prefix}_DB_BUSY_TIMEOUT") ?: 10000));
         return [
             'driver' => 'sqlite',
             'database' => $path,
             'prefix' => '',
             'foreign_key_constraints' => true,
+            'busy_timeout' => $busyTimeout,
+            'journal_mode' => 'WAL',
+            'synchronous' => strtolower(getenv("{$prefix}_DB_SYNCHRONOUS") ?: 'normal'),
+            'options' => [PDO::ATTR_TIMEOUT => max(1, (int) ceil($busyTimeout / 1000))],
         ];
     }
 

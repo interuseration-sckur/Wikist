@@ -1,8 +1,9 @@
 const fs = require("fs");
 const path = require("path");
 const zlib = require("zlib");
-const { createBackupPackage, inspectBackupPackage, validateBackupPackage, restoreBackupPackage, exerciseBackupPackage } = require("../src/core/backup");
+const { createBackupPackage, createBackupPackageFile, inspectBackupPackage, validateBackupPackage, restoreBackupPackage, exerciseBackupPackage } = require("../src/core/backup");
 
+async function main() {
 const root = path.join(process.cwd(), "data", "wikist-backup-test");
 fs.rmSync(root, { recursive: true, force: true });
 fs.mkdirSync(path.join(root, "content", "pages"), { recursive: true });
@@ -23,6 +24,14 @@ const tampered = JSON.parse(zlib.gunzipSync(backup.buffer).toString("utf8"));
 tampered.files[0].content = "tampered";
 const tamperedValidation = validateBackupPackage({ package: tampered });
 const drill = exerciseBackupPackage({ packageBase64 }, { database: "data/wikist.sqlite", includeUserData: true });
+const streamed = await createBackupPackageFile(root, {
+  database: "data/wikist.sqlite",
+  databaseSnapshotPath: path.join(root, "data", "wikist.sqlite"),
+});
+const streamedBuffer = fs.readFileSync(streamed.filePath);
+const streamedPayload = JSON.parse(zlib.gunzipSync(streamedBuffer).toString("utf8"));
+const streamedValidation = validateBackupPackage(streamedBuffer);
+streamed.cleanup();
 
 fs.writeFileSync(path.join(root, "content", "pages", "home.md"), "---\ntitle: Broken\n---\nChanged\n", "utf8");
 fs.writeFileSync(path.join(root, "content", "reviewed", "home", "2026-07-11T08-00-00-000Z.md"), "---\ntitle: Broken\n---\nChanged review\n", "utf8");
@@ -45,6 +54,10 @@ const checks = {
   restoreConfig: JSON.parse(fs.readFileSync(path.join(root, "config", "site.config.json"), "utf8")).name === "Wikist",
   restoreUsers: fs.readFileSync(path.join(root, "data", "wikist.sqlite")).toString() === "sqlite-placeholder",
   safetyBackup: restored.safetyBackup?.path && fs.existsSync(path.join(root, restored.safetyBackup.path)),
+  streamingBackup: streamedPayload.version === 3
+    && streamedValidation.valid
+    && Buffer.from(streamedPayload.files.find((file) => file.path === "content/pages/home.md")?.content || "", "base64").toString("utf8").includes("Body")
+    && !fs.existsSync(streamed.filePath),
 };
 
 const failed = Object.entries(checks).filter(([, ok]) => !ok).map(([name]) => name);
@@ -55,3 +68,9 @@ if (failed.length) {
 
 fs.rmSync(root, { recursive: true, force: true });
 console.log(JSON.stringify({ ok: true, checks: Object.keys(checks).length, compressedBytes: backup.buffer.length }, null, 2));
+}
+
+main().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});

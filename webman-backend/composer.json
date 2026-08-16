@@ -20,9 +20,15 @@
     "source": "https://github.com/interuseration-sckur/Wikist"
   },
   "require": {
-    "php": ">=8.1",
+    "php": ">=8.4.1",
+    "ext-curl": "*",
     "ext-gd": "*",
+    "ext-intl": "*",
+    "ext-mbstring": "*",
     "ext-openssl": "*",
+    "ext-pdo": "*",
+    "ext-xml": "*",
+    "ext-zip": "*",
     "workerman/webman-framework": "^2.2",
     "monolog/monolog": "^2.0",
     "webman/console": "^2.2",

@@ -4,27 +4,13 @@ const path = require("path");
 const { PageStore } = require("../src/core/page-store");
 const { PassportStore } = require("../src/core/passport-store");
 const { translationSourceChanges } = require("../src/core/translation-quality");
+const { seedTestUser } = require("./legacy-test-fixtures");
 
 const tempRoot = path.join(process.cwd(), "data", "wikist-v09-translation-quality-test");
 const appSource = fs.readFileSync(path.join(process.cwd(), "src", "server", "app.js"), "utf8");
 
 function removeTempRoot() {
   fs.rmSync(tempRoot, { recursive: true, force: true, maxRetries: 8, retryDelay: 120 });
-}
-
-function request() {
-  return {
-    headers: { cookie: "", "user-agent": "wikist-v09-translation-quality-test" },
-    socket: { remoteAddress: "127.0.0.1" },
-  };
-}
-
-function captcha(store) {
-  const item = store.createCaptcha();
-  const row = store.db.prepare("SELECT question FROM captchas WHERE id = ?").get(item.id);
-  const match = row.question.match(/(\d+)\s*([+-])\s*(\d+)/);
-  const answer = match[2] === "+" ? Number(match[1]) + Number(match[3]) : Number(match[1]) - Number(match[3]);
-  return { captchaId: item.id, captchaAnswer: String(answer) };
 }
 
 removeTempRoot();
@@ -34,27 +20,22 @@ let passport = null;
 try {
   const pages = new PageStore(tempRoot, {});
   passport = new PassportStore(tempRoot, { database: "data/v09-translation-quality.sqlite" });
-  const admin = passport.register({
+  const admin = seedTestUser(passport, {
     username: "v09_admin",
     displayName: "V09 Admin",
     email: "v09-admin@example.com",
-    password: "Passw0rd!",
-    ...captcha(passport),
-  }, request()).user;
-  const translator = passport.register({
+    role: "admin",
+  });
+  const translator = seedTestUser(passport, {
     username: "v09_translator",
     displayName: "V09 Translator",
     email: "v09-translator@example.com",
-    password: "Passw0rd!",
-    ...captcha(passport),
-  }, request()).user;
-  const reader = passport.register({
+  });
+  const reader = seedTestUser(passport, {
     username: "v09_reader",
     displayName: "V09 Reader",
     email: "v09-reader@example.com",
-    password: "Passw0rd!",
-    ...captcha(passport),
-  }, request()).user;
+  });
   const adminSession = { user: passport.getUserProfile(admin.id) };
   const translatorSession = { user: passport.getUserProfile(translator.id) };
   const readerSession = { user: passport.getUserProfile(reader.id) };

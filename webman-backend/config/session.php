@@ -6,6 +6,15 @@ use Webman\Session\RedisSessionHandler;
 $driver = strtolower(getenv('SESSION_DRIVER') ?: 'file');
 $lifetime = max(900, (int) (getenv('SESSION_LIFETIME') ?: 604800));
 $defaultSecure = str_starts_with(strtolower(getenv('APP_URL') ?: ''), 'https://');
+$production = in_array(strtolower(getenv('APP_ENV') ?: 'development'), ['production', 'prod'], true);
+$secure = filter_var(getenv('SESSION_SECURE') !== false ? getenv('SESSION_SECURE') : ($defaultSecure ? 'true' : 'false'), FILTER_VALIDATE_BOOL);
+$sameSite = ucfirst(strtolower(getenv('SESSION_SAME_SITE') ?: 'Lax'));
+if (!in_array($sameSite, ['Lax', 'Strict', 'None'], true)) {
+    throw new RuntimeException('SESSION_SAME_SITE must be Lax, Strict, or None.');
+}
+if (($production || $sameSite === 'None') && !$secure) {
+    throw new RuntimeException('Production and SameSite=None sessions require SESSION_SECURE=true.');
+}
 
 return [
     'type' => $driver,
@@ -28,7 +37,7 @@ return [
     'cookie_path' => '/',
     'domain' => getenv('SESSION_DOMAIN') ?: '',
     'http_only' => true,
-    'secure' => filter_var(getenv('SESSION_SECURE') !== false ? getenv('SESSION_SECURE') : ($defaultSecure ? 'true' : 'false'), FILTER_VALIDATE_BOOL),
-    'same_site' => getenv('SESSION_SAME_SITE') ?: 'Lax',
+    'secure' => $secure,
+    'same_site' => $sameSite,
     'gc_probability' => [1, 1000],
 ];

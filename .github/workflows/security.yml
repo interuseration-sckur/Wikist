@@ -1,0 +1,91 @@
+name: Security and hardening
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "23 3 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  hardening:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+      - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
+        with:
+          php-version: "8.4"
+          extensions: curl, gd, intl, mbstring, openssl, pdo_sqlite, sqlite3, xml, zip
+          tools: composer:v2
+          coverage: none
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: node tools/check-secrets.js
+      - run: npm run check:hardening
+      - run: npm run check:deployment
+      - run: npm audit --omit=dev --audit-level=high
+      - name: Composer install without plugins or scripts
+        working-directory: webman-backend
+        run: composer install --no-dev --no-interaction --no-progress --no-scripts --no-plugins
+      - name: Composer advisory audit
+        working-directory: webman-backend
+        run: composer audit --locked --no-interaction
+      - name: Composer metadata and platform validation
+        working-directory: webman-backend
+        run: composer validate --strict && composer check-platform-reqs --no-dev
+      - run: npm run check
+      - run: npm run check:contention
+
+  clean-install:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+      - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
+        with:
+          php-version: "8.4"
+          extensions: curl, gd, intl, mbstring, openssl, pdo_sqlite, sqlite3, xml, zip
+          tools: composer:v2
+          coverage: none
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Install PHP dependencies with executable extensions disabled
+        working-directory: webman-backend
+        run: composer install --no-dev --no-interaction --no-progress --no-scripts --no-plugins
+      - name: Initialize an offline single-host stack
+        run: node tools/setup-community-stack.js --no-realtime
+      - name: Apply migrations twice to prove idempotency
+        env:
+          WIKIST_DB_DATABASE: ${{ runner.temp }}/wikist-clean.sqlite
+        run: |
+          node tools/run-php-tool.js migrate.php
+          node tools/run-php-tool.js migrate.php
+      - name: Validate runtime and deployment configuration
+        env:
+          WIKIST_DB_DATABASE: ${{ runner.temp }}/wikist-clean.sqlite
+        run: |
+          npm run doctor -- --all
+          npm run config:validate
+          npm run check:webman
+      - name: Exercise the release preflight without changing code or services
+        env:
+          WIKIST_DB_DATABASE: ${{ runner.temp }}/wikist-clean.sqlite
+        run: node tools/update.js --preflight-only --allow-dirty --yes

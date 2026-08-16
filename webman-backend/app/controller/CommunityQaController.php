@@ -5,6 +5,7 @@ namespace app\controller;
 use app\http\ApiResponse;
 use app\service\CommunityQaService;
 use app\service\CommunityAttachmentService;
+use app\service\AttachmentSecurityService;
 use support\Request;
 use support\Response;
 
@@ -393,12 +394,12 @@ final class CommunityQaController
     public function attachment(Request $request, string $id): Response
     {
         $file = (new CommunityAttachmentService())->authorize($request->identity ?? null, $id);
-        $inline = str_starts_with($file['mimeType'], 'image/') || $file['mimeType'] === 'application/pdf';
-        $name = str_replace(["\r", "\n", '"'], '', $file['name']);
+        $inline = str_starts_with($file['mimeType'], 'image/');
         return response()->file($file['path'])
             ->header('Content-Type', $file['mimeType'])
-            ->header('Content-Disposition', ($inline ? 'inline' : 'attachment') . '; filename="' . $name . '"')
+            ->header('Content-Disposition', (new AttachmentSecurityService())->contentDisposition($file['name'], $inline))
             ->header('X-Content-Type-Options', 'nosniff')
+            ->header('Content-Security-Policy', "default-src 'none'; sandbox")
             ->header('Cache-Control', 'private, max-age=300');
     }
 
@@ -419,7 +420,7 @@ final class CommunityQaController
         }
         $seed = implode('|', [
             gmdate('Y-m-d'),
-            (string) $request->getRealIp(),
+            (string) ($request->clientIp ?? $request->getRemoteIp()),
             mb_substr((string) $request->header('user-agent'), 0, 300),
         ]);
         return 'guest:' . hash_hmac('sha256', $seed, (string) config('wikist.secret', 'wikist'));

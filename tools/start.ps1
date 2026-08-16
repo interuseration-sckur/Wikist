@@ -11,8 +11,14 @@ if (-not $nodePath) {
 }
 
 if (-not $nodePath) {
-  throw "Node.js was not found. Install Node.js 18+ or run Wikist in an environment that provides Node."
+  throw "Node.js was not found. Install Node.js 22.5+ or run Wikist in an environment that provides Node."
 }
 
 $root = Resolve-Path (Join-Path $PSScriptRoot "..")
-& $nodePath (Join-Path $root "server.js")
+$probe = & $nodePath -e "const [major,minor]=process.versions.node.split('.').map(Number);try{require('node:sqlite')}catch{process.exit(1)}process.exit(major>22||(major===22&&minor>=5)?0:1)"
+if ($LASTEXITCODE -ne 0) {
+  throw "Wikist requires Node.js 22.5+ with node:sqlite support."
+}
+
+& $nodePath (Join-Path $root "tools\start-hybrid.js") @args
+exit $LASTEXITCODE

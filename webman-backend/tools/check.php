@@ -4,8 +4,8 @@ $root = dirname(__DIR__);
 $errors = [];
 $warnings = [];
 
-if (PHP_VERSION_ID < 80100) {
-    $errors[] = 'PHP 8.1 or newer is required.';
+if (PHP_VERSION_ID < 80401) {
+    $errors[] = 'PHP 8.4.1 or newer is required.';
 }
 foreach (['pdo', 'mbstring', 'openssl', 'json', 'curl', 'gd'] as $extension) {
     if (!extension_loaded($extension)) {

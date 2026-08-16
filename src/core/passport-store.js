@@ -1,3 +1,5 @@
+// @deprecated compatibility-only: Webman Passport owns authentication, sessions and account security.
+// Keep this adapter only for unported Node content APIs; remove its auth surface in Wikist 2.0.
 const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
@@ -241,11 +243,28 @@ function jsonText(value) {
   return JSON.stringify(value || {});
 }
 
+function redactAuditValue(value, key = "", depth = 0) {
+  if (/(?:authorization|cookie|password|secret|token|captcha|totp|recovery|smtp|email)/i.test(key)) return "[REDACTED]";
+  if (depth >= 4) return "[TRUNCATED]";
+  if (Array.isArray(value)) return value.slice(0, 50).map((item) => redactAuditValue(item, "", depth + 1));
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).slice(0, 80).map(([name, item]) => [name, redactAuditValue(item, name, depth + 1)]));
+  }
+  return typeof value === "string" ? value.slice(0, 1000) : value;
+}
+
+function maskedAuditIp(value) {
+  const ip = String(value || "").replace(/^::ffff:/i, "");
+  if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(ip)) return ip.replace(/\.\d+$/, ".0");
+  if (ip.includes(":")) return `${ip.split(":").slice(0, 3).join(":")}::`;
+  return "";
+}
+
 function cleanUrl(value, maxLength = 500) {
   const url = cleanText(value, maxLength);
   if (!url) return "";
-  if (!/^https?:\/\//i.test(url) && !/^data:image\//i.test(url)) {
-    throw new Error("\u5934\u50cf\u5730\u5740\u5fc5\u987b\u662f http(s) \u6216 data:image\u3002");
+  if (!/^https?:\/\//i.test(url) && !/^data:image\/(?:png|jpe?g|webp|gif);base64,/i.test(url)) {
+    throw new Error("\u5934\u50cf\u5730\u5740\u5fc5\u987b\u662f http(s) \u6216 raster data:image\u3002");
   }
   return url;
 }
@@ -253,8 +272,8 @@ function cleanUrl(value, maxLength = 500) {
 function cleanOrganizationImage(value, maxLength = 1000) {
   const url = cleanText(value, maxLength);
   if (!url) return "";
-  if (!/^https?:\/\//i.test(url) && !/^data:image\//i.test(url) && !/^\/uploads\/[\w./-]+$/i.test(url)) {
-    throw new Error("\u7ec4\u7ec7\u56fe\u7247\u5730\u5740\u5fc5\u987b\u662f http(s), data:image \u6216 /uploads/ \u8def\u5f84\u3002");
+  if (!/^https?:\/\//i.test(url) && !/^data:image\/(?:png|jpe?g|webp|gif);base64,/i.test(url) && !/^\/uploads\/[\w./-]+$/i.test(url)) {
+    throw new Error("\u7ec4\u7ec7\u56fe\u7247\u5730\u5740\u5fc5\u987b\u662f http(s)\u3001raster data:image \u6216 /uploads/ \u8def\u5f84\u3002");
   }
   return url;
 }
@@ -745,7 +764,7 @@ function organizationFromRow(row) {
     heroImage: row.hero_image || "",
     avatarImage: row.avatar_image || "",
     focus: cleanJson(row.focus_json, []),
-    visibility: row.visibility || "public",
+    visibility: row.visibility === "request" ? "request" : "public",
     reviewThreshold: Math.max(1, Number(row.review_threshold || 2)),
     status: row.status || "active",
     createdBy: row.created_by || null,
@@ -1020,32 +1039,37 @@ class PassportStore {
     this.cookieName = COOKIE_NAME;
     this.guestCookieName = GUEST_COOKIE_NAME;
     this.secret = process.env.WIKIST_PASSPORT_SECRET || "wikist-dev-passport-secret";
+    this.compatibilityMode = process.env.WIKIST_COMPATIBILITY_MODE === "1";
     this.dbPath = path.resolve(rootDir, this.options.database);
     fs.mkdirSync(path.dirname(this.dbPath), { recursive: true });
     this.db = null;
     this.openDatabase();
-    this.migrate();
+    if (this.compatibilityMode) this.assertCompatibilitySchema();
+    else this.migrate();
     this.messagingBridge = new MessagingBridge(this.db, this.rootDir);
-    this.messagingBridge.ensureSchema();
-    this.messagingBridge.reconcileLegacyNotifications();
-    this.cleanup();
+    if (!this.compatibilityMode) {
+      this.messagingBridge.ensureSchema();
+      this.messagingBridge.reconcileLegacyNotifications();
+    }
+    if (!this.compatibilityMode) this.cleanup();
   }
 
   sqliteBusyTimeoutMs() {
-    return Math.max(1000, Math.min(Number(this.options.sqliteBusyTimeoutMs) || 8000, 30000));
+    return Math.max(1000, Math.min(Number(this.options.sqliteBusyTimeoutMs) || 10000, 30000));
   }
 
   openDatabase() {
     this.db = new DatabaseSync(this.dbPath);
     const timeout = this.sqliteBusyTimeoutMs();
     this.db.exec(`
-      PRAGMA journal_mode = WAL;
       PRAGMA foreign_keys = ON;
       PRAGMA busy_timeout = ${timeout};
       PRAGMA synchronous = NORMAL;
-      PRAGMA wal_autocheckpoint = 1000;
       PRAGMA temp_store = MEMORY;
     `);
+    if (!this.compatibilityMode) {
+      this.db.exec("PRAGMA journal_mode = WAL; PRAGMA wal_autocheckpoint = 1000;");
+    }
     return this.db;
   }
 
@@ -1057,27 +1081,91 @@ class PassportStore {
   reopenDatabase() {
     this.closeDatabase();
     this.openDatabase();
-    this.migrate();
+    if (this.compatibilityMode) this.assertCompatibilitySchema();
+    else this.migrate();
     this.messagingBridge = new MessagingBridge(this.db, this.rootDir);
-    this.messagingBridge.ensureSchema();
-    this.messagingBridge.reconcileLegacyNotifications();
-    this.cleanup();
+    if (!this.compatibilityMode) {
+      this.messagingBridge.ensureSchema();
+      this.messagingBridge.reconcileLegacyNotifications();
+    }
+    if (!this.compatibilityMode) this.cleanup();
     return this.databaseHealth({ integrity: false });
   }
 
-  createDatabaseSnapshot() {
+  assertCompatibilitySchema() {
+    const requiredTables = [
+      "users", "captchas", "guest_profiles", "page_permissions", "page_edit_events",
+      "page_comments", "page_ratings", "page_favorites", "user_messages", "site_messages",
+      "site_message_states", "site_audit_logs", "page_translations", "writing_organizations",
+      "organization_members", "organization_tasks", "organization_posts", "watch_subscriptions",
+      "page_links", "page_aliases", "messaging_conversations", "messaging_messages",
+      "messaging_outbox_events",
+    ];
+    const available = new Set(this.db.prepare("SELECT name FROM sqlite_schema WHERE type = 'table'").all().map((row) => row.name));
+    const missing = requiredTables.filter((table) => !available.has(table));
+    if (missing.length) {
+      throw new Error(`Webman 数据迁移尚未完成，缺少兼容表：${missing.join(", ")}`);
+    }
+    const requiredUserColumns = ["session_version", "pending_email", "pending_two_factor_secret"];
+    const userColumns = new Set(this.db.prepare("PRAGMA table_info(users)").all().map((row) => row.name));
+    const missingColumns = requiredUserColumns.filter((column) => !userColumns.has(column));
+    if (missingColumns.length) {
+      throw new Error(`Webman Passport 安全迁移尚未完成，缺少字段：${missingColumns.join(", ")}`);
+    }
+  }
+
+  createDatabaseSnapshotFile() {
     const directory = path.dirname(this.dbPath);
     const snapshotPath = path.join(directory, `.wikist-backup-${crypto.randomUUID()}.sqlite`);
     try {
       const quoted = snapshotPath.replace(/'/g, "''");
       this.db.exec(`VACUUM INTO '${quoted}'`);
-      return fs.readFileSync(snapshotPath);
+      const snapshot = new DatabaseSync(snapshotPath);
+      try {
+        snapshot.exec("BEGIN IMMEDIATE");
+        for (const table of ["sessions", "passport_tokens", "captchas", "messaging_presence_leases"]) {
+          const exists = snapshot.prepare("SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = ?").get(table);
+          if (exists) snapshot.exec(`DELETE FROM ${table}`);
+        }
+        const usersExists = snapshot.prepare("SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'users'").get();
+        if (usersExists) {
+          const columns = new Set(snapshot.prepare("PRAGMA table_info(users)").all().map((row) => row.name));
+          const sensitiveColumns = [
+            "pending_email",
+            "pending_email_requested_at",
+            "pending_two_factor_secret",
+            "pending_two_factor_created_at",
+          ].filter((column) => columns.has(column));
+          if (sensitiveColumns.length > 0) {
+            snapshot.exec(`UPDATE users SET ${sensitiveColumns.map((column) => `${column} = ''`).join(", ")}`);
+          }
+        }
+        snapshot.exec("COMMIT");
+      } catch (error) {
+        try { snapshot.exec("ROLLBACK"); } catch (_rollbackError) {}
+        throw error;
+      } finally {
+        snapshot.close();
+      }
+      return {
+        path: snapshotPath,
+        cleanup() {
+          try { fs.rmSync(snapshotPath, { force: true }); } catch (_cleanupError) {}
+        },
+      };
     } catch (error) {
       try { this.db.prepare("PRAGMA wal_checkpoint(TRUNCATE)").all(); } catch (_checkpointError) {}
-      if (fs.existsSync(this.dbPath)) return fs.readFileSync(this.dbPath);
-      throw error;
-    } finally {
       try { fs.rmSync(snapshotPath, { force: true }); } catch (_cleanupError) {}
+      throw error;
+    }
+  }
+
+  createDatabaseSnapshot() {
+    const snapshot = this.createDatabaseSnapshotFile();
+    try {
+      return fs.readFileSync(snapshot.path);
+    } finally {
+      snapshot.cleanup();
     }
   }
 
@@ -1735,16 +1823,15 @@ class PassportStore {
     this.addColumn("writing_organizations", "description_md", "TEXT NOT NULL DEFAULT ''");
     this.addColumn("writing_organizations", "hero_image", "TEXT NOT NULL DEFAULT ''");
     this.addColumn("writing_organizations", "avatar_image", "TEXT NOT NULL DEFAULT ''");
+    if (this.columnExists("writing_organizations", "join_policy")) {
+      this.db.prepare("UPDATE writing_organizations SET visibility = 'request' WHERE join_policy = 'approval'").run();
+    }
+    this.db.prepare("UPDATE writing_organizations SET visibility = 'public' WHERE visibility = 'private'").run();
     this.db.prepare("UPDATE writing_organizations SET description_md = description WHERE description_md = ''").run();
     this.db.exec("CREATE INDEX IF NOT EXISTS idx_page_aliases_source ON page_aliases(source_page_slug, updated_at)");
 
     this.db.prepare("UPDATE users SET role = 'senior_editor' WHERE role = 'senior'").run();
     this.db.prepare("UPDATE users SET role = 'creator' WHERE role = 'contributor'").run();
-    const hasAdmin = this.db.prepare("SELECT count(*) AS n FROM users WHERE role = 'admin'").get().n;
-    if (!hasAdmin) {
-      this.db.prepare("UPDATE users SET role = 'admin' WHERE id = (SELECT min(id) FROM users)").run();
-    }
-
     const now = nowIso();
     this.db.prepare("UPDATE users SET page_md = ? WHERE page_md = ''").run("# 个人页面\n\n这里可以写 Markdown 自定义个人主页。");
     this.db.prepare("UPDATE users SET last_sync_at = ? WHERE last_sync_at = ''").run(now);
@@ -1757,7 +1844,7 @@ class PassportStore {
   }
 
   captchaAnswerHash(id, answer) {
-    return sha256(`${id}:${String(answer || "").trim()}:${this.secret}`);
+    return sha256(`${id}:${String(answer ?? "").trim()}:${this.secret}`);
   }
 
   createCaptcha() {
@@ -1950,9 +2037,9 @@ class PassportStore {
     if (existing || this.findUser(username)) throw new Error("用户名或邮箱已被使用。");
 
     const now = nowIso();
-    const initialAdmin = this.needsInitialAdmin();
-    const role = initialAdmin ? "admin" : "member";
-    const emailVerifiedAt = initialAdmin ? now : "";
+    const initialAdmin = false;
+    const role = "member";
+    const emailVerifiedAt = "";
     const { salt, hash } = hashPassword(password);
     const pageMd = defaultUserPage(username, displayName);
     const result = this.db.prepare(`
@@ -2060,7 +2147,11 @@ class PassportStore {
     const row = this.findUser(username);
     if (!row) return null;
     const user = publicUserFromRow(row);
-    const online = Boolean(this.db.prepare(`
+    const preference = this.db.prepare(`
+      SELECT show_online_status FROM messaging_user_preferences WHERE user_id = ?
+    `).get(user.id);
+    const onlineVisible = Boolean(preference?.show_online_status);
+    const online = onlineVisible && Boolean(this.db.prepare(`
       SELECT 1
       FROM messaging_presence_leases
       WHERE user_id = ? AND last_seen_at >= ?
@@ -2069,16 +2160,17 @@ class PassportStore {
     return {
       ...user,
       online,
-      stats: { ...this.userStats(user.id), organizations: this.countUserOrganizations(user.id) },
+      onlineVisible,
+      stats: { ...this.userStats(user.id), organizations: this.countUserOrganizations(user.id, { publicOnly: true }) },
       recentEdits: this.listUserEdits(user.username, 10),
-      organizations: this.listUserOrganizations(user.id, { limit: 6, offset: 0 }),
+      organizations: this.listUserOrganizations(user.id, { publicOnly: true, limit: 6, offset: 0 }),
     };
   }
 
   listUserOrganizations(userId, options = {}) {
     const { limit, offset } = listOptions(options, 12, 80);
     const includePending = options.includePending === true;
-    const where = includePending ? "m.status != 'removed'" : "m.status = 'active'";
+    const where = `${includePending ? "m.status != 'removed'" : "m.status = 'active'"}${options.publicOnly === true ? " AND o.visibility != 'private'" : ""}`;
     return this.db.prepare(`
       SELECT m.*, o.slug AS organization_slug, o.name AS organization_name, o.description AS organization_description,
         o.focus_json AS organization_focus_json, o.visibility AS organization_visibility,
@@ -2107,7 +2199,7 @@ class PassportStore {
 
   countUserOrganizations(userId, options = {}) {
     const includePending = options.includePending === true;
-    const statusWhere = includePending ? "m.status != 'removed'" : "m.status = 'active'";
+    const statusWhere = `${includePending ? "m.status != 'removed'" : "m.status = 'active'"}${options.publicOnly === true ? " AND o.visibility != 'private'" : ""}`;
     return Number(this.db.prepare(`
       SELECT count(*) AS n
       FROM organization_members m
@@ -2761,11 +2853,15 @@ class PassportStore {
       cleanText(input.targetId || "", 180),
       cleanText(input.targetLabel || "", 180),
       cleanText(input.summary || "", 500),
-      jsonText(input.metadata || {}),
-      ip,
-      userAgent,
+      jsonText(redactAuditValue(input.metadata || {})),
+      maskedAuditIp(ip),
+      cleanText(userAgent, 180),
       now,
     );
+    if (crypto.randomInt(128) === 0) {
+      const retentionDays = Math.max(30, Math.min(Number(process.env.AUDIT_RETENTION_DAYS) || 180, 3650));
+      this.db.prepare("DELETE FROM site_audit_logs WHERE created_at < ?").run(new Date(Date.now() - retentionDays * 86400000).toISOString());
+    }
     return auditLogFromRow(this.db.prepare("SELECT * FROM site_audit_logs WHERE id = ?").get(result.lastInsertRowid));
   }
 
@@ -3518,7 +3614,10 @@ class PassportStore {
     const focus = Object.prototype.hasOwnProperty.call(input, 'focus')
       ? Array.from(new Set((Array.isArray(input.focus) ? input.focus : String(input.focus || '').split(/[，,\n]/)).map((item) => cleanText(item, 80)).filter(Boolean))).slice(0, 12)
       : organization.focus;
-    const visibility = access.membership.role === 'owner' && input.visibility === 'request' ? 'request' : organization.visibility;
+    const canSetPolicy = access.membership.role === 'owner';
+    const visibility = canSetPolicy && Object.prototype.hasOwnProperty.call(input, 'visibility')
+      ? (input.visibility === 'request' ? 'request' : 'public')
+      : organization.visibility;
     const reviewThreshold = access.membership.role === 'owner'
       ? Math.max(1, Math.min(Number(input.reviewThreshold) || organization.reviewThreshold, 8))
       : organization.reviewThreshold;
@@ -3582,23 +3681,41 @@ class PassportStore {
 
   updateOrganizationMember(session, slug, userId, input = {}) {
     const organization = this.organizationBySlug(slug);
-    const actor = this.assertOrganizationRole(session, organization, 'coordinator');
-    const member = this.organizationMembership(organization.id, userId);
-    if (!member) throw accessError('组织成员不存在。', 404);
-    const nextRole = normalizeOrganizationRole(input.role || member.role, member.role);
-    const nextStatus = ['active', 'pending', 'removed'].includes(input.status) ? input.status : member.status;
-    if (member.status === 'removed' && ['active', 'pending'].includes(nextStatus)) {
-      const quota = this.organizationQuota(userId);
-      if (quota.memberships >= quota.membershipLimit) throw accessError(`该用户已达到 ${quota.membershipLimit} 个组织身份上限。`, 409);
+    let actor;
+    let member;
+    let nextRole;
+    let nextStatus;
+    let updated;
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      actor = this.assertOrganizationRole(session, organization, 'coordinator');
+      member = this.organizationMembership(organization.id, userId);
+      if (!member) throw accessError('组织成员不存在。', 404);
+      nextRole = normalizeOrganizationRole(input.role || member.role, member.role);
+      nextStatus = ['active', 'pending', 'removed'].includes(input.status) ? input.status : member.status;
+      if (member.status === 'removed' && ['active', 'pending'].includes(nextStatus)) {
+        const quota = this.organizationQuota(userId);
+        if (quota.memberships >= quota.membershipLimit) throw accessError(`该用户已达到 ${quota.membershipLimit} 个组织身份上限。`, 409);
+      }
+      if (nextRole === 'owner' && actor.membership.role !== 'owner') throw accessError('只有组织所有者可以授予所有者角色。', 403);
+      if (member.role === 'owner' && actor.membership.role !== 'owner') throw accessError('组织协调者不能修改所有者身份或状态。', 403);
+      if (organizationRoleRank(nextRole) >= organizationRoleRank(actor.membership.role)
+          && Number(userId) !== Number(session.user.id)
+          && actor.membership.role !== 'owner') {
+        throw accessError('你只能管理低于自己身份的组织成员。', 403);
+      }
+      if (member.role === 'owner' && (nextRole !== 'owner' || nextStatus !== 'active')) {
+        const ownerCount = Number(this.db.prepare("SELECT count(*) AS n FROM organization_members WHERE organization_id = ? AND role = 'owner' AND status = 'active'").get(organization.id).n || 0);
+        if (ownerCount <= 1) throw accessError('组织至少需要保留一名所有者。', 409);
+      }
+      this.db.prepare('UPDATE organization_members SET role = ?, status = ?, updated_at = ? WHERE organization_id = ? AND user_id = ?')
+        .run(nextRole, nextStatus, nowIso(), organization.id, Number(userId));
+      updated = this.organizationMembership(organization.id, userId);
+      this.db.exec('COMMIT');
+    } catch (error) {
+      try { this.db.exec('ROLLBACK'); } catch (_rollbackError) {}
+      throw error;
     }
-    if (nextRole === 'owner' && actor.membership.role !== 'owner') throw accessError('只有组织所有者可以授予所有者角色。', 403);
-    if (member.role === 'owner' && nextRole !== 'owner') {
-      const ownerCount = Number(this.db.prepare("SELECT count(*) AS n FROM organization_members WHERE organization_id = ? AND role = 'owner' AND status = 'active'").get(organization.id).n || 0);
-      if (ownerCount <= 1) throw accessError('组织至少需要保留一名所有者。', 409);
-    }
-    this.db.prepare('UPDATE organization_members SET role = ?, status = ?, updated_at = ? WHERE organization_id = ? AND user_id = ?')
-      .run(nextRole, nextStatus, nowIso(), organization.id, Number(userId));
-    const updated = this.organizationMembership(organization.id, userId);
     if (Number(userId) !== Number(session.user.id) && (nextStatus !== member.status || nextRole !== member.role)) {
       const body = nextStatus === 'active' && member.status === 'pending'
         ? `你的加入申请已通过，当前身份为 ${normalizeOrganizationRole(nextRole)}。`
@@ -3705,7 +3822,8 @@ class PassportStore {
     const clause = `WHERE ${where.join(' AND ')}`;
     const total = Number(this.db.prepare(`
       SELECT count(*) AS n
-      FROM organization_tasks t JOIN writing_organizations o ON o.id = t.organization_id
+      FROM organization_tasks t
+      JOIN writing_organizations o ON o.id = t.organization_id
       ${clause}
     `).get(...args).n || 0);
     const rows = this.db.prepare(`
@@ -4084,7 +4202,7 @@ class PassportStore {
   }
 
   getOrganizationPost(session, postId) {
-    return organizationPostFromRow(this.db.prepare(`
+    const post = organizationPostFromRow(this.db.prepare(`
       SELECT p.*, o.slug AS organization_slug, o.name AS organization_name,
         author.display_name AS author_name, author.username AS author_username, author.avatar_url AS author_avatar_url,
         (SELECT count(*) FROM organization_post_replies r WHERE r.post_id = p.id AND r.status = 'published') AS reply_count,
@@ -4096,6 +4214,8 @@ class PassportStore {
       JOIN users author ON author.id = p.author_user_id
       WHERE p.id = ? AND p.status != 'hidden' AND o.status = 'active'
     `).get(Number(session?.user?.id || 0), Number(session?.user?.id || 0), Number(postId)));
+    if (!post) return null;
+    return post;
   }
 
   setOrganizationPostFollow(session, postId, enabled = true) {
@@ -4520,6 +4640,9 @@ class PassportStore {
     const permission = this.getPagePermissions(slug);
     if (permission.deletePolicy === "locked") throw accessError("该词条已锁定，暂不可删除。");
     if (permission.deletePolicy === "user" && !session?.user) throw accessError("请先登录后再删除词条。", 401);
+    if (permission.deletePolicy === "senior_editor" && !hasRole(session, "senior_editor")) {
+      throw accessError("该词条仅允许资深编辑或管理员删除。", session?.user ? 403 : 401);
+    }
     return permission;
   }
 

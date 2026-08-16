@@ -25,6 +25,7 @@ final class CommunityAttachmentService
     public function __construct(
         private readonly CommunityRepository $community = new CommunityRepository(),
         private readonly CommunityPermissionService $permissions = new CommunityPermissionService(),
+        private readonly AttachmentSecurityService $security = new AttachmentSecurityService(),
     ) {
     }
 
@@ -45,20 +46,17 @@ final class CommunityAttachmentService
         if (!$extension) {
             throw new ApiException('不支持该附件类型。', 422, 'community_attachment_type_not_allowed', ['mimeType' => $mime]);
         }
+        $metadata = $this->security->inspect($source, $mime, $size);
         $publicId = 'catt_' . bin2hex(random_bytes(12));
         $relative = gmdate('Y/m') . '/' . $publicId . '.' . $extension;
         $root = $this->storageRoot();
+        $this->security->purgeExpiredPending('community_attachments', $root);
+        $this->security->enforceUserQuota($identity->id, $size);
+        $this->security->assertStorageCapacity($root, $size);
         $target = $root . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $relative);
         $directory = dirname($target);
         if (!is_dir($directory) && !mkdir($directory, 0770, true) && !is_dir($directory)) {
             throw new \RuntimeException('无法创建社区附件目录。');
-        }
-        $metadata = [];
-        if (str_starts_with($mime, 'image/')) {
-            $dimensions = @getimagesize($source);
-            if (is_array($dimensions)) {
-                $metadata = ['width' => (int) $dimensions[0], 'height' => (int) $dimensions[1]];
-            }
         }
         $name = mb_substr(basename((string) ($upload->getUploadName() ?: 'attachment.' . $extension)), 0, 240);
         try {

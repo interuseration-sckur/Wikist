@@ -250,12 +250,54 @@
     }
 
     bodyHtml(item = {}) {
-      if (String(item.bodyHtml || "").trim()) return this.decorateHtml(String(item.bodyHtml));
+      if (String(item.bodyHtml || "").trim()) return this.decorateHtml(this.sanitizeBodyHtml(String(item.bodyHtml)));
       let text = this.escape(String(item.bodyMd || item.summary || ""));
       text = text.replace(/\{\{ref:([a-z_]+)\|([^|{}]+)\|([^{}]+)\}\}/gi, (_match, type, id, label) => this.referenceInline(type, id, label));
       text = text.replace(/\[\[([^\]|#]+)(?:\|([^\]]+))?\]\]/g, (_match, slug, label) => this.referenceInline("wiki_entry", String(slug).trim(), String(label || slug).trim()));
       text = text.replace(/`([^`\n]+)`/g, "<code>$1</code>");
       return text.split(/\n{2,}/).map((paragraph) => `<p>${paragraph.replace(/\n/g, "<br>")}</p>`).join("");
+    }
+
+    sanitizeBodyHtml(html) {
+      const template = document.createElement("template");
+      template.innerHTML = String(html || "");
+      const blocked = new Set(["script", "style", "iframe", "object", "embed", "link", "meta", "base", "form", "input", "button", "textarea", "select", "option", "svg"]);
+      const allowed = new Set(["p", "br", "hr", "strong", "b", "em", "i", "s", "del", "ins", "u", "mark", "small", "sub", "sup", "span", "div", "section", "aside", "blockquote", "pre", "code", "kbd", "ul", "ol", "li", "dl", "dt", "dd", "table", "thead", "tbody", "tfoot", "tr", "th", "td", "a", "img", "figure", "figcaption", "h1", "h2", "h3", "h4", "h5", "h6", "details", "summary"]);
+      [...template.content.querySelectorAll("*")].forEach((node) => {
+        const tag = node.localName.toLowerCase();
+        if (blocked.has(tag)) {
+          node.remove();
+          return;
+        }
+        if (!allowed.has(tag)) {
+          node.replaceWith(...node.childNodes);
+          return;
+        }
+        [...node.attributes].forEach((attribute) => {
+          const name = attribute.name.toLowerCase();
+          if (name.startsWith("on") || ["style", "srcdoc", "srcset", "formaction", "xlink:href"].includes(name)) {
+            node.removeAttribute(attribute.name);
+          }
+        });
+        if (node.hasAttribute("href")) {
+          const href = String(node.getAttribute("href") || "").trim();
+          if (!/^(?:#\/|#|\/|https?:\/\/|mailto:)/i.test(href)) node.removeAttribute("href");
+          else if (/^https?:\/\//i.test(href)) {
+            node.setAttribute("rel", "nofollow ugc noopener noreferrer");
+            node.setAttribute("target", "_blank");
+          }
+        }
+        if (tag === "img") {
+          const src = String(node.getAttribute("src") || "").trim();
+          if (!/^(?:\/|https?:\/\/|data:image\/(?:png|jpeg|gif|webp);base64,)/i.test(src)) node.remove();
+          else {
+            node.setAttribute("loading", "lazy");
+            node.setAttribute("decoding", "async");
+            node.setAttribute("referrerpolicy", "no-referrer");
+          }
+        }
+      });
+      return template.innerHTML;
     }
 
     decorateHtml(html) {
@@ -328,9 +370,14 @@
       const href = `#/questions/${encodeURIComponent(question.id)}${options.answerPicker ? "?useDraft=1" : ""}`;
       const tagHref = (tag) => this.routeHref(new URLSearchParams({ tag, ...(options.origin ? { origin: options.origin } : {}), ...(this.organization?.slug ? { organization: this.organization.slug } : {}) }));
       return `<article class="qa-question-row ${accepted ? "is-solved" : ""} ${closed ? "is-closed" : ""}">
-        <div class="qa-question-metrics"><span><strong>${Number(question.voteCount || 0)}</strong><small>赞同</small></span><span class="${answerCount ? "is-active" : ""}"><strong>${answerCount}</strong><small>回答</small></span><span><strong>${Number(question.viewCount || 0)}</strong><small>浏览</small></span></div>
-        <div class="qa-question-copy"><a href="${href}"><div class="qa-question-title-row"><h2>${this.escape(question.title)}</h2>${closed ? '<span class="qa-closed-label">已关闭</span>' : ""}</div><p>${this.escape(question.summary || "等待补充问题摘要。")}</p></a>${this.questionOriginsHtml(question, true)}<footer><div class="qa-tag-list">${(question.tags || []).slice(0, 6).map((tag) => `<a href="${tagHref(tag)}">${this.escape(tag)}</a>`).join("")}</div>${this.authorHtml(question.author, question.updatedAt || question.createdAt)}</footer></div>
+        ${this.questionMetricsHtml(question, "is-desktop")}
+        <div class="qa-question-copy"><a href="${href}"><div class="qa-question-title-row"><h2>${this.escape(question.title)}</h2>${closed ? '<span class="qa-closed-label">已关闭</span>' : ""}</div><p>${this.escape(question.summary || "等待补充问题摘要。")}</p></a>${this.questionOriginsHtml(question, true)}<footer><div class="qa-tag-list">${(question.tags || []).slice(0, 6).map((tag) => `<a href="${tagHref(tag)}">${this.escape(tag)}</a>`).join("")}</div><div class="qa-question-footer-identity">${this.authorHtml(question.author, question.updatedAt || question.createdAt)}${this.questionMetricsHtml(question, "is-mobile")}</div></footer></div>
       </article>`;
+    }
+
+    questionMetricsHtml(question, variant = "") {
+      const answerCount = Number(question.answerCount || 0);
+      return `<div class="qa-question-metrics ${this.escape(variant)}"><span><strong>${Number(question.voteCount || 0)}</strong><small>赞同</small></span><span class="${answerCount ? "is-active" : ""}"><strong>${answerCount}</strong><small>回答</small></span><span><strong>${Number(question.viewCount || 0)}</strong><small>浏览</small></span></div>`;
     }
 
     questionOriginsHtml(question, compact = false) {

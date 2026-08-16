@@ -6,6 +6,7 @@ use app\exception\ApiException;
 use app\http\ApiResponse;
 use app\repository\AuditRepository;
 use app\repository\UserRepository;
+use app\service\RealtimeSecurityService;
 use support\Request;
 use support\Response;
 
@@ -53,6 +54,7 @@ final class AdminUserController
             '后台编辑用户资料',
             ['role' => $user['role'], 'status' => $user['status']],
         );
+        (new RealtimeSecurityService())->disconnectUser($id, 'Account updated by administrator');
         return ApiResponse::data(['user' => $user]);
     }
 }

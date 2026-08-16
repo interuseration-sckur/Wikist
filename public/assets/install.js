@@ -5,11 +5,15 @@ const noteNode = document.querySelector("#installNote");
 const installButton = document.querySelector("#installButton");
 const mailEnabled = document.querySelector("#mailEnabled");
 const mailFields = document.querySelector("#mailFields");
-const baseUrl = document.querySelector("#baseUrl");
+const publicUrl = document.querySelector("#publicUrl");
+const deploymentMode = document.querySelector("#deploymentMode");
+const deploymentPreview = document.querySelector("#deploymentPreview");
+const publicOriginConfirmation = document.querySelector("#publicOriginConfirmation");
 const uninstallPanel = document.querySelector("#uninstallPanel");
 const uninstallConfirm = document.querySelector("#uninstallConfirm");
 const uninstallButton = document.querySelector("#uninstallButton");
 const uninstallStatus = document.querySelector("#uninstallStatus");
+const bootstrapSecret = document.querySelector('[name="bootstrapSecret"]');
 let installFirewallToken = "";
 
 function setStatus(text, tone = "") {
@@ -19,6 +23,36 @@ function setStatus(text, tone = "") {
 
 function syncMailFields() {
   mailFields.hidden = !mailEnabled.checked;
+}
+
+function syncDeploymentPreview() {
+  const value = String(publicUrl?.value || "").trim().replace(/\/+$/, "");
+  let origin = "";
+  try { origin = new URL(value).origin; } catch (_) {}
+  if (!deploymentPreview) return;
+  if (!origin) {
+    deploymentPreview.textContent = "请填写浏览器实际访问的完整站点地址。";
+    if (publicOriginConfirmation) {
+      publicOriginConfirmation.hidden = true;
+      const confirmation = publicOriginConfirmation.querySelector("input");
+      if (confirmation) {
+        confirmation.required = false;
+        confirmation.checked = false;
+      }
+    }
+    return;
+  }
+  const realtime = origin.replace(/^http:/i, "ws:").replace(/^https:/i, "wss:") + "/connection/websocket";
+  deploymentPreview.textContent = `站点：${origin} · 实时通信：${realtime} · 内部服务仅监听服务器回环地址`;
+  const differs = origin !== window.location.origin;
+  if (publicOriginConfirmation) {
+    publicOriginConfirmation.hidden = !differs;
+    const confirmation = publicOriginConfirmation.querySelector("input");
+    if (confirmation) {
+      confirmation.required = differs;
+      if (!differs) confirmation.checked = false;
+    }
+  }
 }
 
 async function request(url, options = {}) {
@@ -62,10 +96,13 @@ async function loadStatus() {
 }
 
 mailEnabled.addEventListener("change", syncMailFields);
+publicUrl?.addEventListener("input", syncDeploymentPreview);
+deploymentMode?.addEventListener("change", syncDeploymentPreview);
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
   if (!form.reportValidity()) return;
   const values = Object.fromEntries(new FormData(form).entries());
+  delete values.confirmPublicOrigin;
   values.mailEnabled = mailEnabled.checked;
   values.requireLogin = form.elements.requireLogin.checked;
   values.requireEmailVerification = form.elements.requireEmailVerification.checked;
@@ -78,7 +115,7 @@ form.addEventListener("submit", async (event) => {
     stateNode.textContent = "配置已写入";
     stateNode.className = "install-status ready";
     noteNode.textContent = `${result.site.name} 已完成配置，请重启 Wikist 服务。`;
-    setStatus("重启后可创建管理员账号并进入站点。", "success");
+    setStatus(`正式地址：${result.site.publicUrl} · 实时地址：${result.site.realtimeUrl} · 安全 Cookie：${result.site.secureCookie ? "已启用" : "开发模式"}`, "success");
   } catch (error) {
     installButton.disabled = false;
     setStatus(error.message, "error");
@@ -99,7 +136,7 @@ uninstallButton?.addEventListener("click", async () => {
   try {
     const result = await request("/api/install/uninstall", {
       method: "POST",
-      body: JSON.stringify({ confirm }),
+      body: JSON.stringify({ confirm, bootstrapSecret: bootstrapSecret?.value || "" }),
     });
     uninstallStatus.textContent = `配置已备份至 ${result.backupPath}。重启后可重新安装，现有数据已保留。`;
     uninstallStatus.classList.add("success");
@@ -114,6 +151,8 @@ uninstallButton?.addEventListener("click", async () => {
   }
 });
 
-baseUrl.value = window.location.origin;
+publicUrl.value = window.location.origin;
+deploymentMode.value = ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname) ? "development" : "single-production";
+syncDeploymentPreview();
 syncMailFields();
 loadStatus();

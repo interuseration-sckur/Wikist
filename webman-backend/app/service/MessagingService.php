@@ -21,7 +21,6 @@ final class MessagingService
 
     public function bootstrap(UserIdentity $identity): array
     {
-        $this->permissions->synchronize($identity);
         $inbox = $this->messages->listConversations($identity->id, ['page' => 1, 'limit' => 8]);
         $peerIds = array_values(array_unique(array_filter(array_map(
             static fn (array $conversation): int => (int) ($conversation['peer']['id'] ?? 0),
@@ -58,7 +57,6 @@ final class MessagingService
 
     public function conversations(UserIdentity $identity, array $filters): array
     {
-        $this->permissions->synchronize($identity);
         return $this->messages->listConversations($identity->id, $filters);
     }
 
@@ -113,7 +111,7 @@ final class MessagingService
         if (!$membership && $identity->role !== 'admin') {
             throw new ApiException('只有组织成员可以进入群聊。', 403, 'organization_membership_required');
         }
-        $conversation = $this->messages->transaction(function () use ($organization): object {
+        $conversation = $this->messages->transaction(function () use ($organization, $identity, $membership): object {
             $conversation = $this->messages->ensureConversation([
                 'kind' => 'organization',
                 'directKey' => 'organization:' . $organization->id,
@@ -123,9 +121,11 @@ final class MessagingService
                 'organizationId' => (int) $organization->id,
                 'metadata' => ['organizationSlug' => (string) $organization->slug],
             ]);
-            foreach ($this->messages->activeOrganizationMembers((int) $organization->id) as $member) {
-                $this->messages->syncOrganizationMember((int) $conversation->id, (int) $member->user_id, (string) $member->role);
-            }
+            $this->messages->syncOrganizationMember(
+                (int) $conversation->id,
+                $identity->id,
+                $membership ? (string) $membership->role : 'admin',
+            );
             return $conversation;
         });
         $summary = $this->messages->conversationSummary((int) $conversation->id, $identity->id)
@@ -164,6 +164,17 @@ final class MessagingService
                 'scope' => $isSiteConversation ? 'site' : $scope,
             ];
         }
+        if ((string) $conversation->kind === 'organization') {
+            return $this->messages->organizationConversationMembersPage(
+                (int) $conversation->organization_id,
+                (int) $conversation->id,
+                $page,
+                $limit,
+            ) + [
+                'private' => false,
+                'scope' => $scope,
+            ];
+        }
         return $this->messages->conversationMembersPage((int) $conversation->id, $page, $limit) + [
             'private' => false,
             'scope' => $scope,
@@ -194,6 +205,9 @@ final class MessagingService
                 : (bool) ($current['openMode'] ?? false),
             'autoReplyEnabled' => $enabled,
             'autoReplyText' => $text,
+            'showOnlineStatus' => array_key_exists('showOnlineStatus', $input)
+                ? (bool) $input['showOnlineStatus']
+                : (bool) ($current['showOnlineStatus'] ?? false),
         ]);
     }
 
@@ -485,7 +499,6 @@ final class MessagingService
 
     public function markAllRead(UserIdentity $identity): array
     {
-        $this->permissions->synchronize($identity);
         $changed = $this->messages->transaction(fn (): int => $this->messages->markAllRead($identity->id));
         return ['ok' => true, 'changed' => $changed, 'unreadCount' => 0];
     }
@@ -659,6 +672,7 @@ final class MessagingService
         if (!in_array($identity->id, $watchUserIds, true)) {
             $watchUserIds[] = $identity->id;
         }
+        $watchUserIds = $this->messages->visiblePresenceUserIds($identity->id, $watchUserIds);
         return [
             'ok' => true,
             'online' => $this->messages->recentlyOnlineUsers(
@@ -1045,10 +1059,10 @@ final class MessagingService
                 ]);
             }
         } catch (\Throwable $error) {
-            Log::warning('Knowledge relation sync for message failed', [
+            Log::warning('Knowledge relation sync for message failed', SensitiveDataRedactor::context([
                 'messageId' => $publicId,
                 'error' => $error->getMessage(),
-            ]);
+            ]));
         }
     }
 

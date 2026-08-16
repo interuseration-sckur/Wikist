@@ -4,7 +4,6 @@ const WIKIPEDIA_LANGS = new Set(["zh", "zh-cn", "zh-tw", "en"]);
 const MAX_IMPORT_BODY = 1024 * 1024 * 4;
 const MEDIA_NAMESPACES = new Set(["file", "image", "文件", "图片", "檔案", "图像", "圖像"]);
 const CATEGORY_NAMESPACES = new Set(["category", "分类", "分類"]);
-let serverOpenCC = null;
 
 function cleanImportText(value, max = 500) {
   return String(value || "").trim().slice(0, max);
@@ -32,12 +31,9 @@ function pageTitleToSlug(title) {
 }
 
 function simplifiedTitleToTraditional(title) {
-  try {
-    if (!serverOpenCC) {
-      serverOpenCC = require("../../plugins/vendor/opencc-js/full.js");
-    }
-    if (serverOpenCC?.Converter) return serverOpenCC.Converter({ from: "cn", to: "tw" })(String(title || ""));
-  } catch (_error) {}
+  // Runtime vendor repositories are review-only and are never executed by the
+  // server. Language conversion is performed by an explicitly configured,
+  // release-pinned client module instead.
   return String(title || "");
 }
 

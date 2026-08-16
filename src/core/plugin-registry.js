@@ -1,9 +1,13 @@
 const fs = require("fs");
 const path = require("path");
+const { redactString } = require("./log-redaction");
 const childProcess = require("child_process");
 const VENDOR_STATUS_TTL_MS = 30000;
 const vendorStatusCache = new Map();
 const HOOK_API_VERSION = "1.0";
+const MAX_VENDOR_FILES = 20000;
+const MAX_VENDOR_BYTES = 200 * 1024 * 1024;
+const MIN_VENDOR_FREE_BYTES = 512 * 1024 * 1024;
 const HOOK_DEFINITIONS = Object.freeze({
   "markdown.preprocess": {
     side: "server",
@@ -34,6 +38,12 @@ const HOOK_NAMES = new Set(Object.keys(HOOK_DEFINITIONS));
 const HOOK_PERMISSIONS = new Set(Object.values(HOOK_DEFINITIONS).map((item) => item.permission));
 const coreHookHandlers = new Map(Object.keys(HOOK_DEFINITIONS).map((name) => [name, []]));
 const TRUSTED_SERVER_HOOKS = new Set(["magicWords", "functionPlot", "geometryBoard", "mathChart", "advancedSearch"]);
+const BUNDLED_CLIENT_MODULES = Object.freeze({
+  cosmicExperience: Object.freeze({ directory: "wikist-cosmic-experience", module: "cosmic.mjs" }),
+  geometryBoard: Object.freeze({ directory: "wikist-geometry-board", module: "geometry.mjs" }),
+  mathChart: Object.freeze({ directory: "wikist-math-chart", module: "chart.mjs" }),
+  pluginHooks: Object.freeze({ directory: "wikist-plugin-hooks", module: "hooks.mjs" }),
+});
 let pluginRuntimeObserver = null;
 const DEFAULT_PLUGINS = {
   magicWords: {
@@ -336,7 +346,7 @@ function runCoreHook(hookName, value, context = {}) {
       const next = item.handler(current, context);
       return next === undefined || next === null ? current : next;
     } catch (error) {
-      console.warn(`Wikist core hook failed (${item.pluginId}:${hookName}):`, error.message);
+      console.warn(`Wikist core hook failed (${item.pluginId}:${hookName}):`, redactString(error.message));
       try { pluginRuntimeObserver?.({ pluginId: item.pluginId, hook: hookName, error }); } catch (_observerError) {}
       return current;
     }
@@ -501,11 +511,29 @@ function pluginRuntimeStatus(manifest, vendor = null) {
     };
   }
   if (manifest.clientModule && /^(clientModule|client-module|client:)$/i.test(entry)) {
+    const bundled = BUNDLED_CLIENT_MODULES[String(manifest.id || "")];
+    const bundledTrusted = Boolean(
+      bundled
+      && String(manifest.directory || "") === bundled.directory
+      && String(manifest.clientModule || "") === bundled.module
+    );
+    const trusted = new Set(String(process.env.WIKIST_TRUSTED_CLIENT_PLUGINS || "")
+      .split(",").map((item) => item.trim()).filter(Boolean));
+    if (!bundledTrusted && !trusted.has(String(manifest.id || ""))) {
+      return {
+        state: "client-review-required",
+        label: "客户端模块待授权",
+        executable: false,
+        detail: "客户端模块具有同源页面权限，仅可通过 WIKIST_TRUSTED_CLIENT_PLUGINS 显式授权。",
+      };
+    }
     return {
       state: "client-active",
       label: "客户端模块执行中",
       executable: true,
-      detail: "已通过 manifest 显式启用，页面会按需加载客户端模块。",
+      detail: bundledTrusted
+        ? "Wikist 内置客户端模块，页面会按需加载。"
+        : "已通过环境白名单授权，页面会按需加载客户端模块。",
     };
   }
   if (manifest.serverModule && /^(serverModule|server-module|server:)$/i.test(entry)) {
@@ -540,6 +568,44 @@ function pluginRuntimeStatus(manifest, vendor = null) {
     executable: false,
     detail: "当前插件只参与后台登记、配置和文档展示。",
   };
+}
+
+function assertSafeVendorTree(vendorPath) {
+  let files = 0;
+  let bytes = 0;
+  const pending = [vendorPath];
+  while (pending.length) {
+    const current = pending.pop();
+    for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
+      const fullPath = path.join(current, entry.name);
+      const stat = fs.lstatSync(fullPath);
+      if (stat.isSymbolicLink()) throw new Error(`插件源码包含符号链接：${path.relative(vendorPath, fullPath)}`);
+      if (entry.isDirectory()) {
+        if (entry.name !== ".git") pending.push(fullPath);
+        continue;
+      }
+      if (!entry.isFile()) throw new Error(`插件源码包含不支持的文件类型：${path.relative(vendorPath, fullPath)}`);
+      files += 1;
+      bytes += stat.size;
+      if (files > MAX_VENDOR_FILES || bytes > MAX_VENDOR_BYTES) throw new Error("插件源码超过文件数量或磁盘大小限制。");
+      if (entry.name === ".gitmodules") throw new Error("插件源码不得声明 Git submodule。");
+    }
+  }
+  return { files, bytes };
+}
+
+function assertVendorCapacity(vendorRoot) {
+  try {
+    const stat = fs.statfsSync(vendorRoot);
+    const available = Number(stat.bavail) * Number(stat.bsize);
+    if (Number.isFinite(available) && available < Math.max(MIN_VENDOR_FREE_BYTES, MAX_VENDOR_BYTES * 2)) {
+      const error = new Error("插件目录可用空间不足，已拒绝拉取源码。");
+      error.statusCode = 507;
+      throw error;
+    }
+  } catch (error) {
+    if (error?.statusCode === 507) throw error;
+  }
 }
 function enrichPlugin(rootDir, manifest) {
   const vendor = pluginVendorStatus(rootDir, manifest);
@@ -655,14 +721,24 @@ function syncVendorPlugin(rootDir, input = {}) {
   const vendorRoot = path.join(rootDir, "plugins", "vendor");
   const vendorPath = path.join(vendorRoot, vendor.directory);
   fs.mkdirSync(vendorRoot, { recursive: true });
+  const noHooksPath = path.join(vendorRoot, ".wikist-no-hooks");
+  fs.mkdirSync(noHooksPath, { recursive: true });
+  assertVendorCapacity(vendorRoot);
   let lastSyncWarning = "";
   if (fs.existsSync(path.join(vendorPath, ".git"))) {
+    const configuredRemote = cleanRepositoryUrl(readGitRemote(vendorPath));
+    if (!configuredRemote || configuredRemote.toLowerCase() !== vendor.repository.toLowerCase()) {
+      const error = new Error("vendor 仓库远端与插件清单不一致，已拒绝更新。");
+      error.statusCode = 409;
+      throw error;
+    }
     try {
-      childProcess.execFileSync("git", ["-C", vendorPath, "-c", "http.lowSpeedLimit=1", "-c", "http.lowSpeedTime=8", "pull", "--ff-only"], {
+      childProcess.execFileSync("git", ["-C", vendorPath, "-c", `core.hooksPath=${noHooksPath}`, "-c", "protocol.file.allow=never", "-c", "submodule.recurse=false", "-c", "http.lowSpeedLimit=1", "-c", "http.lowSpeedTime=8", "pull", "--ff-only", "--no-recurse-submodules"], {
         cwd: rootDir,
         encoding: "utf8",
         stdio: ["ignore", "pipe", "pipe"],
         timeout: 20000,
+        maxBuffer: 1024 * 1024,
       });
     } catch (error) {
       lastSyncWarning = `仓库已安装，但更新检查失败：${error.message}`;
@@ -672,14 +748,32 @@ function syncVendorPlugin(rootDir, input = {}) {
     error.statusCode = 409;
     throw error;
   } else {
-    childProcess.execFileSync("git", ["-c", "http.lowSpeedLimit=1", "-c", "http.lowSpeedTime=15", "clone", "--depth", "1", vendor.repository, vendorPath], {
-      cwd: rootDir,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-      timeout: 20000,
-    });
+    try {
+      childProcess.execFileSync("git", ["-c", "core.symlinks=false", "-c", `core.hooksPath=${noHooksPath}`, "-c", "protocol.file.allow=never", "-c", "submodule.recurse=false", "-c", "http.lowSpeedLimit=1", "-c", "http.lowSpeedTime=15", "clone", "--depth", "1", "--filter=blob:none", "--no-recurse-submodules", vendor.repository, vendorPath], {
+        cwd: rootDir,
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+        timeout: 20000,
+        maxBuffer: 1024 * 1024,
+      });
+    } catch (error) {
+      if (vendorPath.startsWith(vendorRoot + path.sep)) {
+        fs.rmSync(vendorPath, { recursive: true, force: true, maxRetries: 3, retryDelay: 80 });
+      }
+      error.statusCode = error.statusCode || 502;
+      throw error;
+    }
   }
-  return { ...pluginVendorStatus(rootDir, plugin, { refresh: true }), lastSyncWarning };
+  try {
+    const limits = assertSafeVendorTree(vendorPath);
+    return { ...pluginVendorStatus(rootDir, plugin, { refresh: true }), ...limits, lastSyncWarning };
+  } catch (error) {
+    if (vendorPath.startsWith(path.join(rootDir, "plugins", "vendor") + path.sep)) {
+      fs.rmSync(vendorPath, { recursive: true, force: true, maxRetries: 3, retryDelay: 80 });
+    }
+    error.statusCode = 422;
+    throw error;
+  }
 }
 
 function escapeHtml(value) {
@@ -702,9 +796,108 @@ function safeExpr(value) {
   return text;
 }
 
+function evaluateConditionalExpression(value) {
+  const source = String(value || "").trim();
+  if (!source || source.length > 160 || !/^[\d\s.eE+\-*/%^()!<>=&|]+$/.test(source)) return null;
+  const tokens = source.match(/(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?|<=|>=|==|!=|&&|\|\||[()+\-*/%^!<>]/g) || [];
+  if (tokens.join("") !== source.replace(/\s+/g, "")) return null;
+  let cursor = 0;
+  let operations = 0;
+  const guard = () => {
+    operations += 1;
+    if (operations > 200) throw new Error("expression too complex");
+  };
+  const primary = () => {
+    guard();
+    const token = tokens[cursor++];
+    if (token === "(") {
+      const result = logicalOr();
+      if (tokens[cursor++] !== ")") throw new Error("unclosed expression");
+      return result;
+    }
+    const number = Number(token);
+    if (!Number.isFinite(number)) throw new Error("invalid number");
+    return number;
+  };
+  const unary = () => {
+    const token = tokens[cursor];
+    if (["!", "+", "-"].includes(token)) {
+      cursor += 1;
+      const result = unary();
+      return token === "!" ? !result : token === "-" ? -Number(result) : Number(result);
+    }
+    return primary();
+  };
+  const power = () => {
+    let result = unary();
+    if (tokens[cursor] === "^") {
+      cursor += 1;
+      result = Math.pow(Number(result), Number(power()));
+    }
+    return result;
+  };
+  const multiply = () => {
+    let result = power();
+    while (["*", "/", "%"].includes(tokens[cursor])) {
+      const operator = tokens[cursor++];
+      const right = Number(power());
+      result = operator === "*" ? Number(result) * right : operator === "/" ? Number(result) / right : Number(result) % right;
+      if (!Number.isFinite(result)) throw new Error("non-finite result");
+    }
+    return result;
+  };
+  const add = () => {
+    let result = multiply();
+    while (["+", "-"].includes(tokens[cursor])) {
+      const operator = tokens[cursor++];
+      const right = Number(multiply());
+      result = operator === "+" ? Number(result) + right : Number(result) - right;
+    }
+    return result;
+  };
+  const compare = () => {
+    let result = add();
+    while (["<", ">", "<=", ">=", "==", "!="].includes(tokens[cursor])) {
+      const operator = tokens[cursor++];
+      const right = add();
+      if (operator === "<") result = Number(result) < Number(right);
+      else if (operator === ">") result = Number(result) > Number(right);
+      else if (operator === "<=") result = Number(result) <= Number(right);
+      else if (operator === ">=") result = Number(result) >= Number(right);
+      else if (operator === "==") result = Number(result) === Number(right);
+      else result = Number(result) !== Number(right);
+    }
+    return result;
+  };
+  const logicalAnd = () => {
+    let result = compare();
+    while (tokens[cursor] === "&&") {
+      cursor += 1;
+      result = Boolean(result) && Boolean(compare());
+    }
+    return result;
+  };
+  const logicalOr = () => {
+    let result = logicalAnd();
+    while (tokens[cursor] === "||") {
+      cursor += 1;
+      result = Boolean(result) || Boolean(logicalAnd());
+    }
+    return result;
+  };
+  try {
+    const result = logicalOr();
+    return cursor === tokens.length ? Boolean(result) : null;
+  } catch (_error) {
+    return null;
+  }
+}
+
 function parseRange(value, fallback) {
   const parts = String(value || "").replace(/[\[\]]/g, "").split(",").map((item) => Number(item.trim()));
-  return parts.length === 2 && parts.every(Number.isFinite) ? parts : fallback;
+  if (parts.length !== 2 || !parts.every(Number.isFinite) || parts[0] >= parts[1]) return fallback;
+  if (parts.some((item) => Math.abs(item) > 1_000_000) || parts[1] - parts[0] > 1_000_000) return fallback;
+  return parts;
 }
 
 function parseBox(value, fallback) {
@@ -713,7 +906,7 @@ function parseBox(value, fallback) {
 }
 
 function normalizeImplicitExpr(value) {
-  const text = String(value || "").trim();
+  const text = String(value || "").trim().slice(0, 500);
   const parts = text.split(/(?<![<>=!])=(?![=>])/);
   if (parts.length === 2) return safeExpr(`(${parts[0]}) - (${parts[1]})`);
   return safeExpr(text);
@@ -726,13 +919,13 @@ function needsMathEngine(expression) {
 function parseFunctionPlotBlock(lines) {
   const options = {};
   const data = [];
-  for (const raw of lines) {
+  for (const raw of lines.slice(0, 64)) {
     const line = raw.trim();
     if (!line || line.startsWith("//")) continue;
     const pair = line.match(/^([a-zA-Z][\w-]*)\s*:\s*(.+)$/);
     if (/^implicit\s*:/i.test(line)) {
       const fn = normalizeImplicitExpr(line.replace(/^implicit\s*:/i, ""));
-      if (fn) data.push({ fn, fnType: "implicit", graphType: "interval", title: "隐函数" });
+      if (fn && data.length < 8) data.push({ fn, fnType: "implicit", graphType: "interval", title: "隐函数" });
       continue;
     }
     if (pair && ["title", "xDomain", "yDomain", "height", "width", "grid", "engine", "samples"].includes(pair[1])) {
@@ -742,12 +935,12 @@ function parseFunctionPlotBlock(lines) {
     const labelled = line.match(/^([^:=]+)\s*:=\s*(.+)$/) || line.match(/^([^:=]+)\s*=\s*(.+)$/);
     if (labelled) {
       const label = labelled[1].replace(/^y\s*/i, "").trim();
-      const fn = safeExpr(labelled[2]);
-      if (fn) data.push({ fn, graphType: "polyline", title: label || fn });
+      const fn = safeExpr(String(labelled[2]).slice(0, 500));
+      if (fn && data.length < 8) data.push({ fn, graphType: "polyline", title: label.slice(0, 80) || fn });
       continue;
     }
-    const fn = safeExpr(line.replace(/^y\s*=\s*/i, ""));
-    if (fn) data.push({ fn, graphType: "polyline" });
+    const fn = safeExpr(line.replace(/^y\s*=\s*/i, "").slice(0, 500));
+    if (fn && data.length < 8) data.push({ fn, graphType: "polyline" });
   }
   return { options, data };
 }
@@ -756,7 +949,7 @@ function functionPlotHtml(blockLines, settings) {
   const parsed = parseFunctionPlotBlock(blockLines);
   const height = Math.max(220, Math.min(Number(parsed.options.height) || Number(settings.defaultHeight) || 360, 760));
   const payload = {
-    title: parsed.options.title || "函数图像",
+    title: String(parsed.options.title || "函数图像").slice(0, 120),
     height,
     width: Number(parsed.options.width) || null,
     grid: String(parsed.options.grid || settings.grid) !== "false",
@@ -885,12 +1078,8 @@ function renderParserFunction(raw, context) {
   if (fn === "#ifexpr") {
     const expr = safeExpr(firstArg[0]);
     if (!expr) return firstArg[2] || "";
-    try {
-      const ok = Function(`"use strict"; return (${expr});`)();
-      return ok ? (firstArg[1] || "") : (firstArg[2] || "");
-    } catch (_error) {
-      return firstArg[2] || "";
-    }
+    const ok = evaluateConditionalExpression(expr);
+    return ok === true ? (firstArg[1] || "") : (firstArg[2] || "");
   }
   return null;
 }

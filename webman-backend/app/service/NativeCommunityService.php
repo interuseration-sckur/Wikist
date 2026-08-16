@@ -504,6 +504,8 @@ final class NativeCommunityService
     public function updateComment(UserIdentity $identity, string $commentId, array $input): array
     {
         $comment = $this->requireComment($commentId);
+        $question = $this->requireQuestion((int) $comment->question_id, $identity, true);
+        $this->permissions->assertCanWriteQuestion($identity, $question);
         $this->permissions->assertCanEdit($identity, 'comment', $comment);
         $body = trim((string) ($input['content'] ?? $input['bodyMd'] ?? ''));
         if (mb_strlen($body) < 2 || mb_strlen($body) > 2000) {
@@ -516,6 +518,8 @@ final class NativeCommunityService
     public function deleteComment(UserIdentity $identity, string $commentId): array
     {
         $comment = $this->requireComment($commentId);
+        $question = $this->requireQuestion((int) $comment->question_id, $identity, true);
+        $this->permissions->assertQuestionReadable($question, $identity);
         $this->permissions->assertCanDelete($identity, 'comment', $comment);
         $this->community->transaction(function () use ($comment): void {
             $this->community->setCommentStatus((int) $comment->id, 'deleted');
@@ -775,7 +779,7 @@ final class NativeCommunityService
         $type = KnowledgeObjectId::normalizeType($type);
         $object = $this->graph->findBySource('wikist', $type, $id)
             ?? $this->graph->findBySource('answer', $type, $id);
-        if (!$object || (($object['metadata']['private'] ?? false) && !$this->canReadKnowledgeObject($object, $identity))) {
+        if (!$object) {
             throw new ApiException('知识对象不存在或不可预览。', 404, 'knowledge_object_not_found');
         }
         $relations = $this->graph->related($object['globalId'], [], 1, 5, $this->community->visibleOrganizationIds($identity));
@@ -1054,14 +1058,4 @@ final class NativeCommunityService
         return is_array($decoded) ? $decoded : [];
     }
 
-    private function canReadKnowledgeObject(array $object, ?UserIdentity $identity): bool
-    {
-        if (empty($object['organizationId'])) {
-            return true;
-        }
-        if ($identity && RolePolicy::allows($identity->role, 'senior_editor')) {
-            return true;
-        }
-        return $identity !== null && $this->community->organizationMembership((int) $object['organizationId'], $identity->id) !== null;
-    }
 }

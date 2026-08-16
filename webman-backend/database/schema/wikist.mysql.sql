@@ -16,6 +16,11 @@ CREATE TABLE IF NOT EXISTS users (
     two_factor_enabled TINYINT(1) NOT NULL DEFAULT 0,
     two_factor_confirmed_at VARCHAR(40) NOT NULL DEFAULT '',
     two_factor_recovery_json JSON NOT NULL,
+    pending_two_factor_secret VARCHAR(255) NOT NULL DEFAULT '',
+    pending_two_factor_created_at VARCHAR(40) NOT NULL DEFAULT '',
+    pending_email VARCHAR(254) NOT NULL DEFAULT '',
+    pending_email_requested_at VARCHAR(40) NOT NULL DEFAULT '',
+    session_version INT UNSIGNED NOT NULL DEFAULT 1,
     last_security_at VARCHAR(40) NOT NULL DEFAULT '',
     created_at VARCHAR(40) NOT NULL,
     updated_at VARCHAR(40) NOT NULL,
@@ -24,6 +29,12 @@ CREATE TABLE IF NOT EXISTS users (
     UNIQUE KEY uq_users_username (username),
     UNIQUE KEY uq_users_email (email),
     KEY idx_users_role_status (role, status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS wikist_security_state (
+    state_key VARCHAR(190) NOT NULL PRIMARY KEY,
+    state_value VARCHAR(500) NOT NULL DEFAULT '',
+    updated_at VARCHAR(40) NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS knowledge_objects (
@@ -202,6 +213,7 @@ CREATE TABLE IF NOT EXISTS messaging_user_preferences (
     open_mode TINYINT(1) NOT NULL DEFAULT 0,
     auto_reply_enabled TINYINT(1) NOT NULL DEFAULT 0,
     auto_reply_text VARCHAR(500) NOT NULL DEFAULT '',
+    show_online_status TINYINT(1) NOT NULL DEFAULT 0,
     created_at VARCHAR(40) NOT NULL,
     updated_at VARCHAR(40) NOT NULL,
     PRIMARY KEY (user_id),
