@@ -30,7 +30,7 @@
     "ext-xml": "*",
     "ext-zip": "*",
     "workerman/webman-framework": "^2.2",
-    "monolog/monolog": "^2.0",
+    "monolog/monolog": "^3.10",
     "webman/console": "^2.2",
     "webman/database": "^2.1",
     "webman/redis": "^2.1",
