@@ -121,6 +121,13 @@ try {
     assert.match(updaterSource, /resume-/);
     assert.match(updaterSource, /reexecuteUpdatedUpdater/);
   });
+  const backupSource = fs.readFileSync(path.join(project, "src", "core", "backup.js"), "utf8");
+  check("pre-update streaming backups create and clean a redacted database snapshot", () => {
+    assert.match(backupSource, /createRedactedDatabaseSnapshotFile/);
+    assert.match(backupSource, /ownedSnapshot = createRedactedDatabaseSnapshotFile/);
+    assert.match(backupSource, /ownedSnapshot\?\.cleanup\(\)/);
+    assert.match(updaterSource, /service restarted automatically because no code was fetched or changed/);
+  });
   check("the generated systemd unit uses a dedicated account and narrow writable paths", () => {
     assert.match(serviceSource, /User=\$\{options\.user\}/);
     assert.match(serviceSource, /ProtectSystem=strict/);

@@ -962,7 +962,17 @@ async function main() {
   } catch (error) {
     report.status = "failed";
     report.error = error.message;
-    report.serviceRecovery = stopped ? "service remains stopped; inspect the report, restore if needed, then start it explicitly" : "not required";
+    if (stopped && ["STOP", "BACKUP"].includes(report.stage) && options.service && !options.dryRun) {
+      try {
+        service("start", options);
+        stopped = false;
+        report.serviceRecovery = "service restarted automatically because no code was fetched or changed";
+      } catch (recoveryError) {
+        report.serviceRecovery = `automatic restart failed: ${recoveryError.message}`;
+      }
+    } else {
+      report.serviceRecovery = stopped ? "service remains stopped; inspect the report, restore if needed, then start it explicitly" : "not required";
+    }
     report.finishedAt = new Date().toISOString();
     if (options.dryRun) log(`Dry-run failed:\n${JSON.stringify(report, null, 2)}`);
     else {

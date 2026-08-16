@@ -1,5 +1,32 @@
 # Wikist 生产部署故障排查
 
+## 升级备份缺少脱敏快照
+
+如果从 1.0.1 或最初发布的 1.0.2 升级时停在：
+
+```text
+[3/9] CHECKPOINT + BACKUP
+Wikist update error: 流式全站备份需要脱敏数据库快照。
+```
+
+这是旧升级器在拉取新代码前触发的备份调用错误。先恢复服务，再只引导更新备份核心；命令会保留原文件的所属用户和用户组：
+
+```bash
+cd /opt/wikist
+sudo systemctl start wikist
+curl -fsSL https://raw.githubusercontent.com/interuseration-sckur/Wikist/main/src/core/backup.js -o /tmp/wikist-backup.js
+node --check /tmp/wikist-backup.js
+sudo install \
+  -o "$(stat -c '%U' src/core/backup.js)" \
+  -g "$(stat -c '%G' src/core/backup.js)" \
+  -m 0644 \
+  /tmp/wikist-backup.js src/core/backup.js
+rm -f /tmp/wikist-backup.js
+npm run update -- --strategy=git --remote=origin --branch=main --service=wikist --yes
+```
+
+不要直接使用 `--no-backup` 绕过恢复点。修复后的备份会自动生成一次性脱敏数据库快照，并在打包结束后删除临时文件。
+
 本手册用于 Ubuntu/systemd/Nginx 部署。先确认最新一条错误，不要把同一段日志中较早的重启记录当成当前故障。
 
 ## 一键诊断与修复

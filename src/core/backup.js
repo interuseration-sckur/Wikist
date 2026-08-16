@@ -167,6 +167,63 @@ function safeTarget(rootDir, relativePath) {
   return target;
 }
 
+function createRedactedDatabaseSnapshotFile(databasePath, options = {}) {
+  const absolutePath = path.resolve(String(databasePath || ""));
+  if (!absolutePath || !fs.existsSync(absolutePath) || !fs.lstatSync(absolutePath).isFile()) {
+    throw new Error("SQLite 数据库不存在，无法创建备份快照。 ");
+  }
+  let database = options.database || null;
+  let ownsDatabase = false;
+  if (!database) {
+    const { DatabaseSync } = require("node:sqlite");
+    database = new DatabaseSync(absolutePath, { timeout: 10000 });
+    ownsDatabase = true;
+  }
+  const snapshotPath = path.join(path.dirname(absolutePath), `.wikist-backup-${crypto.randomUUID()}.sqlite`);
+  try {
+    database.exec("PRAGMA busy_timeout=10000");
+    const quoted = snapshotPath.replace(/'/g, "''");
+    database.exec(`VACUUM INTO '${quoted}'`);
+    const { DatabaseSync } = require("node:sqlite");
+    const snapshot = new DatabaseSync(snapshotPath, { timeout: 10000 });
+    try {
+      snapshot.exec("BEGIN IMMEDIATE");
+      for (const table of ["sessions", "passport_tokens", "captchas", "messaging_presence_leases"]) {
+        const exists = snapshot.prepare("SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = ?").get(table);
+        if (exists) snapshot.exec(`DELETE FROM ${table}`);
+      }
+      const usersExists = snapshot.prepare("SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'users'").get();
+      if (usersExists) {
+        const columns = new Set(snapshot.prepare("PRAGMA table_info(users)").all().map((row) => row.name));
+        const sensitiveColumns = [
+          "pending_email",
+          "pending_email_requested_at",
+          "pending_two_factor_secret",
+          "pending_two_factor_created_at",
+        ].filter((column) => columns.has(column));
+        if (sensitiveColumns.length) snapshot.exec(`UPDATE users SET ${sensitiveColumns.map((column) => `${column} = ''`).join(", ")}`);
+      }
+      snapshot.exec("COMMIT");
+    } catch (error) {
+      try { snapshot.exec("ROLLBACK"); } catch (_rollbackError) {}
+      throw error;
+    } finally {
+      snapshot.close();
+    }
+    return {
+      path: snapshotPath,
+      cleanup() {
+        try { fs.rmSync(snapshotPath, { force: true }); } catch (_cleanupError) {}
+      },
+    };
+  } catch (error) {
+    try { fs.rmSync(snapshotPath, { force: true }); } catch (_cleanupError) {}
+    throw error;
+  } finally {
+    if (ownsDatabase) database.close();
+  }
+}
+
 function isRestorableTextPath(relativePath) {
   const normalized = normalizeBackupPath(relativePath);
   if (!normalized) return false;
@@ -712,6 +769,14 @@ async function writeBase64Entry(writeManifest, entry) {
 async function createBackupPackageFile(rootDir, options = {}) {
   const generatedAt = new Date().toISOString();
   const database = normalizeBackupPath(options.database || "data/wikist.sqlite");
+  let ownedSnapshot = null;
+  if (options.includeUserData !== false && !options.databaseSnapshotPath) {
+    const databasePath = safeTarget(rootDir, database);
+    if (!databasePath) throw new Error("备份数据库路径不安全。 ");
+    ownedSnapshot = createRedactedDatabaseSnapshotFile(databasePath);
+    options = { ...options, databaseSnapshotPath: ownedSnapshot.path };
+  }
+  try {
   const entries = await collectStreamingEntries(rootDir, { ...options, database });
   const stagingDir = safeTarget(rootDir, "data/backups/.staging");
   if (!stagingDir) throw new Error("备份暂存目录不安全。 ");
@@ -796,11 +861,15 @@ async function createBackupPackageFile(rootDir, options = {}) {
     try { fs.rmSync(filePath, { force: true }); } catch (_cleanupError) {}
     throw error;
   }
+  } finally {
+    ownedSnapshot?.cleanup();
+  }
 }
 
 module.exports = {
   createBackupPackage,
   createBackupPackageFile,
+  createRedactedDatabaseSnapshotFile,
   inspectBackupPackage,
   validateBackupPackage,
   readBackupPackage,

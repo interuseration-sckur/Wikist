@@ -3,6 +3,7 @@
 const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
+const { createRedactedDatabaseSnapshotFile } = require("./backup");
 const { normalizeSlug } = require("./slug");
 const { MessagingBridge } = require("./messaging-bridge");
 const {
@@ -1115,49 +1116,7 @@ class PassportStore {
   }
 
   createDatabaseSnapshotFile() {
-    const directory = path.dirname(this.dbPath);
-    const snapshotPath = path.join(directory, `.wikist-backup-${crypto.randomUUID()}.sqlite`);
-    try {
-      const quoted = snapshotPath.replace(/'/g, "''");
-      this.db.exec(`VACUUM INTO '${quoted}'`);
-      const snapshot = new DatabaseSync(snapshotPath);
-      try {
-        snapshot.exec("BEGIN IMMEDIATE");
-        for (const table of ["sessions", "passport_tokens", "captchas", "messaging_presence_leases"]) {
-          const exists = snapshot.prepare("SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = ?").get(table);
-          if (exists) snapshot.exec(`DELETE FROM ${table}`);
-        }
-        const usersExists = snapshot.prepare("SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'users'").get();
-        if (usersExists) {
-          const columns = new Set(snapshot.prepare("PRAGMA table_info(users)").all().map((row) => row.name));
-          const sensitiveColumns = [
-            "pending_email",
-            "pending_email_requested_at",
-            "pending_two_factor_secret",
-            "pending_two_factor_created_at",
-          ].filter((column) => columns.has(column));
-          if (sensitiveColumns.length > 0) {
-            snapshot.exec(`UPDATE users SET ${sensitiveColumns.map((column) => `${column} = ''`).join(", ")}`);
-          }
-        }
-        snapshot.exec("COMMIT");
-      } catch (error) {
-        try { snapshot.exec("ROLLBACK"); } catch (_rollbackError) {}
-        throw error;
-      } finally {
-        snapshot.close();
-      }
-      return {
-        path: snapshotPath,
-        cleanup() {
-          try { fs.rmSync(snapshotPath, { force: true }); } catch (_cleanupError) {}
-        },
-      };
-    } catch (error) {
-      try { this.db.prepare("PRAGMA wal_checkpoint(TRUNCATE)").all(); } catch (_checkpointError) {}
-      try { fs.rmSync(snapshotPath, { force: true }); } catch (_cleanupError) {}
-      throw error;
-    }
+    return createRedactedDatabaseSnapshotFile(this.dbPath, { database: this.db });
   }
 
   createDatabaseSnapshot() {

@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.3 - 2026-08-16
+
+- Fixed the pre-update streaming backup path so it automatically creates a short-lived redacted SQLite snapshot when the caller does not provide one, then removes the snapshot after packaging.
+- Unified Passport and updater snapshots on the same sanitizer, preserving account data while excluding sessions, temporary tokens, captcha state, presence leases, pending email changes and pending two-factor secrets.
+- Automatically restart the unchanged systemd service when an update fails during the stop or backup stage, before any code has been fetched or replaced.
+- Added the real streaming snapshot regression to the default release checks.
+
 ## 1.0.2 - 2026-08-16
 
 - Added crawlable server-rendered routes for published Wiki entries, public Q&A and public organization discussions, with canonical URLs, pagination, Open Graph metadata, Article/QAPage/DiscussionForumPosting JSON-LD, robots policy and automatically split sitemaps.
