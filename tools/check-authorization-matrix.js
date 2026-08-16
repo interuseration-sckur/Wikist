@@ -38,7 +38,8 @@ assert("migrated APIs cannot fall back to Node", proxy.includes("private const M
 assert("the compatibility proxy rejects internal API paths", proxy.includes("str_starts_with($path, '/api/internal/')"));
 assert("the compatibility target is restricted to loopback", proxy.includes("private function assertLoopbackTarget") && proxy.includes("['127.0.0.1', '::1', 'localhost']"));
 assert("sensitive compatibility routes require system admin", proxy.includes("private function requiresSystemAdmin") && proxy.includes("system_admin_required"));
-assert("sensitive compatibility routes require recent authentication", proxy.includes("passport.authenticated_at") && proxy.includes("step_up_required"));
+assert("sensitive compatibility writes require recent authentication", proxy.includes("private function requiresRecentAuthentication") && proxy.includes("passport.authenticated_at") && proxy.includes("step_up_required"));
+assert("ordinary admin reads do not require step-up authentication", proxy.includes("in_array($method, ['GET', 'HEAD', 'OPTIONS'], true)") && proxy.includes("return $path === '/api/admin/backup'"));
 assert("the proxy strips caller-supplied identity headers", proxy.includes("'x-wikist-internal-token', 'x-wikist-user-id'"));
 assert("backup creation is system-admin guarded", guardedNodeEndpoint("/api/admin/backup", "requireSystemAdmin"));
 assert("backup restore is system-admin guarded", guardedNodeEndpoint("/api/admin/backup/restore", "requireSystemAdmin"));

@@ -33,9 +33,11 @@ final class LegacyProxyController
             if (!$identity || $identity->role !== 'admin') {
                 throw new ApiException('该操作仅允许系统管理员执行。', 403, 'system_admin_required');
             }
-            $authenticatedAt = (int) $request->session()->get('passport.authenticated_at', 0);
-            if ($authenticatedAt < time() - 600) {
-                throw new ApiException('请重新登录后再执行敏感操作。', 403, 'step_up_required');
+            if ($this->requiresRecentAuthentication($path, $request->method())) {
+                $authenticatedAt = (int) $request->session()->get('passport.authenticated_at', 0);
+                if ($authenticatedAt < time() - 600) {
+                    throw new ApiException('请重新登录后再执行敏感操作。', 403, 'step_up_required');
+                }
             }
         }
         $target = rtrim($baseUrl, '/') . $request->uri();
@@ -132,6 +134,18 @@ final class LegacyProxyController
     {
         return $path === '/api/install/uninstall'
             || preg_match('#^/api/admin/(?:backup(?:/|$)|runtime/firewall(?:/|$)|plugins(?:/|$)|settings(?:/|$)|messages(?:/|$)|logs(?:/|$)|health(?:/|$))#', $path) === 1;
+    }
+
+    private function requiresRecentAuthentication(string $path, string $method): bool
+    {
+        $method = strtoupper($method);
+        if (in_array($method, ['GET', 'HEAD', 'OPTIONS'], true)) {
+            // Creating and downloading a full-site backup is a sensitive action
+            // even though the legacy endpoint uses GET. Ordinary admin reads
+            // remain available for an otherwise valid administrator session.
+            return $path === '/api/admin/backup';
+        }
+        return true;
     }
 
     private function assertLoopbackTarget(string $url): void

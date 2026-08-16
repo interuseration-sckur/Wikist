@@ -1,6 +1,6 @@
 const THEME_KEY = "wikist-theme";
 const LANG_KEY = "wikist-language";
-const CORE_ASSET_VERSION = "wikist-core-20260816-205";
+const CORE_ASSET_VERSION = "wikist-core-20260816-206";
 const RAIL_RECOMMENDATION_LIMIT = 5;
 const RAIL_RECENT_LIMIT = 5;
 const PAGE_SHARE_RECENT_DIRECT_LIMIT = 6;
@@ -10111,6 +10111,8 @@ function renderError(error) {
     return;
   }
   const statusCode = Number(error?.statusCode || 0);
+  const authenticationRequired = statusCode === 401
+    || ["authentication_required", "unauthorized", "step_up_required"].includes(String(error?.code || ""));
   const missing = statusCode === 404;
   const missingPageSlug = String(state.currentSlug || "").trim();
   const creatablePage = missing
@@ -10120,17 +10122,36 @@ function renderError(error) {
   const tooLarge = error?.code === "body_too_large";
   const title = creatablePage
     ? `词条“${missingPageSlug}”尚未创建`
-    : missing ? "未找到这个入口" : tooLarge ? "这次提交需要精简" : "连接暂时中断";
+    : missing
+      ? "未找到这个入口"
+      : tooLarge
+        ? "这次提交需要精简"
+        : authenticationRequired
+          ? (error?.code === "step_up_required" ? "需要重新验证身份" : "登录状态已失效")
+          : "连接暂时中断";
   const copy = missing
     ? (creatablePage ? "你可以创建这个词条，或先搜索站内是否已有相近主题。" : "该词条、协作资源或功能入口可能已被移动、归档或尚未创建。")
     : tooLarge
       ? "提交内容超过站点当前允许的大小。请移除不必要内容后重新提交。"
-      : (error?.message || "请求未能完成，请稍后重试。");
-  const code = creatablePage ? "NEW / KNOWLEDGE ENTRY" : missing ? "404 / KNOWLEDGE ROUTE" : tooLarge ? "413 / PAYLOAD LIMIT" : `ERROR / ${statusCode || "NETWORK"}`;
+      : authenticationRequired
+        ? (error?.message || "请重新登录后继续操作。")
+        : (error?.message || "请求未能完成，请稍后重试。");
+  const code = creatablePage
+    ? "NEW / KNOWLEDGE ENTRY"
+    : missing
+      ? "404 / KNOWLEDGE ROUTE"
+      : tooLarge
+        ? "413 / PAYLOAD LIMIT"
+        : authenticationRequired
+          ? "AUTH / PASSPORT"
+          : `ERROR / ${statusCode || "NETWORK"}`;
   const missingActions = creatablePage
     ? `<a class="command-button" href="#/edit/${encodeSlug(missingPageSlug)}">创建词条</a><a class="command-button secondary" href="#/search/${encodeURIComponent(missingPageSlug)}">搜索相近词条</a>`
     : '<a class="command-button secondary" href="#/search">搜索词条</a>';
-  el.main.innerHTML = `<section class="wikist-route-state ${missing ? "is-missing" : ""} ${creatablePage ? "is-creatable-page" : ""}"><div class="wikist-route-state-grid" aria-hidden="true"></div><article><span class="wikist-system-mark" aria-hidden="true">${missing ? "?" : "!"}</span><p class="wikist-system-kicker">${escapeHtml(code)}</p><h1>${escapeHtml(title)}</h1><p>${escapeHtml(copy)}</p><div class="wikist-route-state-actions"><a class="command-button" href="#/page/${encodeSlug(state.site?.defaultPage || "home")}">返回首页</a>${missing ? missingActions : '<button class="command-button secondary" type="button" data-route-retry>重新尝试</button>'}</div></article></section>`;
+  const recoveryAction = authenticationRequired
+    ? '<a class="command-button secondary" href="/passport?mode=login">重新登录</a>'
+    : '<button class="command-button secondary" type="button" data-route-retry>重新尝试</button>';
+  el.main.innerHTML = `<section class="wikist-route-state ${missing ? "is-missing" : ""} ${creatablePage ? "is-creatable-page" : ""}"><div class="wikist-route-state-grid" aria-hidden="true"></div><article><span class="wikist-system-mark" aria-hidden="true">${missing ? "?" : "!"}</span><p class="wikist-system-kicker">${escapeHtml(code)}</p><h1>${escapeHtml(title)}</h1><p>${escapeHtml(copy)}</p><div class="wikist-route-state-actions"><a class="command-button" href="#/page/${encodeSlug(state.site?.defaultPage || "home")}">返回首页</a>${missing ? missingActions : recoveryAction}</div></article></section>`;
   el.main.querySelector("[data-route-retry]")?.addEventListener("click", () => route());
 }
 
