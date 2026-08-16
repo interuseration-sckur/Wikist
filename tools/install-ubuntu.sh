@@ -96,3 +96,7 @@ npm run doctor -- --all
 
 echo "Wikist is running at $PUBLIC_URL"
 echo "Open $PUBLIC_URL/install.html to finish the site profile and create the initial administrator."
+if [[ "$REALTIME" -eq 1 ]]; then
+  echo "Before accepting traffic, proxy the exact /connection/websocket path to 127.0.0.1:8902."
+  echo "Then run: cd '$ROOT' && sudo npm run doctor:production -- --public-url=$PUBLIC_URL --service=wikist"
+fi

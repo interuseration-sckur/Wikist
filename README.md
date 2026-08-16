@@ -8,7 +8,7 @@
   面向数学与科学知识社区的开放 Wiki 框架
 </p>
 
-> 当前稳定版本：`1.0.1`
+> 当前稳定版本：`1.0.2`
 
 Wikist 用于建设专业、可验证、可持续协作的知识站点。它将 Wiki、问答、组织协作、翻译、评论、消息与内容审阅放在同一套用户和知识体系中，适合个人、团队、学校社团和中小型专业社区部署。
 
@@ -26,6 +26,7 @@ Wikist 用于建设专业、可验证、可持续协作的知识站点。它将 
 - **站点管理**：用户、词条、评论、社区、插件、备份、导入导出、首页内容和站点设置。
 - **主题与响应式**：浅色/深色主题，适配桌面、平板和手机。
 - **可移植部署**：默认使用本地数据库与文件目录，支持网页安装、备份、恢复和升级。
+- **公开知识索引**：已发布词条、公开问答与公开讨论提供服务端页面、规范链接、结构化数据和自动 Sitemap。
 
 ## 快速安装
 
@@ -79,6 +80,7 @@ npm start          # 启动 Wikist
 npm run stop       # 停止 Wikist
 npm run restart    # 重启 Wikist
 npm run status     # 查看运行状态
+sudo npm run doctor:production -- --public-url=https://wiki.example.com --service=wikist
 npm run check      # 执行发布前检查
 ```
 
@@ -161,7 +163,7 @@ npm run update -- --preflight-only --yes
 npm run update -- --strategy=git --remote=origin --branch=main --service=wikist --yes
 ```
 
-从 Wikist `1.0.0` 升级到 `1.0.1` 也使用同一命令，无需重新安装或清空数据库。升级完成后确认版本与运行状态：
+从 Wikist `1.0.0` 或 `1.0.1` 升级到 `1.0.2` 也使用同一命令，无需重新安装或清空数据库。升级完成后确认版本与运行状态：
 
 ```bash
 npm run doctor
@@ -208,7 +210,27 @@ npm run restart
 - 反向代理后请保留真实主机、协议和客户端地址请求头。
 - 使用 systemd、Supervisor 或容器编排工具保持服务运行。
 
+Ubuntu/systemd 部署完成后建议运行生产验收：
+
+```bash
+sudo npm run doctor:production -- \
+  --public-url=https://wiki.example.com \
+  --service=wikist
+```
+
+遇到旧文件归属、实时配置或服务环境不一致时，可先生成修复快照再自动修复：
+
+```bash
+sudo npm run repair:production -- \
+  --public-url=https://wiki.example.com \
+  --service=wikist
+```
+
+宝塔/Nginx 必须把 `/connection/websocket` 精确代理到 `127.0.0.1:8902`，其余页面代理到 `127.0.0.1:8899`。不要公开 Node 兼容端口、Centrifugo API 或健康探针。
+
 完整步骤见 [安装与部署指南](docs/INSTALL.md)。
+
+需要让公开内容被搜索引擎发现时，按 [搜索引擎收录指南](docs/SEARCH_ENGINE_INDEXING.md) 检查公开域名、Sitemap 与反向代理。
 
 ## 常见问题
 
@@ -246,7 +268,9 @@ npm run restart
 ## 文档
 
 - [安装与部署](docs/INSTALL.md)
+- [生产部署故障排查](docs/PRODUCTION_TROUBLESHOOTING.md)
 - [安全加固验收](docs/HARDENING_ACCEPTANCE_2026-08-16.md)
+- [1.0.2 发布说明](docs/RELEASE_1.0.2.md)
 - [1.0.1 发布说明](docs/RELEASE_1.0.1.md)
 - [1.0 发布说明](docs/RELEASE_1.0.md)
 - [升级日志](docs/UPGRADE_CHANGELOG.md)
@@ -310,4 +334,4 @@ Create a full backup first, then run:
 npm run update -- --strategy=git --remote=origin --branch=main --service=wikist --yes
 ```
 
-See [Installation](docs/INSTALL.md), [Release 1.0.1](docs/RELEASE_1.0.1.md), and the [Upgrade Changelog](docs/UPGRADE_CHANGELOG.md) for further guidance.
+See [Installation](docs/INSTALL.md), [Release 1.0.2](docs/RELEASE_1.0.2.md), and the [Upgrade Changelog](docs/UPGRADE_CHANGELOG.md) for further guidance.

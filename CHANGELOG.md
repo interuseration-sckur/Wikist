@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.2 - 2026-08-16
+
+- Added crawlable server-rendered routes for published Wiki entries, public Q&A and public organization discussions, with canonical URLs, pagination, Open Graph metadata, Article/QAPage/DiscussionForumPosting JSON-LD, robots policy and automatically split sitemaps.
+- Unified those clean public URLs with the existing Wikist application shell: crawlers receive complete server-rendered content while browsers progressively enhance the same URL into the established Wiki, Q&A and organization interfaces, without a duplicate public-page design or user-agent branching.
+- Added an administrator indexing switch, draft exclusion by default, public discussion indexing without a second data store, homepage metadata injection, SEO regression checks and deployment documentation.
+- Added production-only diagnostics and repair commands for systemd ownership, protected environment files, Centrifugo health/key consistency, internal listeners, and local/public WebSocket routing, with pre-repair snapshots and optional validated Nginx include generation.
+- Prevented the hybrid launcher from writing source-tree environment files under systemd, repaired ownership across existing runtime trees, enabled the loopback Centrifugo health probe, and documented full Ubuntu, BT Panel/Nginx, upgrade, verification, and incident-recovery workflows.
+
 ## 1.0.1 - 2026-08-16
 
 - Hardened authentication, authorization, trusted-origin handling, attachment and path validation, secret management, log redaction, realtime channels, and administrative recovery without changing the Passport identity model.

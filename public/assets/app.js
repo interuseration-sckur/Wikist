@@ -1,6 +1,6 @@
 const THEME_KEY = "wikist-theme";
 const LANG_KEY = "wikist-language";
-const CORE_ASSET_VERSION = "wikist-core-20260816-203";
+const CORE_ASSET_VERSION = "wikist-core-20260816-205";
 const RAIL_RECOMMENDATION_LIMIT = 5;
 const RAIL_RECENT_LIMIT = 5;
 const PAGE_SHARE_RECENT_DIRECT_LIMIT = 6;
@@ -9880,6 +9880,8 @@ function siteSettingsForm(site, home, homeContent = {}) {
         <label class="wide">站点公开地址<input name="publicUrl" type="url" value="${escapeHtml(site.publicUrl || "")}" placeholder="https://wiki.example.com" required /></label>
         <label>默认语言<select name="language">${settingsLanguages.map((lang) => `<option value="${lang}" ${lang === (site.language || "zh-CN") ? "selected" : ""}>${languageLabel(lang)}</option>`).join("")}</select></label>
         <label>协议<input name="license" value="${escapeHtml(site.license || "CC BY-SA 4.0")}" /></label>
+        <label class="setting-toggle"><input name="seoEnabled" type="checkbox" ${site.seo?.enabled !== false ? "checked" : ""} /><span><strong>允许搜索引擎收录</strong><small>发布词条、公开问答和公开讨论将生成可抓取页面。</small></span></label>
+        <label class="setting-toggle"><input name="seoIndexDrafts" type="checkbox" ${site.seo?.indexDrafts ? "checked" : ""} /><span><strong>收录草稿词条</strong><small>默认关闭，避免未完成内容出现在搜索结果中。</small></span></label>
         <label class="wide">站点语言列表<input name="languages" value="${escapeHtml(settingsLanguages.join(", "))}" placeholder="zh-CN, zh-TW, en, fr, ja" /></label>
         <label class="wide">站点简介<input name="tagline" value="${escapeHtml(site.tagline || "")}" /></label>
         <label class="wide">MathJax CDN<input name="mathCdn" value="${escapeHtml(site.mathCdn || "")}" /></label>
@@ -9940,6 +9942,8 @@ async function renderAdminSettings() {
     sitePayload.mailEnabled = data.has("mailEnabled");
     sitePayload.smtpSecure = data.has("smtpSecure");
     sitePayload.requireEmailVerification = data.has("requireEmailVerification");
+    sitePayload.seoEnabled = data.has("seoEnabled");
+    sitePayload.seoIndexDrafts = data.has("seoIndexDrafts");
     sitePayload.smtpPort = Number(sitePayload.smtpPort || 587);
     sitePayload.emailVerificationTTLSeconds = Number(sitePayload.emailVerificationTTLSeconds || 1800);
     sitePayload.passwordResetTTLSeconds = Number(sitePayload.passwordResetTTLSeconds || 1200);
@@ -10227,7 +10231,7 @@ async function renderAdmin(section = "overview") {
   else await renderAdminOverview();
 }
 function parseRoute() {
-  const hash = location.hash;
+  const hash = location.hash || String(globalThis.__WIKIST_INITIAL_ROUTE__ || "");
   if (!hash || hash === "#" || hash === "#/") return { name: "portal", value: "" };
   const clean = hash.replace(/^#\/?/, "");
   const [pathValue, query = ""] = clean.split("?");
@@ -10507,6 +10511,11 @@ document.addEventListener("keydown", (event) => {
   }
 });
 window.addEventListener("hashchange", () => {
+  if (globalThis.__WIKIST_CLEAN_ENTRY__ && location.pathname !== "/" && location.hash.startsWith("#/")) {
+    history.replaceState(history.state, "", `/${location.hash}`);
+    globalThis.__WIKIST_INITIAL_ROUTE__ = "";
+    globalThis.__WIKIST_CLEAN_ENTRY__ = false;
+  }
   route().catch((error) => {
     el.main.innerHTML = `<section class="empty-state"><h1>加载失败</h1><p>${escapeHtml(error.message)}</p></section>`;
   });

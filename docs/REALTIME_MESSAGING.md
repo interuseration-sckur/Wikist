@@ -131,36 +131,51 @@ draft in the composer is never destroyed by a background refresh.
 
 ## Production Setup
 
-1. Copy `webman-backend/config/centrifugo.example.json` outside the public web
-   root and replace both secrets.
-   Keep `presence`, `join_leave` and `force_push_join_leave` enabled for the
-   `conversation` namespace so connection state is authoritative.
-2. Put the same values in `webman-backend/.env` as
-   `CENTRIFUGO_TOKEN_HMAC_SECRET` and `CENTRIFUGO_API_KEY`.
-3. Set `CENTRIFUGO_PUBLIC_URL=wss://your-domain.example/connection/websocket`,
-   `CENTRIFUGO_API_URL=http://127.0.0.1:8000/api`, then enable
-   `CENTRIFUGO_ENABLED=true`.
-4. Keep Centrifugo bound to loopback. Reverse-proxy only
-   `/connection/websocket`; do not expose the HTTP API.
-5. Start Centrifugo with `centrifugo -c /etc/wikist/centrifugo.json`, restart
-   Webman, and confirm the communication header changes from safe sync to a
-   connected realtime indicator.
-6. Run `cd webman-backend && php tools/migrate.php` during manual upgrades.
-   The root hybrid launcher already runs this idempotent migration and creates
-   `messaging_presence_leases` without rebuilding users or message history.
+1. Run `npm run setup:stack`. It creates a pinned Centrifugo runtime, preserves
+   existing API/JWT secrets, enables the loopback health probe and writes the
+   generated configuration under `data/centrifugo/`.
+2. Install the unified service with `sudo npm run service:install --
+   --public-url=https://your-domain.example --user=wikist --apply --yes`.
+   `/etc/wikist/wikist.env` is authoritative under systemd; startup does not
+   write back to the source-tree `.env`.
+3. Keep Centrifugo on `127.0.0.1:8902`. Reverse-proxy only the exact
+   `/connection/websocket` path; do not expose its HTTP API or health endpoint.
+4. Run the production acceptance check:
+
+   ```bash
+   sudo npm run doctor:production -- \
+     --public-url=https://your-domain.example \
+     --service=wikist
+   ```
+
+   It checks service ownership, key consistency, all three internal listeners,
+   local/public WebSocket upgrades and the active Nginx route without printing
+   secrets.
+5. The hybrid launcher runs database migration before opening the public
+   service. Do not start Webman, the compatibility layer or Centrifugo as
+   unrelated long-running processes.
 
 Example Nginx location:
 
 ```nginx
-location /connection/websocket {
-    proxy_pass http://127.0.0.1:8000;
+location = /connection/websocket {
+    proxy_pass http://127.0.0.1:8902;
     proxy_http_version 1.1;
     proxy_set_header Upgrade $http_upgrade;
     proxy_set_header Connection "upgrade";
     proxy_set_header Host $host;
-    proxy_read_timeout 75s;
+    proxy_set_header Origin $http_origin;
+    proxy_set_header X-Forwarded-Proto https;
+    proxy_buffering off;
+    proxy_read_timeout 3600s;
 }
 ```
+
+A successful raw WebSocket probe returns `101 Switching Protocols`; a later
+curl timeout is expected because the upgraded connection remains open. A
+public `404` carrying `X-Wikist-Backend: webman` means the WebSocket path fell
+through to the generic Webman proxy. See
+[Production Troubleshooting](PRODUCTION_TROUBLESHOOTING.md).
 
 For one Centrifugo node, the memory engine is sufficient because Wikist owns
 durability. Use Redis only when running several Centrifugo nodes. Channel

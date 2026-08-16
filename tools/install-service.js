@@ -148,10 +148,26 @@ function apply(result, options) {
     .map((relative) => path.resolve(root, relative));
   for (const directory of writable) {
     if (directory !== root && !directory.startsWith(root + path.sep)) throw new Error(`Unsafe runtime directory: ${directory}`);
+    if (fs.existsSync(directory) && fs.lstatSync(directory).isSymbolicLink()) {
+      throw new Error(`Refusing to manage a symbolic-link runtime directory: ${directory}`);
+    }
     run("install", ["-d", "-o", options.user, "-g", group, "-m", "0750", directory]);
+    run("chown", ["-R", "-h", `${options.user}:${group}`, directory]);
+    run("chmod", ["-R", "u+rwX", directory]);
   }
   const siteConfig = path.join(root, "config", "site.config.json");
   if (fs.existsSync(siteConfig)) run("chown", [`${options.user}:${group}`, siteConfig]);
+  const serviceOwnedSecrets = [
+    path.join(root, "webman-backend", ".env"),
+    path.join(root, "data", "wikist-stack.json"),
+    path.join(root, "data", "centrifugo", "config.json"),
+  ];
+  for (const filePath of serviceOwnedSecrets) {
+    if (!fs.existsSync(filePath)) continue;
+    if (fs.lstatSync(filePath).isSymbolicLink()) throw new Error(`Refusing to change ownership of a symbolic link: ${filePath}`);
+    run("chown", [`${options.user}:${group}`, filePath]);
+    run("chmod", ["0600", filePath]);
+  }
   run(process.execPath, [path.join(root, "tools", "migrate-server.js"), `--public-url=${result.publicUrl}`, "--mode=single-production", "--yes"]);
   atomicWrite("/etc/wikist/wikist.env", result.environment, 0o640);
   run("chown", [`root:${group}`, "/etc/wikist/wikist.env"]);

@@ -4170,6 +4170,42 @@ class PassportStore {
     return { organization, ...this.organizationPostQuery(session, organization.id, options) };
   }
 
+  listPublicOrganizationPosts(options = {}) {
+    const { limit, offset } = listOptions(options, 20, 50);
+    const status = ['open', 'resolved', 'locked'].includes(options.status) ? options.status : 'all';
+    const organization = cleanText(options.organization || '', 80).toLowerCase();
+    const query = cleanText(options.query || options.q || '', 120);
+    const where = ["p.status != 'hidden'", "o.status = 'active'"];
+    const args = [];
+    if (status !== 'all') { where.push('p.status = ?'); args.push(status); }
+    if (organization) { where.push('LOWER(o.slug) = ?'); args.push(organization); }
+    if (query) {
+      const like = `%${query}%`;
+      where.push('(p.title LIKE ? OR p.body_md LIKE ? OR p.page_slug LIKE ? OR o.name LIKE ?)');
+      args.push(like, like, like, like);
+    }
+    const clause = `WHERE ${where.join(' AND ')}`;
+    const total = Number(this.db.prepare(`
+      SELECT count(*) AS n FROM organization_posts p
+      JOIN writing_organizations o ON o.id = p.organization_id
+      ${clause}
+    `).get(...args).n || 0);
+    const items = this.db.prepare(`
+      SELECT p.*, o.slug AS organization_slug, o.name AS organization_name,
+        author.display_name AS author_name, author.username AS author_username, author.avatar_url AS author_avatar_url,
+        (SELECT count(*) FROM organization_post_replies r WHERE r.post_id = p.id AND r.status = 'published') AS reply_count,
+        (SELECT count(*) FROM organization_post_favorites f WHERE f.post_id = p.id) AS favorite_count,
+        0 AS viewer_following, 0 AS viewer_favorited
+      FROM organization_posts p
+      JOIN writing_organizations o ON o.id = p.organization_id
+      JOIN users author ON author.id = p.author_user_id
+      ${clause}
+      ORDER BY p.pinned DESC, p.updated_at DESC, p.id DESC
+      LIMIT ? OFFSET ?
+    `).all(...args, limit, offset).map(organizationPostFromRow);
+    return { items, total };
+  }
+
   createOrganizationPost(session, slug, input = {}) {
     const organization = this.organizationBySlug(slug);
     const access = this.assertOrganizationRole(session, organization, 'member');

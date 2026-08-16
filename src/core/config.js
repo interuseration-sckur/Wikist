@@ -10,6 +10,11 @@ const defaults = {
   language: "zh-CN",
   defaultPage: "home",
   license: "CC BY-SA 4.0",
+  seo: {
+    enabled: true,
+    indexDrafts: false,
+    sitemapPageSize: 500,
+  },
   math: {
     provider: "mathjax",
     cdn: "https://cdn.jsdelivr.net/npm/mathjax@3.2.2/es5/tex-chtml.js",
@@ -232,6 +237,11 @@ function createInitialConfig(input = {}) {
     language,
     languages: ["zh-CN", "zh-TW", "en"],
     license: cleanText(input.license || "CC BY-SA 4.0", 80),
+    seo: {
+      enabled: true,
+      indexDrafts: false,
+      sitemapPageSize: 500,
+    },
     assets: {
       cdnBase: cleanText(input.cdnBase, 500),
       siteIcon: cleanAssetUrl(input.siteIcon, defaults.assets.siteIcon),

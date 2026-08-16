@@ -441,6 +441,11 @@ function siteSettingsPayload(config) {
     languages: normalizeLanguageList(config.languages || ["zh-CN", "zh-TW", "en"], []),
     defaultPage: config.defaultPage || "home",
     license: config.license || "CC BY-SA 4.0",
+    seo: {
+      enabled: config.seo?.enabled !== false,
+      indexDrafts: config.seo?.indexDrafts === true,
+      sitemapPageSize: Math.max(50, Math.min(Number(config.seo?.sitemapPageSize) || 500, 5000)),
+    },
     mathCdn: config.math?.cdn || "",
     cdnBase: config.assets?.cdnBase || "",
     siteIcon: config.assets?.siteIcon === "/assets/wikist-emblem.svg"
@@ -555,6 +560,13 @@ function sanitizeSiteSettings(input, current = {}) {
     passwordResetTTLSeconds: Math.max(60, Math.min(Number(securitySource.passwordResetTTLSeconds ?? current.passport?.passwordResetTTLSeconds) || 1200, 86400)),
     twoFactorIssuer: cleanSettingText(securitySource.twoFactorIssuer ?? current.passport?.twoFactorIssuer ?? current.name ?? "Wikist", 80) || "Wikist",
   };
+  const seoSource = source.seo && typeof source.seo === "object" ? source.seo : source;
+  const seo = {
+    ...(current.seo || {}),
+    enabled: seoSource.seoEnabled !== false && seoSource.enabled !== false,
+    indexDrafts: seoSource.seoIndexDrafts === true || seoSource.indexDrafts === true,
+    sitemapPageSize: Math.max(50, Math.min(Number(seoSource.sitemapPageSize ?? current.seo?.sitemapPageSize) || 500, 5000)),
+  };
   return {
     name: cleanSettingText(source.name ?? current.name ?? "Wikist", 80) || "Wikist",
     tagline: cleanSettingText(source.tagline ?? current.tagline ?? "", 220),
@@ -575,6 +587,7 @@ function sanitizeSiteSettings(input, current = {}) {
     },
     mail,
     passport,
+    seo,
   };
 }
 
@@ -1426,6 +1439,35 @@ function createWikistServer(options) {
         sendJson(res, 200, {
           ...paginationPayload(result.items, result.total, pagination),
           quota: session?.user ? passport.organizationQuota(session.user.id) : null,
+        });
+        return;
+      }
+
+      if (pathname === "/api/community/discussions" && req.method === "GET") {
+        if (!passport) {
+          sendJson(res, 200, paginationPayload([], 0, readPagination(url, 20, 50)));
+          return;
+        }
+        const pagination = readPagination(url, 20, 50);
+        const result = passport.listPublicOrganizationPosts({
+          query: url.searchParams.get("q") || "",
+          organization: url.searchParams.get("organization") || "",
+          status: url.searchParams.get("status") || "all",
+          limit: pagination.limit,
+          offset: pagination.offset,
+        });
+        sendJson(res, 200, paginationPayload(result.items.map(organizationPostPayload), result.total, pagination));
+        return;
+      }
+
+      const publicDiscussionMatch = pathname.match(/^\/api\/community\/discussions\/(\d+)$/);
+      if (publicDiscussionMatch && req.method === "GET") {
+        if (!passport) { sendJson(res, 404, { error: "协作组织功能未启用。" }); return; }
+        const pagination = readPagination(url, 30, 60);
+        const result = passport.listOrganizationPostReplies(null, Number(publicDiscussionMatch[1]), pagination);
+        sendJson(res, 200, {
+          post: organizationPostPayload(result.post),
+          ...paginationPayload(result.items.map(organizationPostReplyPayload), result.total, pagination),
         });
         return;
       }
@@ -2581,7 +2623,13 @@ function createWikistServer(options) {
       }
 
       if (pathname === "/api/pages" && req.method === "GET") {
-        const items = pages.listPageSummaries().map((page) => ({
+        const publicIndexOnly = url.searchParams.get("indexable") === "1";
+        const summaries = pages.listPageSummaries().filter((page) => !publicIndexOnly || (
+          !page.redirectTarget
+          && !["deleted", "archived", "hidden", "private"].includes(String(page.status || "").toLowerCase())
+          && (config.seo?.indexDrafts === true || String(page.status || "").toLowerCase() !== "draft")
+        ));
+        const items = summaries.map((page) => ({
           slug: page.slug,
           title: page.title,
           summary: page.summary,
@@ -2591,6 +2639,10 @@ function createWikistServer(options) {
           quality: page.quality,
           author: page.author,
           citationStats: page.citationStats,
+          heroImage: page.heroImage,
+          aliases: page.aliases,
+          redirectTarget: page.redirectTarget,
+          createdAt: page.createdAt,
           updatedAt: page.updatedAt,
           bytes: page.bytes,
         }));

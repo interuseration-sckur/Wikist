@@ -210,6 +210,7 @@ function ensureCentrifugoConfig(stack, appUrl) {
       ],
     },
     http_api: { key: stack.centrifugo.apiKey },
+    health: { enabled: true },
     log: { level: "info" },
   };
   writeJson(centrifugoConfigPath, config);

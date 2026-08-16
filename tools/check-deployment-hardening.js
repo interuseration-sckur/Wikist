@@ -84,6 +84,9 @@ try {
     assert.match(setupSource, /CHECKSUM_MANIFEST_SHA256 = "[a-f0-9]{64}"/);
     assert.match(setupSource, /Centrifugo archive verification failed/);
   });
+  check("Centrifugo exposes an internal health probe", () => {
+    assert.match(setupSource, /health: \{ enabled: true \}/);
+  });
   const serverSource = fs.readFileSync(path.join(project, "src", "server", "app.js"), "utf8");
   const appSource = fs.readFileSync(path.join(project, "public", "assets", "app.js"), "utf8");
   check("admin deployment changes require an explicit migration and restart", () => {
@@ -125,6 +128,23 @@ try {
     assert.match(serviceSource, /ReadWritePaths=/);
     assert.doesNotMatch(serviceSource, /chmod[^\n]*777/);
   });
+  check("the service installer repairs ownership of generated runtime secrets", () => {
+    assert.match(serviceSource, /serviceOwnedSecrets/);
+    assert.match(serviceSource, /run\("chown", \["-R", "-h"/);
+    assert.match(serviceSource, /run\("chmod", \["-R", "u\+rwX"/);
+    assert.match(serviceSource, /webman-backend", "\.env/);
+    assert.match(serviceSource, /centrifugo", "config\.json/);
+    assert.match(serviceSource, /run\("chmod", \["0600", filePath\]\)/);
+  });
+  const hybridSource = fs.readFileSync(path.join(project, "tools", "start-hybrid.js"), "utf8");
+  check("the hybrid launcher survives stale local env ownership under systemd", () => {
+    assert.match(hybridSource, /serviceEnvironmentActive/);
+    assert.match(hybridSource, /managedServiceEnvironment/);
+    assert.match(hybridSource, /process\.env\.INVOCATION_ID/);
+    assert.match(hybridSource, /if \(managedServiceEnvironment\) return/);
+    assert.match(hybridSource, /skipped unreadable local environment file/);
+    assert.match(hybridSource, /error\?\.code === "EACCES"/);
+  });
   const ubuntuInstaller = fs.readFileSync(path.join(project, "tools", "install-ubuntu.sh"), "utf8");
   check("Ubuntu installation pins runtimes and verifies downloads", () => {
     assert.match(ubuntuInstaller, /NODE_VERSION="22\.18\.0"/);
@@ -137,6 +157,33 @@ try {
     assert.match(setupSource, /--centrifugo=/);
     assert.ok(setupSource.includes('spawnSync(resolved, ["version"]'));
     assert.match(ubuntuInstaller, /--no-realtime/);
+  });
+  const productionDoctor = fs.readFileSync(path.join(project, "tools", "production-doctor.js"), "utf8");
+  const installGuide = fs.readFileSync(path.join(project, "docs", "INSTALL.md"), "utf8");
+  const troubleshootingGuide = fs.readFileSync(path.join(project, "docs", "PRODUCTION_TROUBLESHOOTING.md"), "utf8");
+  check("production doctor checks the actual service account and both WebSocket paths", () => {
+    assert.match(productionDoctor, /Production diagnostics must run as root/);
+    assert.match(productionDoctor, /runuser/);
+    assert.match(productionDoctor, /realtime\.websocket_local/);
+    assert.match(productionDoctor, /realtime\.websocket_public/);
+    assert.match(productionDoctor, /realtime\.health_endpoint/);
+    assert.match(productionDoctor, /nginx\.websocket_route/);
+  });
+  check("production repair snapshots configuration and rolls back invalid Nginx changes", () => {
+    assert.match(productionDoctor, /data", "production-repairs/);
+    assert.match(productionDoctor, /nginx -t failed and the snippet was rolled back/);
+    assert.match(productionDoctor, /\/www\/server\/nginx\/sbin\/nginx/);
+    assert.match(productionDoctor, /command\(binary, \["-s", "reload"\]\)/);
+    assert.match(productionDoctor, /config\.health = \{ enabled: true \}/);
+    assert.doesNotMatch(productionDoctor, /chmod[^\n]*777/);
+  });
+  check("deployment documentation covers the recovered permission and proxy failures", () => {
+    assert.match(installGuide, /doctor:production/);
+    assert.match(installGuide, /location = \/connection\/websocket/);
+    assert.match(troubleshootingGuide, /EACCES/);
+    assert.match(troubleshootingGuide, /EROFS/);
+    assert.match(troubleshootingGuide, /X-Wikist-Backend: webman/);
+    assert.match(troubleshootingGuide, /101 Switching Protocols/);
   });
   console.log(`Deployment hardening checks passed: ${passed}`);
 } finally {

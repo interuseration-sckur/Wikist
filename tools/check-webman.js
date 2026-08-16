@@ -72,5 +72,6 @@ run(php, [path.join(backend, "tools", "check.php")], backend);
 run(php, [path.join(backend, "tools", "check-messaging.php")], backend);
 run(php, [path.join(backend, "tools", "check-selections.php")], backend);
 run(php, [path.join(backend, "tools", "check-native-community.php")], backend);
+run(php, [path.join(backend, "tools", "check-seo.php")], backend);
 run(php, [path.join(backend, "webman"), "route:list"], backend);
 console.log("OK    Wikist Webman syntax, foundation, messaging, selections, native Community and route checks passed.");

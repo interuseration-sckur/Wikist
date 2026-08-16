@@ -1,5 +1,19 @@
 # Wikist 站点升级日志
 
+## 2026-08-16 - Wikist 1.0.2：公开词条、问答与讨论收录
+
+- 新增 `/wiki`、`/questions` 与 `/discussions` 服务端只读入口。词条正文、公开问题与回答、组织公开主题与回复无需执行前端脚本即可读取。
+- 新增规范链接、分页关系、Open Graph、词条 `Article`、问答 `QAPage`、讨论 `DiscussionForumPosting` 结构化数据；词条内部链接会转换为可抓取地址。
+- 新增 `robots.txt`、自动分片 `sitemap.xml`、别名 301 与错误页 `noindex`。草稿、归档、隐藏、删除和重定向内容默认不进入索引。
+- 后台站点设置可统一关闭搜索引擎收录，草稿收录需要明确开启。公开 URL 采用 SSR 与现有 Wikist UI 渐进增强的单页同构方案，搜索引擎读取干净地址，浏览器继续使用完整交互界面。新增 `npm run check:seo` 与 [搜索引擎收录指南](SEARCH_ENGINE_INDEXING.md)。核心前端资源更新为 `wikist-core-20260816-205`。
+
+## 2026-08-16 - 生产部署诊断与实时链路修复
+
+- 新增 `doctor:production` 与 `repair:production`：统一检查和修复 systemd 实际运行账号、运行目录所有权、站点配置可读写性、实时密钥一致性、内部端口、本地/公网 WebSocket 与活跃 Nginx 路由；修复前会创建配置快照。
+- systemd 环境成为生产启动的唯一权威来源，启动器不再尝试回写受 `ProtectSystem=strict` 保护的源码目录；服务安装器会接管既有运行树和敏感配置文件，解决 root 安装遗留的 `EACCES`。
+- Centrifugo 生成配置默认启用仅回环可见的 `/health`；安装与排障文档明确区分“健康路由 404”“本地握手 101”和“Nginx 公网路由落入 Webman 404”。
+- 新增宝塔面板可直接 include 的精确 WebSocket 片段生成流程，仍不公开 Centrifugo API、健康探针或 Node 兼容端口。
+
 ## 2026-08-16 - Wikist 1.0.1 补丁版本
 
 - 安全边界：统一账号、权限、可信来源、请求地址、附件、文件路径、敏感信息脱敏、实时频道和后台恢复流程；新增授权矩阵、路径、密钥、部署与并发检查。

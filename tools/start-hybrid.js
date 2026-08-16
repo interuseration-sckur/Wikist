@@ -5,10 +5,25 @@ const { spawn, spawnSync } = require("child_process");
 
 const root = path.resolve(__dirname, "..");
 const webman = path.join(root, "webman-backend");
+const managedServiceEnvironment = Boolean(process.env.INVOCATION_ID || process.env.SYSTEMD_EXEC_PID || process.env.JOURNAL_STREAM);
+
+function serviceEnvironmentActive() {
+  return Boolean(process.env.APP_URL || process.env.WIKIST_PUBLIC_URL);
+}
 
 function loadEnvironmentFile(filePath) {
   if (!fs.existsSync(filePath)) return;
-  for (const rawLine of fs.readFileSync(filePath, "utf8").replace(/^\uFEFF/, "").split(/\r?\n/)) {
+  let source = "";
+  try {
+    source = fs.readFileSync(filePath, "utf8");
+  } catch (error) {
+    if (error?.code === "EACCES" && serviceEnvironmentActive()) {
+      console.warn(`Wikist skipped unreadable local environment file because service environment is active: ${filePath}`);
+      return;
+    }
+    throw error;
+  }
+  for (const rawLine of source.replace(/^\uFEFF/, "").split(/\r?\n/)) {
     const line = rawLine.trim();
     if (!line || line.startsWith("#")) continue;
     const match = line.replace(/^export\s+/, "").match(/^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/);
@@ -29,30 +44,48 @@ function persistLegacyAppSecret() {
     throw new Error("旧 Passport 密钥不足 32 字节；请设置新的 APP_SECRET 后再执行升级。");
   }
   process.env.APP_SECRET = secret;
+  if (managedServiceEnvironment) return;
   const envPath = path.join(webman, ".env");
-  if (!fs.existsSync(envPath) || fs.lstatSync(envPath).isSymbolicLink()) return;
-  const current = fs.readFileSync(envPath, "utf8").replace(/^\uFEFF/, "").replace(/\s*$/, "");
-  const escaped = secret.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-  const temporary = `${envPath}.${process.pid}.tmp`;
-  fs.writeFileSync(temporary, `${current}\nAPP_SECRET="${escaped}"\n`, { encoding: "utf8", mode: 0o600, flag: "wx" });
-  fs.renameSync(temporary, envPath);
-  try { fs.chmodSync(envPath, 0o600); } catch (_) {}
-  console.log("Wikist 已将旧 Passport 密钥迁移到 APP_SECRET。");
+  try {
+    if (!fs.existsSync(envPath) || fs.lstatSync(envPath).isSymbolicLink()) return;
+    const current = fs.readFileSync(envPath, "utf8").replace(/^\uFEFF/, "").replace(/\s*$/, "");
+    const escaped = secret.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+    const temporary = `${envPath}.${process.pid}.tmp`;
+    fs.writeFileSync(temporary, `${current}\nAPP_SECRET="${escaped}"\n`, { encoding: "utf8", mode: 0o600, flag: "wx" });
+    fs.renameSync(temporary, envPath);
+    try { fs.chmodSync(envPath, 0o600); } catch (_) {}
+    console.log("Wikist 已将旧 Passport 密钥迁移到 APP_SECRET。");
+  } catch (error) {
+    if (error?.code === "EACCES" && serviceEnvironmentActive()) {
+      console.warn(`Wikist migrated the legacy secret in memory but could not update the local environment file: ${envPath}`);
+      return;
+    }
+    throw error;
+  }
 }
 
 function persistEnvironmentValue(name, value) {
+  if (managedServiceEnvironment) return;
   const envPath = path.join(webman, ".env");
-  if (!fs.existsSync(envPath) || fs.lstatSync(envPath).isSymbolicLink()) return;
-  const escaped = String(value).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-  const line = `${name}="${escaped}"`;
-  const current = fs.readFileSync(envPath, "utf8").replace(/^\uFEFF/, "");
-  const pattern = new RegExp(`^${name}=.*$`, "m");
-  const next = `${(pattern.test(current) ? current.replace(pattern, line) : `${current.replace(/\s*$/, "")}\n${line}`).replace(/\s*$/, "")}\n`;
-  if (next === current) return;
-  const temporary = `${envPath}.${process.pid}.tmp`;
-  fs.writeFileSync(temporary, next, { encoding: "utf8", mode: 0o600, flag: "wx" });
-  fs.renameSync(temporary, envPath);
-  try { fs.chmodSync(envPath, 0o600); } catch (_) {}
+  try {
+    if (!fs.existsSync(envPath) || fs.lstatSync(envPath).isSymbolicLink()) return;
+    const escaped = String(value).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+    const line = `${name}="${escaped}"`;
+    const current = fs.readFileSync(envPath, "utf8").replace(/^\uFEFF/, "");
+    const pattern = new RegExp(`^${name}=.*$`, "m");
+    const next = `${(pattern.test(current) ? current.replace(pattern, line) : `${current.replace(/\s*$/, "")}\n${line}`).replace(/\s*$/, "")}\n`;
+    if (next === current) return;
+    const temporary = `${envPath}.${process.pid}.tmp`;
+    fs.writeFileSync(temporary, next, { encoding: "utf8", mode: 0o600, flag: "wx" });
+    fs.renameSync(temporary, envPath);
+    try { fs.chmodSync(envPath, 0o600); } catch (_) {}
+  } catch (error) {
+    if (["EACCES", "EROFS", "EPERM"].includes(error?.code) && serviceEnvironmentActive()) {
+      console.warn(`Wikist could not update the local environment file; service environment remains authoritative: ${envPath}`);
+      return;
+    }
+    throw error;
+  }
 }
 
 persistLegacyAppSecret();
