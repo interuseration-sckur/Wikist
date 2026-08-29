@@ -14,6 +14,96 @@ const SCENES = [
   ["8", "背景 8"],
 ];
 const VALID_MODES = new Set(["login", "register", "forgot", "reset", "verify"]);
+const UI_LANGUAGE_KEY = "wikist-language";
+const PASSPORT_EN = [
+  ["开放、严谨、可验证的数学知识共同体", "An open, rigorous, verifiable mathematics knowledge community"],
+  ["开放知识通行证", "Open knowledge passport"], ["知识通行证", "Knowledge passport"], ["通行证", "Passport"],
+  ["返回 Wiki", "Back to Wiki"], ["页面工具", "Page tools"], ["切换深浅主题", "Switch light/dark theme"], ["主题", "Theme"], ["选择背景", "Choose background"], ["场景", "Scene"],
+  ["登录", "Sign in"], ["注册", "Sign up"], ["找回密码", "Reset password"], ["设置新密码", "Set a new password"], ["验证邮箱", "Verify email"],
+  ["验证身份后继续进入知识网络。", "Verify your identity to continue to the knowledge network."],
+  ["创建账号并开始记录你的贡献。", "Create an account and start recording your contributions."],
+  ["通过绑定邮箱恢复你的知识通行证。", "Recover your knowledge passport through your verified email address."],
+  ["更新后请使用新密码登录。", "Use your new password to sign in after updating it."],
+  ["正在确认验证链接。", "Confirming this verification link."],
+  ["用户名或邮箱", "Username or email"], ["用户名", "Username"], ["显示名称", "Display name"], ["邮箱", "Email address"],
+  ["密码", "Password"], ["确认密码", "Confirm password"], ["新密码", "New password"], ["确认新密码", "Confirm new password"],
+  ["输入你的统一身份标识", "Enter your username or email"], ["输入通行证密码", "Enter your passport password"], ["输入已绑定邮箱的账号", "Enter the account with a verified email"],
+  ["你的公开知识署名", "Your public knowledge byline"], ["再次输入密码", "Enter the password again"], ["显示密码", "Show password"], ["隐藏密码", "Hide password"],
+  ["3-32 位字母、数字、下划线或连字符", "3-32 letters, numbers, underscores, or hyphens"], ["将显示在贡献、审阅与讨论记录中", "Shown on contributions, reviews, and discussions"],
+  ["用于验证身份与找回密码，不会公开展示", "Used for verification and password recovery; never shown publicly"],
+  ["验证身份并登录", "Verify identity and sign in"], ["忘记密码？", "Forgot password?"], ["还没有通行证？", "No passport yet?"], ["创建账号", "Create account"], ["已有通行证？", "Already have a passport?"], ["返回登录", "Back to sign in"],
+  ["发送密码重置邮件", "Send password reset email"], ["创建新账号", "Create a new account"], ["更新密码并注销旧会话", "Update password and sign out old sessions"],
+  ["使用二次验证码", "Use two-factor code"], ["6 位动态验证码", "6-digit one-time code"],
+  ["服务器安装密钥", "Server installation key"], ["启动日志中显示的一次性密钥", "One-time key shown in the startup log"], ["该密钥只用于确认你拥有服务器控制权", "This key only confirms that you control the server"],
+  ["创建首位管理员", "Create the first administrator"], ["创建知识通行证", "Create a knowledge passport"], ["初始化站点唯一的首位管理身份。", "Initialize the site's first and only administrator identity."],
+  ["人机验证", "Human verification"], ["刷新", "Refresh"], ["系统随机验证", "Random system verification"], ["准备中", "Preparing"], ["验证码背景", "Verification background"], ["拼图滑块", "Puzzle slider"],
+  ["按提示顺序点选图中文字", "Click the text in the requested order"], ["正在生成安全验证…", "Generating security verification..."], ["拖动滑块完成拼图", "Drag the slider to complete the puzzle"], ["按住滑块向右拖动", "Hold and drag the slider right"], ["撤销一点", "Undo one"], ["完成验证后继续提交。", "Complete verification before submitting."],
+  ["正在检查是否可用…", "Checking availability..."], ["用户名可以使用", "Username is available"], ["用户名已被占用", "Username is already taken"], ["邮箱可以使用", "Email is available"], ["邮箱已被占用", "Email is already in use"], ["暂时无法检查，提交时会再次验证", "Unable to check now; it will be verified when you submit"],
+  ["正在建立安全会话…", "Creating secure session..."], ["正在发送安全邮件…", "Sending security email..."], ["正在更新密码…", "Updating password..."], ["两次输入的密码不一致。", "The two passwords do not match."],
+  ["当前会话", "Current session"], ["继续访问站点，或切换账号。", "Continue to the site or switch accounts."], ["继续使用当前账号", "Continue with this account"], ["退出并切换账号", "Sign out and switch accounts"], ["退出登录", "Sign out"], ["当前已登录为 ", "Signed in as "], ["进入账户中心", "Open account center"],
+  ["通行证场景", "Passport scene"], ["关闭", "Close"], ["自定义背景 URL", "Custom background URL"], ["强调色", "Accent color"], ["应用自定义场景", "Apply custom scene"], ["提示", "Notice"], ["知道了", "OK"],
+  ["背景地址无效", "Invalid background URL"], ["请输入 HTTPS 图片地址或本站绝对路径。", "Enter an HTTPS image URL or an absolute path on this site."],
+  ["通行证暂时不可用", "Passport is temporarily unavailable"], ["返回 Wiki", "Back to Wiki"],
+  ["至少 8 位字符", "At least 8 characters"], ["密码强度", "Password strength"], ["若账号存在，将发送密码重置链接", "If the account exists, a password reset link will be sent."],
+  ["请在 5 分钟内完成验证。", "Complete verification within 5 minutes."], ["验证码图像加载失败，请刷新后重试。", "Verification image could not load. Refresh and try again."], ["按序点选", "Click in order"], ["滑块拼图", "Slider puzzle"], ["请按以下顺序点选", "Click in this order"], ["正在校验行为轨迹…", "Checking interaction pattern..."], ["验证通过", "Verification passed"], ["验证通过，可提交当前表单。", "Verification passed. You can submit this form."], ["人机验证仍在处理中，请稍候。", "Human verification is still processing. Please wait."], ["请先完成人机验证。", "Complete human verification first."],
+  ["身份验证成功，正在进入账户中心…", "Identity verified. Opening Account Center..."], ["首位管理员已创建，正在进入后台。", "First administrator created. Opening Admin..."], ["通行证已创建，验证邮件已经发送到你的邮箱。", "Passport created. A verification email has been sent to your address."], ["通行证已创建；当前站点未能发送验证邮件，可稍后在账户中心重试。", "Passport created, but this site could not send a verification email. Try again later from Account Center."], ["注册成功", "Registration complete"], ["请检查你的邮箱", "Check your email"], ["如果账号存在且邮件服务可用，密码重置链接已经发送。", "If the account exists and email is available, a password reset link has been sent."], ["密码已更新", "Password updated"], ["所有旧登录会话均已失效，请使用新密码重新登录。", "All previous sign-in sessions have been revoked. Sign in with your new password."], ["账号已被封禁", "Account disabled"], ["请输入验证器中的 6 位动态验证码，然后重新完成人机验证。", "Enter the 6-digit code from your authenticator, then complete human verification again."], ["请求较频繁，请在", "Too many requests. Try again in"], ["秒后重试。", "seconds."],
+  ["Wikist 用户", "Wikist user"], ["成员", "Member"], ["已验证", "Verified"], ["当前账号已安全退出，请登录其他账号。", "You have safely signed out. Sign in with another account."], ["已退出当前账号。", "Signed out."], ["正在验证邮箱", "Verifying email"], ["正在检查这条验证链接，请稍候…", "Checking this verification link. Please wait..."], ["验证链接不完整", "Incomplete verification link"], ["链接中缺少邮箱验证令牌，请重新发送验证邮件。", "This link is missing an email verification token. Send a new verification email."], ["邮箱验证成功", "Email verified"], ["邮箱已验证，可以继续使用账户。", "Your email is verified. You can continue using your account."], ["邮箱验证失败", "Email verification failed"], ["使用", "Use"], ["账户参与词条、协作、消息与审阅。", "account to participate in pages, collaboration, messages, and review."],
+];
+const PASSPORT_EN_MAP = new Map(PASSPORT_EN);
+const PASSPORT_API_ERROR_EN = {
+  invalid_credentials: "Incorrect account or password.", account_disabled: "This account has been disabled.", email_verification_required: "Verify your email address before signing in.", username_invalid: "Username must contain 3-32 letters, numbers, underscores, or hyphens.", display_name_invalid: "Display name is required and must be 80 characters or fewer.", email_invalid: "Enter a valid email address.", password_invalid: "Password must meet the required length and confirmation rules.", identity_exists: "That username or email address is already in use.", install_bootstrap_required: "The one-time installation key shown at server startup is required.", captcha_required: "Complete human verification first.", captcha_invalid: "Verification failed. Complete it again.", captcha_expired: "Verification expired. Refresh and try again.", captcha_unavailable: "Human verification is temporarily unavailable. Try again later.", passport_token_invalid: "This verification link has expired. Request a new one.", login_rate_limited: "Too many sign-in attempts. Try again later.", csrf_token_invalid: "Your security token has expired. Refresh the page and try again.", internal_error: "An internal error occurred. Try again later.",
+};
+
+function englishUiEnabled() {
+  try { return localStorage.getItem(UI_LANGUAGE_KEY) === "en"; } catch (_) { return false; }
+}
+
+function translatePassportText(value) {
+  const original = String(value || "");
+  const leading = original.match(/^\s*/)?.[0] || "";
+  const trailing = original.match(/\s*$/)?.[0] || "";
+  const text = original.trim();
+  const exact = PASSPORT_EN_MAP.get(text);
+  if (exact) return `${leading}${exact}${trailing}`;
+  const scene = text.match(/^选择背景\s*(\d+)$/);
+  if (scene) return `${leading}Choose background ${scene[1]}${trailing}`;
+  const disabled = text.match(/^该\s+(.+?)\s+通行证已停用，请联系站点管理员。$/);
+  if (disabled) return `${leading}This ${disabled[1]} Passport has been disabled. Contact the site administrator.${trailing}`;
+  const siteIntro = text.match(/^使用\s+(.+?)\s+账户参与词条、协作、消息与审阅。$/);
+  if (siteIntro) return `${leading}Use your ${siteIntro[1]} account to participate in pages, collaboration, messages, and review.${trailing}`;
+  const retry = text.match(/^请求较频繁，请在\s*(\d+)\s*秒后重试。$/);
+  if (retry) return `${leading}Too many requests. Try again in ${retry[1]} seconds.${trailing}`;
+  return original;
+}
+
+function hydratePassportEnglish(root = document.body) {
+  if (!englishUiEnabled()) return;
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      const parent = node.parentElement;
+      if (!parent || !node.nodeValue.trim() || parent.closest("script,style,textarea,code,pre,[data-i18n-skip]")) return NodeFilter.FILTER_REJECT;
+      return NodeFilter.FILTER_ACCEPT;
+    },
+  });
+  const nodes = [];
+  while (walker.nextNode()) nodes.push(walker.currentNode);
+  nodes.forEach((node) => {
+    if (!node._wikistOriginalText) node._wikistOriginalText = node.nodeValue;
+    node.nodeValue = translatePassportText(node._wikistOriginalText);
+  });
+  root.querySelectorAll("*").forEach((element) => {
+    if (element.closest("[data-i18n-skip]")) return;
+    ["placeholder", "title", "aria-label", "alt"].forEach((name) => {
+      const originalKey = `_wikistOriginal${name[0].toUpperCase()}${name.slice(1)}`;
+      const value = element.getAttribute(name);
+      if (value === null) return;
+      if (!(originalKey in element)) element[originalKey] = value;
+      const translated = translatePassportText(element[originalKey]);
+      if (translated !== element[originalKey]) element.setAttribute(name, translated);
+    });
+  });
+  document.documentElement.lang = "en";
+}
 
 const state = {
   mode: VALID_MODES.has(params.get("mode")) ? params.get("mode") : "login",
@@ -76,7 +166,9 @@ async function api(path, options = {}) {
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
-    const error = new Error(payload.error || `请求失败（HTTP ${response.status}）`);
+    const error = new Error(englishUiEnabled()
+      ? (PASSPORT_API_ERROR_EN[String(payload.code || "")] || `Request failed (HTTP ${response.status})`)
+      : (payload.error || `请求失败（HTTP ${response.status}）`));
     error.code = payload.code || "request_failed";
     error.status = response.status;
     error.retryAfter = Number(payload.retryAfter || payload.details?.retryAfter || response.headers.get("retry-after") || 0);
@@ -92,18 +184,20 @@ function siteName() {
 function setStatus(message = "", kind = "") {
   const node = $("#formStatus");
   if (!node) return;
-  node.textContent = message;
+  node.textContent = englishUiEnabled() ? translatePassportText(message) : message;
   node.className = `form-status${kind ? ` ${kind}` : ""}`;
 }
 
 function showNotice(title, message, icon = "info", code = "PASSPORT") {
+  const localizedTitle = englishUiEnabled() ? translatePassportText(title) : title;
+  const localizedMessage = englishUiEnabled() ? translatePassportText(message) : message;
   if (window.Swal?.fire) {
     const style = getComputedStyle(document.documentElement);
     return window.Swal.fire({
-      title,
-      text: message,
+      title: localizedTitle,
+      text: localizedMessage,
       icon,
-      confirmButtonText: "知道了",
+      confirmButtonText: englishUiEnabled() ? "OK" : "知道了",
       background: style.getPropertyValue("--panel-solid").trim(),
       color: style.getPropertyValue("--text").trim(),
       confirmButtonColor: style.getPropertyValue("--accent-2").trim(),
@@ -111,8 +205,8 @@ function showNotice(title, message, icon = "info", code = "PASSPORT") {
     });
   }
   $("#noticeCode").textContent = code;
-  $("#noticeTitle").textContent = title;
-  $("#noticeMessage").textContent = message;
+  $("#noticeTitle").textContent = localizedTitle;
+  $("#noticeMessage").textContent = localizedMessage;
   if (elements.noticeDialog.showModal) elements.noticeDialog.showModal();
   else elements.noticeDialog.setAttribute("open", "");
   return Promise.resolve();
@@ -635,6 +729,7 @@ function renderMode() {
     elements.formMount.innerHTML = authenticatedSessionPanel();
     bindAuthenticatedSessionPanel();
     document.title = `当前会话 - ${siteName()} 通行证`;
+    hydratePassportEnglish();
     return;
   }
   const copy = MODE_COPY[state.mode] || MODE_COPY.login;
@@ -651,6 +746,7 @@ function renderMode() {
   bindForm();
   document.title = `${elements.formTitle.textContent} - ${siteName()} 通行证`;
   if (state.mode === "verify") verifyEmail();
+  hydratePassportEnglish();
 }
 
 function navigate(mode, replace = false) {
@@ -688,8 +784,11 @@ function applySite() {
   const tagline = String(state.site.tagline || "开放、严谨、可验证的数学知识共同体");
   elements.siteName.textContent = name;
   elements.siteTagline.textContent = tagline;
+  elements.siteTagline.dataset.i18nSkip = "true";
   elements.introSiteName.textContent = name;
-  elements.intro.textContent = `使用 ${name} 账户参与词条、协作、消息与审阅。`;
+  elements.intro.textContent = englishUiEnabled()
+    ? `Use your ${name} account for pages, collaboration, messages, and review.`
+    : `使用 ${name} 账户参与词条、协作、消息与审阅。`;
   elements.footerSiteName.textContent = `${name} Passport`;
   const icon = safeAssetUrl(state.site.siteIcon);
   elements.brandIcon.src = icon;
@@ -768,6 +867,7 @@ async function bootstrap() {
   }
   applySite();
   renderMode();
+  hydratePassportEnglish();
 }
 
 bootstrap().catch((error) => {

@@ -120,11 +120,12 @@ final class SeoController
             return new Response(404, ['Content-Type' => 'application/xml; charset=utf-8', 'X-Robots-Tag' => 'noindex'], '<?xml version="1.0" encoding="UTF-8"?><error>SEO disabled</error>');
         }
         try {
+            $wikiPageSize = $this->content->sitemapPageSize();
             $wiki = $this->content->wikiList(1, 1);
             $questions = $this->content->questionList(1, 1);
             $discussions = $this->content->discussionList(1, 1);
             $sections = [
-                'wiki' => (int) ceil(((int) ($wiki['total'] ?? 0)) / 500),
+                'wiki' => (int) ceil(((int) ($wiki['total'] ?? 0)) / $wikiPageSize),
                 'questions' => (int) ceil(((int) ($questions['total'] ?? 0)) / 50),
                 'discussions' => (int) ceil(((int) ($discussions['total'] ?? 0)) / 50),
             ];
@@ -150,7 +151,7 @@ final class SeoController
         try {
             $urls = [];
             if ($section === 'wiki') {
-                $payload = $this->content->wikiList($number, 500);
+                $payload = $this->content->wikiList($number, $this->content->sitemapPageSize());
                 foreach ((array) ($payload['items'] ?? []) as $item) {
                     if ($this->content->isIndexablePage((array) $item)) {
                         $urls[] = [$this->renderer->absolute($this->renderer->wikiPath((string) ($item['slug'] ?? ''))), (string) ($item['updatedAt'] ?? '')];
@@ -227,10 +228,15 @@ final class SeoController
 
     private function xml(Request $request, string $body): Response
     {
-        $etag = '"' . hash('sha256', $body) . '"';
-        $headers = ['Content-Type' => 'application/xml; charset=utf-8', 'Cache-Control' => 'public, max-age=300, stale-while-revalidate=900', 'ETag' => $etag];
-        if (trim((string) $request->header('if-none-match')) === $etag) return new Response(304, $headers, '');
-        return new Response(200, $headers, $body);
+        // A Sitemap is generated from current content on every request. Do not
+        // serve a stale XML document after an import, publish, restore, or
+        // deletion. This also tells reverse proxies not to retain an old copy.
+        return new Response(200, [
+            'Content-Type' => 'application/xml; charset=utf-8',
+            'Cache-Control' => 'no-store, no-cache, must-revalidate, max-age=0',
+            'Pragma' => 'no-cache',
+            'Expires' => '0',
+        ], $body);
     }
 
     private function page(Request $request, string $name): int

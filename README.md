@@ -8,7 +8,7 @@
   面向数学与科学知识社区的开放 Wiki 框架
 </p>
 
-> 当前稳定版本：`1.0.3`
+> 当前稳定版本：`1.0.4`
 
 Wikist 用于建设专业、可验证、可持续协作的知识站点。它将 Wiki、问答、组织协作、翻译、评论、消息与内容审阅放在同一套用户和知识体系中，适合个人、团队、学校社团和中小型专业社区部署。
 
@@ -163,7 +163,7 @@ npm run update -- --preflight-only --yes
 npm run update -- --strategy=git --remote=origin --branch=main --service=wikist --yes
 ```
 
-从 Wikist `1.0.x` 升级到 `1.0.3` 也使用同一命令，无需重新安装或清空数据库。升级完成后确认版本与运行状态：
+从 Wikist `1.0.x` 升级到 `1.0.4` 也使用同一命令，无需重新安装或清空数据库。升级完成后确认版本与运行状态：
 
 ```bash
 npm run doctor
@@ -270,6 +270,7 @@ npm run restart
 - [安装与部署](docs/INSTALL.md)
 - [生产部署故障排查](docs/PRODUCTION_TROUBLESHOOTING.md)
 - [安全加固验收](docs/HARDENING_ACCEPTANCE_2026-08-16.md)
+- [1.0.4 发布说明](docs/RELEASE_1.0.4.md)
 - [1.0.3 发布说明](docs/RELEASE_1.0.3.md)
 - [1.0.2 发布说明](docs/RELEASE_1.0.2.md)
 - [1.0.1 发布说明](docs/RELEASE_1.0.1.md)
@@ -335,4 +336,4 @@ Create a full backup first, then run:
 npm run update -- --strategy=git --remote=origin --branch=main --service=wikist --yes
 ```
 
-See [Installation](docs/INSTALL.md), [Release 1.0.3](docs/RELEASE_1.0.3.md), and the [Upgrade Changelog](docs/UPGRADE_CHANGELOG.md) for further guidance.
+See [Installation](docs/INSTALL.md), [Release 1.0.4](docs/RELEASE_1.0.4.md), and the [Upgrade Changelog](docs/UPGRADE_CHANGELOG.md) for further guidance.

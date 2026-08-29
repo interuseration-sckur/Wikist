@@ -56,7 +56,7 @@ npm run check:seo
 
 ## 提交搜索引擎
 
-将 `https://math.sx/sitemap.xml` 提交到 Google Search Console、Bing Webmaster Tools 等站长平台。Sitemap 会按词条、问答和讨论自动分片，新增或更新内容无需手工维护 XML。
+将 `https://math.sx/sitemap.xml` 提交到 Google Search Console、Bing Webmaster Tools 等站长平台。Sitemap 会按词条、问答和讨论自动分片；每次请求都从当前公开内容生成，导入、创建、更新、恢复或删除词条后无需手工维护 XML。
 
 站点应持续保持：
 
@@ -65,4 +65,10 @@ npm run check:seo
 - 页面之间使用可抓取的 `/wiki/...`、`/questions/...`、`/discussions/...` 链接。
 - 不用 `robots.txt` 代替权限控制；非公开内容必须由 Wikist 权限层拒绝访问。
 
-搜索引擎抓取和建立索引通常不是即时完成。上线后先检查 Sitemap 已读取、页面没有 `noindex`，再等待搜索引擎完成抓取。
+## 品牌词与站点链接
+
+首页会以后台设置的站点名作为正式站点名，并在结构化数据中声明站点域名去掉标点后的别名。例如公开地址为 `https://math.sx` 时，会声明 `mathsx` 为别名；也可在 `seo.brandAliases` 中配置额外品牌别名。首页同时提供知识库、站内问答和协作社区三个可抓取的公开入口。
+
+Google 的“站点链接”由其系统自动生成，不能手动指定链接或保证展示。发布后，应在 Google Search Console 验证 `https://math.sx`、提交 Sitemap，并对首页请求重新抓取；在 Bing Webmaster Tools 也验证站点并提交同一 Sitemap。保持首页与三个公开入口可访问、标题和品牌名一致，能提高这些入口成为站点链接的可能性。
+
+XML 会立刻反映内容变更，但搜索引擎抓取和建立索引通常不是即时完成。上线后先检查 Sitemap 已读取、页面没有 `noindex`，再等待搜索引擎完成抓取。

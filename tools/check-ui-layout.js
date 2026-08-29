@@ -107,6 +107,7 @@ requireCss("classified account sections", ".account-section-grid { display: grid
 requireCss("aligned account section cards", ".account-section-grid > * { height: 100%;");
 requireCss("content-height organization identities", ".organization-identity-panel { display: grid; align-content: start;");
 requireCss("full-width collaboration heading", ".community-head { width: 100%; max-width: none;");
+requireCss("full-width organization profile summary", ".organization-workspace-title .article-summary { width: 100%; max-width: none;");
 requireCss("full-width collaboration and translation workspaces", ".organization-members-workspace, .organization-tab-layout, .translation-language-chooser { width: 100%; max-width: none;");
 requireCss("adaptive translation language grid", ".translation-language-chooser-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr));");
 requireCss("asymmetric home dashboard", ".home-dashboard-columns.has-two-columns { grid-template-columns: minmax(0, 1.16fr) minmax(300px, .84fr);");
@@ -151,7 +152,7 @@ requirePattern("knowledge recommendation candidate pool", app, /\/recommendation
 requirePattern("right rail recommendation cap", app, /RAIL_RECOMMENDATION_LIMIT\s*=\s*5/);
 requirePattern("right rail recent cap", app, /RAIL_RECENT_LIMIT\s*=\s*5/);
 requirePattern("right rail random refresh", html, /id="recommendationRefresh"[\s\S]*id="recentRefresh"/);
-requirePattern("global footer", html, /id="siteFooter"[\s\S]*id="footerCopyright"/);
+requirePattern("global footer", html, /id="siteFooter"[\s\S]*id="footerSiteName"[\s\S]*id="footerTagline"[\s\S]*id="footerCopyright"/);
 requirePattern("search-first site portal", app, /function renderKnowledgePortal\(\)/);
 requirePattern("asynchronous suggestion endpoint", app, /async function fetchPageSuggestions[\s\S]*?\/api\/search\/suggest/);
 requirePattern("shared asynchronous suggestions", app, /function bindPageSuggestions\(input, options = \{\}\)/);

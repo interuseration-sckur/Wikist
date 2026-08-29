@@ -1,6 +1,6 @@
 const THEME_KEY = "wikist-theme";
 const LANG_KEY = "wikist-language";
-const CORE_ASSET_VERSION = "wikist-core-20260822-208";
+const CORE_ASSET_VERSION = "wikist-core-20260829-217";
 const RAIL_RECOMMENDATION_LIMIT = 5;
 const RAIL_RECENT_LIMIT = 5;
 const PAGE_SHARE_RECENT_DIRECT_LIMIT = 6;
@@ -121,7 +121,7 @@ function currentMessagingPresenceClientId() {
 }
 
 function currentPassportName() {
-  return `${currentSiteName()} 通行证`;
+  return state.uiLanguage === "en" ? `${currentSiteName()} Passport` : `${currentSiteName()} 通行证`;
 }
 
 function passportUrl(mode = "login", token = "") {
@@ -170,11 +170,17 @@ const el = {
   recentLimit: document.querySelector("#recentLimit"),
   recentRefresh: document.querySelector("#recentRefresh"),
   footerSiteName: document.querySelector("#footerSiteName"),
+  footerTagline: document.querySelector("#footerTagline"),
   footerCopyright: document.querySelector("#footerCopyright"),
 };
 
 function renderSiteFooter() {
   if (el.footerSiteName) el.footerSiteName.textContent = currentSiteName();
+  if (el.footerTagline) {
+    const tagline = String(state.site?.tagline || "").trim();
+    el.footerTagline.textContent = tagline;
+    el.footerTagline.hidden = !tagline;
+  }
   if (el.footerCopyright) {
     const license = String(state.site?.license || "CC BY-SA 4.0").trim() || "CC BY-SA 4.0";
     el.footerCopyright.textContent = `© ${new Date().getFullYear()} ${currentSiteName()}。除另有声明外，本站内容采用 ${license} 许可。`;
@@ -216,19 +222,21 @@ async function api(path, options = {}) {
     const retryAfter = Math.max(0, Number(payload.retryAfter || response.headers.get("retry-after") || 0));
     if (response.status === 429) {
       showFirewallNotice(retryAfter);
-      const error = new Error(retryAfter > 0 ? `请求过于频繁，请在 ${retryAfter} 秒后重试。` : "请求过于频繁，请稍后再试。");
+      const error = new Error(state.uiLanguage === "en"
+        ? (retryAfter > 0 ? `Too many requests. Try again in ${retryAfter} seconds.` : "Too many requests. Try again later.")
+        : (retryAfter > 0 ? `请求过于频繁，请在 ${retryAfter} 秒后重试。` : "请求过于频繁，请稍后再试。"));
       error.code = "rate_limited";
       error.retryAfter = retryAfter;
       error.statusCode = response.status;
       throw error;
     }
     if (response.status === 413) {
-      const error = new Error("提交内容超过本站当前允许的大小，请精简后重试。");
+      const error = new Error(state.uiLanguage === "en" ? "Submitted content exceeds this site's size limit. Reduce it and try again." : "提交内容超过本站当前允许的大小，请精简后重试。");
       error.code = "body_too_large";
       error.statusCode = response.status;
       throw error;
     }
-    const error = new Error(payload.error || `请求失败（HTTP ${response.status}）`);
+    const error = new Error(localizedApiError(payload, response.status));
     error.code = payload.code || "request_failed";
     error.details = payload.details || null;
     error.statusCode = response.status;
@@ -377,21 +385,21 @@ async function ensureSweetAlert() {
 async function uiAlert(title, text = "", icon = "info") {
   const Swal = await ensureSweetAlert().catch(() => null);
   if (!Swal) return undefined;
-  return Swal.fire(sweetAlertOptions({ title, text, icon, confirmButtonText: "知道了" }));
+  return Swal.fire(sweetAlertOptions({ title: fixedUiText(title), text: fixedUiText(text), icon, confirmButtonText: fixedUiText("知道了") }));
 }
 
 async function uiConfirm({ title, text = "", icon = "question", confirmText = "确认", cancelText = "取消", danger = false } = {}) {
   const Swal = await ensureSweetAlert().catch(() => null);
   if (!Swal) return false;
   const result = await Swal.fire(sweetAlertOptions({
-    title,
-    text,
+    title: fixedUiText(title),
+    text: fixedUiText(text),
     icon,
     showCancelButton: true,
     focusCancel: danger,
     reverseButtons: true,
-    confirmButtonText: confirmText,
-    cancelButtonText: cancelText,
+    confirmButtonText: fixedUiText(confirmText),
+    cancelButtonText: fixedUiText(cancelText),
     customClass: { confirmButton: danger ? "is-danger" : "" },
   }));
   return Boolean(result.isConfirmed);
@@ -401,15 +409,15 @@ async function uiPrompt({ title, text = "", value = "", placeholder = "", confir
   const Swal = await ensureSweetAlert().catch(() => null);
   if (!Swal) return null;
   const result = await Swal.fire(sweetAlertOptions({
-    title,
-    text,
+    title: fixedUiText(title),
+    text: fixedUiText(text),
     input: "text",
     inputValue: value,
-    inputPlaceholder: placeholder,
+    inputPlaceholder: fixedUiText(placeholder),
     showCancelButton: true,
     reverseButtons: true,
-    confirmButtonText: confirmText,
-    cancelButtonText: "取消",
+    confirmButtonText: fixedUiText(confirmText),
+    cancelButtonText: fixedUiText("取消"),
     inputValidator: validator,
   }));
   return result.isConfirmed ? String(result.value || "").trim() : null;
@@ -419,7 +427,7 @@ async function uiToast(title, icon = "success") {
   const Swal = await ensureSweetAlert().catch(() => null);
   if (!Swal) return undefined;
   return Swal.fire(sweetAlertOptions({
-    title,
+    title: fixedUiText(title),
     icon,
     toast: true,
     position: "top-end",
@@ -432,7 +440,7 @@ async function uiToast(title, icon = "success") {
 
 function fmtDate(value) {
   if (!value) return "";
-  return new Intl.DateTimeFormat("zh-CN", {
+  return new Intl.DateTimeFormat(state.uiLanguage === "en" ? "en-US" : "zh-CN", {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -778,6 +786,104 @@ function updateLanguageChrome() {
 }
 
 const EN_UI_REPLACEMENTS = [
+  // Keep this catalog human-written. It is deliberately applied only outside
+  // user-authored content (see textNodesUnder) and never calls a translation service.
+  ["开放、严谨、可验证的数学知识共同体", "An open, rigorous, verifiable mathematics knowledge community"],
+  ["开放、严谨、可验证的知识共同体", "An open, rigorous, verifiable knowledge community"],
+  ["搜索概念、定理、符号或英文术语", "Search concepts, theorems, symbols, or English terms"],
+  ["搜索问题、回答、词条引用或标签", "Search questions, answers, page references, or tags"],
+  ["搜索用户名或显示名称", "Search usernames or display names"],
+  ["搜索标签名称", "Search tag names"],
+  ["请输入关键词", "Enter keywords"],
+  ["请输入标题", "Enter a title"],
+  ["请输入摘要", "Enter a summary"],
+  ["用一句完整的话说明问题", "Describe your question in one complete sentence"],
+  ["支持 Markdown、数学公式、[[词条]] 与 {{ref:type|id|label}}", "Supports Markdown, math, [[page]] and {{ref:type|id|label}}"],
+  ["例如：群论, 商群, 正规子群", "For example: group theory, quotient groups, normal subgroups"],
+  ["说明本次修改", "Describe this change"],
+  ["说明修改依据、来源或需要解决的问题", "Explain the basis, sources, or issue addressed by this change"],
+  ["提供有助于审核的事实或来源", "Provide facts or sources that help review this report"],
+  ["说明希望对方回答的重点（可选）", "Explain what you would like them to address (optional)"],
+  ["写消息，使用 @用户名 提及成员...", "Write a message; use @username to mention members..."],
+  ["问答与讨论", "Questions and discussions"],
+  ["从问题出发形成可验证的回答，并将成熟结论回流词条。", "Start with questions, build verifiable answers, and return mature conclusions to pages."],
+  ["发起问题", "Ask a question"],
+  ["写明问题、已知条件、尝试过程与可核验来源。", "State the question, known conditions, attempts, and verifiable sources."],
+  ["问题标题", "Question title"], ["问题正文", "Question body"], ["发布问题", "Post question"],
+  ["问题", "Questions"], ["回答", "Answers"], ["标签", "Tags"], ["我的收藏", "My collections"], ["我的关注", "Following"],
+  ["社区标签", "Community tags"], ["社区收藏", "Community collections"], ["社区关注", "Community following"], ["社区动态", "Community activity"],
+  ["按数学主题浏览问题，并关注需要持续跟进的领域。", "Browse questions by mathematical topic and follow areas that need continued attention."],
+  ["保存需要继续阅读、验证或整理回词条的问答内容。", "Save questions and answers to read, verify, or incorporate into pages later."],
+  ["持续接收问题更新、回答与标签动态。", "Keep up with question updates, answers, and tag activity."],
+  ["查看你有权访问的公共与组织知识活动。", "View public and organization knowledge activity you may access."],
+  ["没有匹配的标签", "No matching tags"], ["发布问题时可以创建新的主题标签。", "You can create a new topic tag when posting a question."],
+  ["还没有社区收藏", "No community collections yet"], ["在问题或回答下点击“收藏”即可加入这里。", "Use Save on a question or answer to add it here."],
+  ["还没有社区关注", "Not following anything yet"], ["关注问题或标签后，更新会进入你的通知中心。", "Updates appear in your notification center after you follow a question or tag."],
+  ["还没有社区动态", "No community activity yet"], ["发布问题或回答后，活动会显示在这里。", "Activity appears here after you post a question or answer."],
+  ["登录后查看社区收藏", "Sign in to view community collections"], ["登录后查看社区关注", "Sign in to view community following"],
+  ["问题与回答会保存在你的 Wikist 账户中。", "Questions and answers are saved to your Wikist account."],
+  ["关注的问题和标签会保存到你的 Wikist 账户。", "Followed questions and tags are saved to your Wikist account."],
+  ["登录 Passport", "Sign in to Passport"], ["取消收藏", "Remove from collection"], ["取消关注", "Unfollow"], ["关注", "Follow"], ["已关注", "Following"],
+  ["上一页", "Previous"], ["下一页", "Next"], ["共 ", "Total "], [" 条", " items"], ["第 ", "Page "], [" 页", ""],
+  ["最近活跃", "Recently active"], ["最新问题", "Newest"], ["热门讨论", "Hot"], ["优质推荐", "Recommended"], ["高分优先", "Highest score"], ["浏览最多", "Most viewed"], ["等待回答", "Unanswered"],
+  ["全部来源", "All sources"], ["直接提问", "Direct question"], ["协作组织", "Organization"], ["正文划词", "Selected text"], ["词条", "Page"], ["页面", "Page"], ["来源", "Source"], ["排序", "Sort"],
+  ["编辑问题", "Edit question"], ["编辑回答", "Edit answer"], ["编辑摘要", "Edit summary"], ["保存修改", "Save changes"], ["取消", "Cancel"], ["正文", "Body"],
+  ["举报问题", "Report question"], ["举报回答", "Report answer"], ["举报原因", "Reason"], ["补充说明", "Additional details"], ["提交举报", "Submit report"],
+  ["垃圾信息", "Spam"], ["不当内容", "Inappropriate content"], ["重复内容", "Duplicate"], ["事实错误", "Factual error"], ["版权问题", "Copyright issue"], ["隐私问题", "Privacy issue"], ["其他", "Other"],
+  ["建议修订", "Propose revision"], ["提交后进入社区审阅队列，通过后才会替换当前内容。", "Your proposal enters community review and replaces current content only after approval."],
+  ["修订说明", "Revision summary"], ["提交审阅", "Submit for review"], ["修订记录", "Revision history"], ["还没有修订记录。", "No revisions yet."], ["比较", "Compare"],
+  ["邀请回答", "Invite to answer"], ["邀请熟悉该主题的成员参与回答。", "Invite members familiar with this topic to answer."], ["社区成员", "Community member"], ["附言", "Note"], ["发送邀请", "Send invitation"], ["邀请记录", "Invitation history"], ["选择", "Select"], ["开始回答", "Start answering"], ["忽略", "Dismiss"],
+  ["引用知识", "Reference knowledge"], ["引用", "Reference"], ["回复", "Reply"], ["删除", "Delete"], ["关闭", "Close"], ["收起编辑器", "Collapse editor"], ["收起提问", "Collapse question form"], ["收起举报表单", "Collapse report form"], ["收起邀请面板", "Collapse invitations"],
+  ["赞同", "Upvote"], ["反对", "Downvote"], ["已采纳", "Accepted"], ["内容操作", "Content actions"], ["内容质量投票", "Content quality voting"],
+  ["知识首页", "Knowledge home"], ["协作社区", "Community"], ["页脚导航", "Footer navigation"], ["主导航", "Primary navigation"], ["快捷导航", "Quick navigation"], ["账户摘要", "Account summary"], ["词条详情", "Page details"],
+  ["词条推荐", "Recommended pages"], ["最近更新", "Recent updates"], ["目录", "Contents"], ["最多 5 条", "Up to 5"], ["换一批推荐", "Refresh recommendations"], ["随机换一批", "Refresh"],
+  ["切换浅色主题", "Switch to light theme"], ["切换暗黑主题", "Switch to dark theme"], ["切换主题", "Switch theme"], ["语言", "Language"], ["新建词条", "New page"], ["编辑词条", "Edit page"], ["退出登录", "Sign out"],
+  ["打开站点导航", "Open site navigation"], ["关闭站点导航", "Close site navigation"], ["消息中心", "Message center"], ["消息预览", "Message preview"],
+  ["后台控制台", "Admin"],
+  ["站点设置", "Site settings"], ["保存设置", "Save settings"], ["账户中心", "Account center"], ["个人资料", "Profile"], ["安全设置", "Security settings"],
+  ["资讯", "News"], ["问答", "Q&A"], ["通信", "Messages"], ["我的协作", "My organizations"], ["搜索数学概念", "Search mathematics concepts"],
+  ["搜索概念、定理、证明、符号或英文术语", "Search concepts, theorems, proofs, symbols, or English terms"], ["知识入口", "Knowledge entry points"], ["进入知识首页", "Open knowledge home"],
+  ["访客模式", "Guest mode"], ["登录后同步贡献身份", "Sign in to sync your contributor identity"], ["进入账户中心", "Open account center"], ["进入后台", "Open admin"], ["查看公开主页", "View public profile"],
+  ["公开资料", "Public profile"], ["安全中心", "Security"], ["社区身份", "Community identity"], ["收藏与关注", "Collections and following"], ["成就", "Achievements"], ["我的划词", "My selections"], ["账户中心分区", "Account sections"],
+  ["编辑头像、简介、外部资料与公开主页。", "Edit your avatar, bio, external links, and public profile."], ["管理邮箱验证、二次验证和登录密码。", "Manage email verification, two-factor authentication, and your password."], ["管理翻译语言与协作组织身份。", "Manage translation languages and organization identities."], ["管理收藏词条与更新提醒。", "Manage saved pages and update notifications."], ["查看知识创作、协作与社区成长历程。", "View your knowledge creation, collaboration, and community growth."], ["查看喜欢的正文和已发布批注。", "View liked text and published annotations."],
+  ["关注者", "Followers"], ["正在关注", "Following"], ["编辑", "Edits"], ["收藏", "Saved"], ["关注词条", "Watched pages"], ["返回账户中心", "Back to account center"],
+  ["我的收藏", "My saved pages"], ["我的关注", "My follows"], ["收藏词条", "Saved pages"], ["还没有收藏词条", "No saved pages yet"], ["尚未关注任何目标", "Not following anything yet"],
+  ["成长进度", "Growth progress"], ["知识成长历程", "Knowledge growth journey"], ["持续创作、协作和交流，解锁覆盖全站的贡献成就。", "Create, collaborate, and participate to unlock site-wide contribution achievements."],
+  ["已解锁", "Unlocked"], ["全部成就", "All achievements"], ["成长点数", "Growth points"], ["成就正在准备", "Achievements are being prepared"], ["完成一次知识贡献后再来看看。", "Return after making a knowledge contribution."], ["解锁记录", "Unlock history"], ["完成第一项贡献后，成长记录会出现在这里。", "Your growth record appears here after your first contribution."],
+  ["全部", "All"], ["喜欢", "Liked"], ["批注", "Annotations"], ["还没有划词记录", "No selections yet"], ["喜欢正文或发布批注后，记录会出现在这里。", "Liked text and published annotations appear here."], ["查看批注", "View annotations"], ["删除划词", "Delete selection"], ["取消喜欢", "Remove like"],
+  ["发送验证邮件", "Send verification email"], ["验证邮件已发送，请检查邮箱。", "Verification email sent. Check your inbox."], ["验证邮件请求已提交。", "Verification email request submitted."], ["开启二次验证", "Enable two-factor authentication"], ["关闭二次验证", "Disable two-factor authentication"], ["确认启用", "Confirm enablement"], ["无法扫码？使用密钥手动添加", "Cannot scan? Add the key manually"],
+  ["公开在线状态", "Public online status"], ["允许其他用户在你的公开主页查看实时在线状态。", "Allow other users to see your live online status on your public profile."], ["开放私信", "Allow direct messages"], ["允许未互相关注的用户持续发送消息。", "Allow users who do not mutually follow each other to send you messages."], ["离线自动回复", "Offline auto-reply"], ["离线收到私信时发送一次自动回复。", "Send an automatic reply once when a direct message arrives while you are offline."], ["自动回复内容", "Auto-reply message"],
+  ["邮箱验证、找回密码和二次验证统一在这里管理。", "Manage email verification, password recovery, and two-factor authentication here."], ["已验证", "Verified"], ["未验证", "Unverified"], ["已开启", "Enabled"], ["未开启", "Disabled"], ["强", "Strong"], ["待加强", "Needs attention"], ["更换邮箱", "Change email"], ["通信设置", "Messaging settings"], ["管理通信设置", "Manage messaging settings"], ["密码 scrypt 加密", "Password protected with scrypt"],
+  ["显示名称", "Display name"], ["头像地址", "Avatar URL"], ["简介", "Bio"], ["个人 Markdown 页面", "Personal Markdown page"], ["保存资料", "Save profile"], ["修改密码", "Change password"], ["修改后会退出当前登录，请使用新密码重新进入通行证。", "Changing your password signs out this session; use the new password to sign in again."], ["当前密码", "Current password"], ["新密码", "New password"], ["确认新密码", "Confirm new password"], ["更新密码", "Update password"],
+  ["翻译社区", "Translation community"], ["加入后可在词条翻译页保存译文并参与社区审阅。", "Join to save translations on page translation screens and participate in community review."], ["更新翻译语言", "Update translation languages"], ["加入翻译社区", "Join translation community"], ["退出翻译社区", "Leave translation community"],
+  ["概览", "Overview"], ["协作社区管理", "Community management"], ["社区治理", "Community governance"], ["来源审阅", "Source review"], ["搜索索引", "Search index"], ["运行健康", "Runtime health"], ["更新日志", "Activity log"], ["控制面板", "Control panel"], ["后台导航", "Admin navigation"], ["打开后台导航", "Open admin navigation"], ["关闭后台导航", "Close admin navigation"],
+  ["普通用户", "Member"], ["创作者", "Creator"], ["资深编辑", "Senior editor"], ["正常", "Active"], ["禁用", "Disabled"], ["显示", "Visible"], ["隐藏", "Hidden"], ["待处理", "Pending"], ["查询", "Search"],
+  ["成员", "Member"], ["写作者", "Writer"], ["译者", "Translator"], ["审阅者", "Reviewer"], ["协调者", "Coordinator"], ["所有者", "Owner"], ["申请待批准", "Application pending"], ["源文", "Source text"], ["紧急", "Urgent"], ["高优先", "High priority"], ["常规", "Normal"], ["继续认领", "Continue task"], ["认领任务", "Claim task"], ["提交待审", "Submit for review"], ["待认领", "Unclaimed"], ["进行中", "In progress"], ["待审阅", "Awaiting review"], ["已完成", "Completed"], ["等待组织成员接手。", "Waiting for an organization member to take this on."],
+  ["查看该贡献者参与的协作组织。", "View organizations this contributor participates in."], ["查看组织身份、任务与讨论贡献。", "View organization identities, tasks, and discussion contributions."], ["尚未公开加入协作组织。", "No public organization memberships yet."], ["还没有组织身份。进入协作社区加入或创建一个组织。", "No organization identity yet. Join or create an organization in the community."], ["查看全部", "View all"],
+  ["社区审阅", "Community review"], ["组织社区审阅", "Organization community review"], ["尚未有协作组织为当前词条建立审阅任务。", "No organization has created a review task for this page."], ["尚未有协作组织为当前译文建立审阅任务。", "No organization has created a review task for this translation."], ["组织审阅通过后，将发布稳定版本或译文结论。", "An approved organization review publishes a stable version or translation decision."], ["组织广场", "Organization hub"], ["支持通过", "Approve"], ["要求修改", "Request changes"], ["写下可核验的审阅理由或需要修改的事项", "Write verifiable review reasons or requested changes"], ["等待审阅者参与", "Waiting for reviewers"],
+  ["私信", "Direct message"], ["组织", "Organization"], ["系统", "System"], ["会话", "Conversation"], ["会话类型", "Conversation type"], ["搜索会话或成员", "Search conversations or members"], ["发起私信", "Start direct message"], ["输入至少一个字符。", "Enter at least one character."], ["从一次对话开始", "Start a conversation"], ["选择会话，或查找用户发起私信。", "Select a conversation or find a user to start a direct message."], ["返回会话列表", "Back to conversations"], ["加载更早消息", "Load earlier messages"], ["会话从这里开始", "This conversation starts here"], ["尚无消息", "No messages yet"], ["发出第一条消息，或先引用一个词条作为上下文。", "Send the first message or reference a page for context."],
+  ["对象类型", "Object type"], ["修订版本标识", "Revision identifier"], ["搜索标题或标识", "Search title or identifier"], ["搜索并选择要引用的内容。", "Search for content to reference."], ["提及用户", "Mention users"], ["输入用户名或显示名称", "Enter a username or display name"], ["群主", "Owner"], ["群聊身份", "Group role"], ["禁言时长", "Mute duration"], ["解除禁言", "Unmute"], ["禁言", "Mute"], ["全体禁言", "Mute all"], ["仅群主和管理员可发言", "Only owners and administrators can speak"], ["所有成员均可发言", "All members can speak"], ["恢复通知", "Resume notifications"], ["消息免打扰", "Mute notifications"], ["移出归档", "Unarchive conversation"], ["归档会话", "Archive conversation"], ["尚未添加知识引用。", "No knowledge references added yet."],
+  ["查看站点内容、协作活动与运行状态。", "Review site content, collaboration activity, and runtime status."], ["用户", "Users"], ["仅管理员可见", "Administrators only"], ["注册身份", "Registered identities"], ["一级评论", "Top-level comments"], ["公开讨论", "Public discussions"], ["站点活动", "Site activity"], ["近 10 日活动", "Activity over the last 10 days"], ["内容质量分布", "Content quality distribution"], ["稳定优质", "Stable and high quality"], ["结构完整", "Well structured"], ["持续完善", "In progress"], ["草稿内容", "Draft content"], ["最近词条", "Recent pages"], ["暂无站点活动。", "No site activity yet."], ["暂无词条更新。", "No page updates yet."],
+  ["搜索用户并调整角色、状态与资料。", "Search users and manage roles, status, and profiles."], ["搜索用户名、显示名或邮箱", "Search username, display name, or email"], ["没有匹配的用户。", "No matching users."], ["用户组", "User group"], ["操作", "Actions"], ["头像", "Avatar"], ["状态", "Status"], ["邮箱", "Email"], ["没有匹配的协作组织。", "No matching organizations."], ["搜索组织并管理运行状态。", "Search organizations and manage their operational status."], ["全部组织", "All organizations"], ["正常运行", "Operating normally"], ["已停用", "Disabled"], ["搜索组织名称、标识、简介或创建者", "Search organization name, identifier, description, or founder"], ["创建者", "Founder"], ["研究方向", "Research focus"], ["协作规模", "Collaboration scale"], ["未记录", "Not recorded"], ["未设置", "Not set"],
+  ["数据概览", "Data overview"], ["举报队列", "Report queue"], ["修订审核", "Revision review"], ["社区治理分区", "Community governance sections"], ["管理问答内容、举报与修订审核。", "Manage Q&A content, reports, and revision reviews."], ["Wikist 原生数据", "Native Wikist data"], ["主数据源", "Primary data source"], ["公共空间", "Public spaces"], ["组织空间", "Organization spaces"], ["待处理举报", "Pending reports"], ["待审修订", "Revisions awaiting review"], ["打开问答社区", "Open Q&A community"], ["处理举报", "Handle reports"], ["社区互动", "Community engagement"], ["质量投票", "Quality votes"], ["确认处理", "Resolve"], ["驳回", "Dismiss"], ["通过", "Approve"], ["拒绝", "Reject"], ["已处理", "Resolved"], ["已驳回", "Dismissed"], ["已拒绝", "Rejected"], ["没有符合条件的举报。", "No matching reports."], ["没有符合条件的修订。", "No matching revisions."],
+  ["搜索词条并管理质量、评分、权限与内容。", "Search pages and manage quality, ratings, permissions, and content."], ["搜索标题、slug、分类或作者", "Search title, slug, category, or author"], ["没有匹配的词条。", "No matching pages."], ["分类", "Categories"], ["质量/状态", "Quality/status"], ["权限/删除", "Permissions/delete"], ["记录", "History"], ["暂无评分", "No ratings yet"], ["未分类", "Uncategorized"],
+  ["按问题优先级检查并补充来源。", "Review and complete sources by issue priority."], ["来源记录", "Source records"], ["可核验", "Verifiable"], ["无来源", "No sources"], ["缺少来源", "Missing sources"], ["未解析引用", "Unresolved references"], ["待补来源", "Sources need work"], ["来源完整", "Sources complete"], ["质量分", "Quality score"], ["字段、解析与正文调用均已通过检查", "Fields, parsing, and page references all passed checks."], ["编辑来源", "Edit sources"], ["没有符合条件的词条", "No matching pages"], ["可以切换筛选范围，或使用标题、作者、DOI 与 arXiv 搜索。", "Change the filter or search by title, author, DOI, or arXiv."],
+  ["比较版本、填写意见并发布稳定版本。", "Compare versions, record notes, and publish stable versions."], ["当前即稳定", "Current version is stable"], ["有待审改动", "Changes awaiting review"], ["尚未审阅", "Not reviewed"], ["当前筛选下没有词条", "No pages match this filter"], ["新建或编辑词条后，可在待审队列中查看。", "Create or edit a page to see it in the review queue."], ["审阅差异", "Review differences"], ["打开词条", "Open page"],
+  ["用户管理", "User management"], ["词条管理", "Page management"], ["评论管理", "Comment management"], ["消息管理", "Message management"], ["归档页面", "Archived pages"], ["插件管理", "Plugin management"],
+  ["后台概览", "Admin overview"], ["站点概览", "Site overview"], ["系统状态", "System status"], ["运行状况", "Runtime status"], ["数据维护", "Data maintenance"],
+  ["创建组织", "Create organization"], ["加入组织", "Join organization"], ["登录后加入", "Sign in to join"], ["进入协作社区", "Open community"], ["组织身份", "Organization identity"], ["我的组织身份", "My organization identities"],
+  ["组织成员", "Organization members"], ["组织任务", "Organization tasks"], ["组织讨论", "Organization discussions"], ["组织群聊", "Organization group chat"], ["开放加入", "Open membership"], ["申请加入", "Request to join"],
+  ["创建任务", "Create task"], ["发布任务", "Post task"], ["发布讨论", "Post discussion"], ["发布主题", "Post topic"], ["发布回复", "Post reply"], ["回复主题", "Reply to topic"],
+  ["编辑记录", "Edit history"], ["版本审阅", "Version review"], ["审核意见", "Review notes"], ["当前版本", "Current version"], ["稳定版本", "Stable version"], ["待审", "Pending review"], ["稳定", "Stable"],
+  ["翻译工作台", "Translation workspace"], ["选择翻译语言", "Choose translation language"], ["翻译术语表", "Translation glossary"], ["保存译文", "Save translation"], ["提交译文审核", "Submit translation for review"],
+  ["分类目录", "Category directory"], ["主题树", "Topic tree"], ["知识网络", "Knowledge network"], ["知识链接", "Knowledge links"], ["反向链接", "Backlinks"], ["正文链接", "Page links"],
+  ["我的收藏", "My collections"], ["关注列表", "Following"], ["社交关系", "Social connections"], ["关注者", "Followers"], ["关注于", "Followed on"],
+  ["新消息", "New message"], ["发送", "Send"], ["发送消息", "Send message"], ["消息内容", "Message content"], ["添加附件", "Add attachment"], ["引用知识对象", "Reference knowledge object"],
+  ["在线", "Online"], ["离线", "Offline"], ["置顶会话", "Pin conversation"], ["取消置顶", "Unpin conversation"], ["会话资料", "Conversation details"], ["成员操作", "Member actions"], ["管理员", "Administrator"], ["成员", "Member"],
+  ["导入导出", "Import / export"], ["全站备份", "Site backup"], ["恢复备份", "Restore backup"], ["创建备份", "Create backup"], ["导出完成。", "Export complete."], ["导入完成", "Import complete"], ["同步完成", "Sync complete"],
+  ["已保存。", "Saved."], ["已删除。", "Deleted."], ["保存中...", "Saving..."], ["删除中...", "Deleting..."], ["正在加载...", "Loading..."], ["重试加载", "Retry loading"], ["正在发送...", "Sending..."], ["发送中...", "Sending..."],
+  ["正在发布...", "Publishing..."], ["正在保存...", "Saving..."], ["正在导入...", "Importing..."], ["正在导出...", "Exporting..."], ["正在同步...", "Syncing..."], ["正在恢复...", "Restoring..."],
+  ["确认", "Confirm"], ["确定", "OK"], ["返回", "Back"], ["查看", "View"], ["筛选", "Filter"], ["清除", "Clear"], ["重置", "Reset"], ["创建", "Create"], ["更新", "Update"], ["提交", "Submit"],
   ["导入、同步或导出词条，并保留可继续编辑的内容与词条链接。", "Import, sync, or export pages while keeping editable content and page links."],
   ["开放知识应该能自由迁移", "Open knowledge should move freely"],
   ["登录后可导入和同步词条；导出可直接使用，操作会记录到贡献。", "Sign in to import and sync pages. Export is available directly, and your actions are recorded as contributions."],
@@ -841,7 +947,125 @@ const EN_UI_REPLACEMENTS = [
   ["目标 slug", "Target slug"],
   ["允许覆盖已有词条", "Allow overwrite"],
   ["从 Wikipedia 导入", "Import from Wikipedia"],
+  // Page tools, profile, collaboration, and review surfaces.
+  ["正在加载可视化编辑器...", "Loading the visual editor..."], ["写下定义、定理、证明与公式；可直接用可视化工具插入数学表达式。", "Write definitions, theorems, proofs, and formulas. Use the visual tool to insert mathematical expressions."], ["已切换为 Markdown 源码编辑。", "Switched to Markdown source editing."],
+  ["最高优先级消息", "Highest-priority message"], ["你有一条需要及时查看的站内消息。", "You have an on-site message that needs prompt attention."], ["打开会话", "Open conversation"], ["暂无消息", "No messages"], ["未命名会话", "Untitled conversation"], ["组织群聊", "Organization group chat"], ["系统通知", "System notification"],
+  ["正在同步通信数据...", "Syncing message data..."], ["通信中心", "Message center"], ["条未读消息", "unread messages"], ["已全部阅读", "All caught up"], ["全部已读", "Mark all as read"], ["暂无会话，去用户主页发起一条私信吧。", "No conversations yet. Start a direct message from a user profile."], ["展开其余", "Show the remaining"], ["个会话", "conversations"], ["打开通信工作台", "Open messaging workspace"],
+  ["实时已连接", "Live connection active"], ["消息服务不可用", "Messaging service unavailable"], ["正在恢复实时连接", "Restoring live connection"], ["实时连接中", "Connecting live"],
+  ["显示", "Showing"], ["暂无更新", "No updates"], ["知识网络推荐", "Knowledge-network recommendation"], ["创建", "Created"], ["恢复", "Restored"], ["创建了词条", "created this page"], ["编辑了词条", "edited this page"], ["删除了词条", "deleted this page"], ["恢复了词条", "restored this page"], ["访客", "Guest"], ["字节", "bytes"],
+  ["个人网站", "Website"], ["个人博客", "Blog"], ["外部资料", "External links"], ["添加个人网站或社交资料，让协作者更容易找到你。", "Add a website or social profile so collaborators can find you more easily."], ["打开", "Open"], ["填写后将显示在公开主页。", "These links appear on your public profile."], ["词条尚未创建", "This page has not been created"], ["创建该词条", "Create this page"],
+  ["未翻译", "Not translated"], ["选择语言并参与翻译", "Choose a language and contribute a translation"], ["组织协作", "Organization collaboration"], ["尚未有组织认领这条词条。可以在协作社区建立撰写、翻译或审阅任务。", "No organization has claimed this page. Create writing, translation, or review tasks in the community."],
+  ["申请待批准", "Membership pending approval"], ["我的组织身份", "My organization identities"], ["查看该贡献者参与的协作组织。", "View the organizations this contributor participates in."], ["查看组织身份、任务与讨论贡献。", "View organization identities, tasks, and discussion contributions."], ["尚未公开加入协作组织。", "No public organization memberships yet."], ["还没有组织身份。进入协作社区加入或创建一个组织。", "No organization identity yet. Join or create an organization in the community."],
+  ["撰写", "Writing"], ["审阅", "Review"], ["协作", "Collaboration"], ["继续认领", "Continue task"], ["认领任务", "Claim task"], ["提交待审", "Submit for review"], ["待认领", "Unclaimed"], ["进行中", "In progress"], ["待审阅", "Awaiting review"], ["已完成", "Completed"], ["等待组织成员接手。", "Waiting for an organization member to take this on."],
+  ["尚未有协作组织为当前词条建立审阅任务。", "No organization has created a review task for this page."], ["尚未有协作组织为当前译文建立审阅任务。", "No organization has created a review task for this translation."], ["组织审阅通过后，将发布稳定版本或译文结论。", "An approved organization review publishes a stable version or translation decision."], ["组织广场", "Organization hub"], ["已形成通过共识", "Approval consensus reached"], ["已形成修改共识", "Revision consensus reached"], ["通过", "Approve"], ["修改", "Changes"], ["阈值", "Threshold"], ["正在记录社区审阅...", "Recording community review..."], ["组织共识已形成并已同步发布状态", "Organization consensus reached and publication status updated"], ["社区审阅已记录", "Community review recorded"],
+  ["版本审阅", "Version review"], ["尚无审核意见。", "No review notes yet."], ["审阅当前版本", "Review the current version"], ["通过后设为稳定版；要求修改会把意见发送给编辑者。", "Approval makes this the stable version; requested changes are sent to the editor."], ["审核意见", "Review notes"], ["写明核查范围、来源问题或待补内容", "Describe the verification scope, source issues, or missing content"], ["说明通过理由，或列出需要修改的内容。", "Explain approval or list the changes needed."], ["通过并设为稳定版", "Approve as stable"], ["发布当前版本", "Publish current version"], ["要求修改", "Request changes"], ["提交审核意见", "Submit review notes"], ["已审阅稳定版本", "Reviewed stable version"], ["尚未建立", "Not established"], ["通过审阅后将在此显示。", "This appears after approval."], ["差异比较", "Difference comparison"], ["通过审阅后，可在这里比较当前版本与稳定版本。", "After approval, compare the current and stable versions here."], ["当前版本", "Current version"], ["稳定版本", "Stable version"], ["比较", "Compare"], ["设为稳定版本", "Set as stable version"], ["当前版本将发布为已审阅稳定版。", "The current version will be published as the reviewed stable version."], ["提交修改意见", "Submit requested changes"], ["审核意见将发送给编辑者。", "The review notes will be sent to the editor."], ["提交中...", "Submitting..."], ["撤回审核意见", "Withdraw review note"], ["撤回后将删除这条意见；若当前稳定版由该意见通过，稳定状态会同时撤销。", "Withdrawing deletes this note and also revokes stability if it approved the current stable version."], ["撤回", "Withdraw"], ["意见已撤回，稳定版本已安全回退", "Review note withdrawn and stable version safely reverted"], ["审核意见已撤回", "Review note withdrawn"], ["撤回失败", "Could not withdraw"],
+  ["公告", "Announcement"], ["社区决议", "Community decision"], ["讨论", "Discussion"], ["组织成员", "Organization member"], ["回复这条组织讨论", "Reply to this organization discussion"], ["标记已结论", "Mark resolved"], ["重新打开", "Reopen"], ["问题修订", "Question revision"], ["该内容已删除。", "This content has been deleted."], ["打开内容查看完整上下文。", "Open this content to view the full context."],
+  ["填写组织资料，并设置加入方式与审阅人数。", "Provide organization details and choose membership and reviewer settings."], ["查找或创建组织，参与词条写作、翻译、讨论与审阅。", "Find or create organizations to write, translate, discuss, and review pages."], ["搜索组织、研究方向或简介", "Search organizations, research areas, or descriptions"], ["搜索组织", "Search organizations"], ["开源治理参考", "Open-source governance references"], ["暂未填写组织简介。", "No organization description yet."], ["开放协作", "Open collaboration"], ["项进行中任务", "active tasks"], ["条讨论", "discussions"], ["还没有匹配的协作组织。", "No matching organizations yet."], ["创建协作组织", "Create organization"], ["组织标识", "Organization identifier"], ["组织名称", "Organization name"], ["组织头像 URL", "Organization avatar URL"], ["研究方向", "Research focus"], ["组织简介", "Organization description"], ["加入方式", "Membership"], ["直接加入", "Join directly"], ["申请后加入", "Request to join"], ["审阅阈值", "Review threshold"], ["位审阅者", "reviewers"], ["已达到组织配额", "Organization quota reached"], ["加入协作", "Join collaboration"], ["登录后可创建或加入协作组织，认领词条、翻译和审阅任务。", "Sign in to create or join organizations and claim writing, translation, and review tasks."], ["正在创建组织...", "Creating organization..."], ["协作组织已创建", "Organization created"],
+  ["插入知识引用", "Insert knowledge reference"], ["关闭引用选择器", "Close reference picker"], ["类型", "Type"], ["查找", "Find"], ["修订版本", "Revision version"], ["版本标识", "Version identifier"], ["Wikist 词条", "Wikist page"], ["词条修订", "Page revision"], ["社区问题", "Community question"], ["社区回答", "Community answer"], ["知识对象", "Knowledge object"],
+  ["创建账号", "Create account"], ["知识通行证", "Knowledge passport"], ["注册并完成邮箱验证。", "Create an account and verify your email address."], ["登录后继续编辑与协作。", "Sign in to continue editing and collaborating."], ["创建 Wikist 通行证", "Create a Wikist Passport"], ["登录 Wikist", "Sign in to Wikist"], ["创建账号后即可参与贡献。", "Create an account to start contributing."], ["继续编辑、收藏、消息与协作。", "Continue editing, saving, messaging, and collaborating."], ["身份验证", "Identity verification"], ["新身份接入", "New identity setup"], ["身份接入", "Identity access"], ["邮箱验证", "Email verification"], ["密码找回", "Password recovery"], ["二次验证", "Two-factor authentication"], ["贡献署名", "Contribution byline"], ["注册用户", "Registered users"], ["公开词条", "Public pages"], ["当前身份", "Current identity"], ["在线", "Online"], ["用户名", "Username"], ["你的知识署名", "Your contribution byline"], ["用户名或邮箱", "Username or email"], ["已开启二次验证时填写", "Enter this when two-factor authentication is enabled"], ["忘记密码？", "Forgot password?"], ["宇宙数据概览", "Cosmic data overview"], ["密码", "Password"], ["确认密码", "Confirm password"], ["人机验证", "Human verification"], ["验证码", "Verification code"], ["刷新验证码", "Refresh verification code"], ["输入算式结果", "Enter the result"], ["创建通行证", "Create passport"], ["创建首位管理员", "Create the first administrator"], ["站点配置已经加载完成。为了让后台、用户管理、备份恢复和权限设置真正可用，请先创建第一个管理员账号。", "Site configuration is loaded. Create the first administrator account to enable administration, user management, backup recovery, and permissions."], ["首个管理员", "First administrator"], ["安全密码", "Strong password"], ["创建后进入后台", "Enter Admin after creation"], ["管理员账号", "Administrator account"], ["这个账号拥有完整后台权限。请使用长期可控的邮箱和强密码。", "This account has full administrative permissions. Use a durable email address and a strong password."], ["站点管理员", "Site administrator"], ["创建管理员并进入后台", "Create administrator and enter Admin"], ["两次输入的密码不一致。", "The two passwords do not match."], ["正在创建通行证...", "Creating passport..."], ["正在验证身份...", "Verifying identity..."], ["账号已被禁用", "Account disabled"], ["该", "This"], ["已被管理员封禁，无法登录或参与新的编辑、评论活动。若认为这是误操作，请联系站点管理员。", "has been disabled by an administrator and cannot sign in or participate in new edits or comments. Contact the site administrator if you believe this is an error."], ["正在创建首位管理员...", "Creating the first administrator..."],
+  ["找回 Wikist 密码", "Recover your Wikist password"], ["输入用户名或邮箱，接收密码重置链接。", "Enter your username or email address to receive a password reset link."], ["短时链接", "Short-lived link"], ["旧会话失效", "Old sessions revoked"], ["发送重置邮件", "Send reset email"], ["正在发送邮件...", "Sending email..."], ["如果账号存在且邮件系统可用，重置链接已经发送。", "If the account exists and email is available, a reset link has been sent."], ["重置密码", "Reset password"], ["设置新密码", "Set a new password"], ["重置成功后，所有旧登录会话会自动失效。", "After reset, all old sign-in sessions are automatically revoked."], ["新密码", "New password"], ["确认新密码", "Confirm new password"], ["更新密码", "Update password"], ["两次输入的新密码不一致。", "The new passwords do not match."], ["正在更新密码...", "Updating password..."], ["密码已更新，请重新登录", "Password updated. Please sign in again."], ["正在验证邮箱...", "Verifying email..."], ["正在确认这条验证链接。", "is confirming this verification link."], ["邮箱已验证", "Email verified"], ["你的通行证邮箱已经完成验证。", "Your Passport email address has been verified."], ["验证失败", "Verification failed"],
+  ["目标语言", "Target language"], ["添加自定义语言", "Add custom languages"], ["在任意词条标题旁点击收藏即可同步到这里。", "Save any page from its title to add it here."], ["查看更多", "View more"], ["收藏于", "Saved on"], ["质量", "Quality"], ["该词条已归档或尚未恢复。", "This page has been archived or has not yet been restored."], ["按收藏时间查看并搜索你的词条书签。", "Browse and search your saved page bookmarks by date."], ["在任意词条标题旁点击收藏，即可把它加入这里。", "Save any page from its title to add it here."], ["操作失败", "Operation failed"], ["分类", "Category"], ["该分类下的词条创建、保存、归档会通知你。", "You will be notified when pages in this category are created, saved, or archived."], ["该语言的译文保存会通知你。", "You will be notified when translations in this language are saved."], ["关注列表", "Following list"], ["关注词条、分类或语言，更新后将在消息中心提醒你。", "Follow pages, categories, or languages to receive updates in Message Center."], ["关注分类", "Follow category"], ["关注译文语言", "Follow translation language"], ["添加", "Add"], ["暂无分类", "No categories"], ["可以在词条标题旁关注，也可以在这里关注分类和译文语言。", "Follow from a page title or follow categories and translation languages here."], ["已加入关注列表", "Added to following list"], ["关注失败", "Could not follow"], ["已取消关注", "Unfollowed"],
+  ["搜索索引", "Search index"], ["查看索引状态，并执行修复或重建。", "Inspect the index and repair or rebuild it."], ["引擎", "Engine"], ["索引词条", "Indexed pages"], ["覆盖状态", "Coverage"], ["最近同步", "Last sync"], ["尚未同步", "Not synced yet"], ["持久全文索引", "Persistent full-text index"], ["检查覆盖状态；需要时重建历史词条索引。", "Check coverage and rebuild historical page indexing when needed."], ["配置", "Configuration"], ["兼容性", "Compatibility"], ["当前 SQLite 支持 FTS5", "Current SQLite supports FTS5"], ["当前运行时不支持 FTS5", "Current runtime does not support FTS5"], ["建立 / 重建索引", "Build / rebuild index"], ["调整高级搜索配置", "Adjust advanced search configuration"], ["建立 SQLite FTS5 索引", "Build SQLite FTS5 index"], ["重建现有词条索引；完成前请勿关闭页面。", "Rebuild the existing page index. Keep this page open until it finishes."], ["开始建立", "Start build"], ["正在建立持久搜索索引...", "Building persistent search index..."], ["索引已建立：", "Index built:"],
+  ["运行健康", "Runtime health"], ["检查数据库、搜索、备份与请求防护状态。", "Check database, search, backup, and request-protection status."], ["数据库", "Database"], ["异常", "Issue"], ["正常", "Healthy"], ["FTS5 索引", "FTS5 index"], ["就绪", "Ready"], ["待修复", "Needs repair"], ["回退", "Fallback"], ["请求", "Requests"], ["本进程启动后", "since this process started"], ["搜索平均耗时", "Average search time"], ["缓存命中", "Cache hit"], ["防护拦截", "Protected requests"], ["限流 / 安装防护", "Rate limiting / installation protection"], ["健康检查与恢复", "Health checks and recovery"], ["运行检查，并在索引异常时执行修复。", "Run checks and repair the index when it has issues."], ["运行正常", "Running normally"], ["需要处理", "Needs attention"], ["未知", "Unknown"], ["完整性", "Integrity"], ["失败", "Failed"], ["未深检", "Not deeply checked"], ["索引失败", "Index failures"], ["执行健康检查", "Run health check"], ["修复搜索索引", "Repair search index"], ["执行还原演练", "Run restore drill"], ["演练包含用户数据", "Include user data in drill"], ["同时验证用户与互动数据能否恢复。", "Also verify that user and interaction data can be restored."], ["请求防护", "Request protection"], ["调整访问频率、请求大小与可信代理设置。", "Adjust access frequency, request size, and trusted proxy settings."], ["启用请求防护", "Enable request protection"], ["对高频访问返回 429 与 Retry-After。", "Return 429 and Retry-After for excessive requests."], ["信任反向代理", "Trust reverse proxy"], ["仅在 Nginx 等可信代理已正确覆写 X-Forwarded-For 时启用。", "Enable only when a trusted proxy such as Nginx correctly rewrites X-Forwarded-For."], ["最大请求体（字节）", "Maximum request body (bytes)"], ["保存防护策略", "Save protection policy"], ["脱敏指标", "Redacted metrics"], ["高频路由", "High-traffic routes"], ["路由", "Route"], ["平均耗时", "Average time"], ["尚无请求样本。", "No request samples yet."], ["插件失败", "Plugin failures"], ["未记录插件失败。", "No plugin failures recorded."], ["检查中...", "Checking..."], ["健康检查通过。", "Health check passed."], ["检查发现需处理项。", "Health check found items needing attention."], ["正在重建 SQLite FTS5...", "Rebuilding SQLite FTS5..."], ["索引已修复：", "Index repaired:"], ["正在创建隔离快照并演练还原...", "Creating an isolated snapshot and running a restore drill..."], ["演练通过：恢复", "Restore drill passed: restored"], ["请求防护策略已保存。", "Request protection policy saved."],
+  // Follow, page reading, selection, and sharing states.
+  ["请求过于频繁，请稍后再试。", "Too many requests. Try again later."], ["提交内容超过本站当前允许的大小，请精简后重试。", "Submitted content exceeds this site's size limit. Reduce it and try again."], ["可以重新连接", "You can reconnect"], ["请求保护已启用", "Request protection is enabled"], ["冷却窗口已结束。重新连接后将恢复正常浏览与编辑。", "The cooldown has ended. Reconnect to resume normal browsing and editing."], ["为保持知识库稳定，当前页面已暂时锁定；请在冷却结束后继续操作。", "To keep the knowledge base stable, this page is temporarily locked. Continue after the cooldown ends."], ["重新连接", "Reconnect"], ["等待冷却结束", "Wait for cooldown"], ["冷却时间", "Cooldown"], ["知道了", "OK"], ["选择关联词条", "Choose related page"], ["词条搜索建议", "Page search suggestions"], ["没有匹配词条，按 Enter 搜索全文", "No matching pages. Press Enter to search full text."], ["搜索 Wikist", "Search Wikist"], ["添加语言...", "Add language..."],
+  ["最高优先级", "Highest priority"], ["高优先级", "High priority"], ["低优先级", "Low priority"], ["普通", "Normal"], ["插件面板", "Plugin panel"], ["对象暂不可预览", "This object cannot be previewed yet"], ["正在读取词条概要...", "Loading page summary..."], ["正在读取知识对象...", "Loading knowledge object..."],
+  ["已收藏", "Saved"], ["收藏", "Save"], ["收藏 ·", "Saved ·"], ["登录后收藏词条", "Sign in to save pages"], ["收藏会同步到你的", "Saved pages sync to your"], ["已加入收藏", "Added to saved pages"], ["收藏失败", "Could not save"], ["取消关注词条更新", "Stop following page updates"], ["关注词条更新", "Follow page updates"], ["已关注更新", "Following updates"], ["关注更新", "Follow updates"], ["登录后关注词条", "Sign in to follow page updates"], ["关注后，词条、分类和译文更新会进入你的消息中心。", "After following, page, category, and translation updates appear in Message Center."],
+  ["浏览知识网络", "Browse knowledge network"], ["查看引用本词条及正文指向的词条。", "View pages that cite this page and pages linked from its body."], ["来自", "From"], ["指向", "Links to"], ["暂无其他词条链接到这里。", "No other pages link here yet."], ["正文中尚未建立 Wiki 链接。", "No Wiki links have been created in this page body."], ["还没有相关问题", "No related questions yet"], ["提出第一个可追踪的问题。", "Ask the first trackable question."], ["相关问答", "Related Q&A"], ["围绕本词条提出问题，并让成熟结论回流正文。", "Ask questions around this page and return mature conclusions to its body."], ["围绕本词条提问", "Ask about this page"], ["问答讨论", "Q&A discussion"],
+  ["转发词条", "Share page"], ["登录后转发", "Sign in to share"], ["登录后可转发给私信联系人或协作组织。", "Sign in to share with direct-message contacts or organizations."], ["转发", "Share"], ["正在读取最近联系人...", "Loading recent contacts..."], ["正在读取你的组织...", "Loading your organizations..."], ["正在转发...", "Sharing..."], ["转发词条：", "Shared page:"], ["已转发", "Shared"], ["转发失败", "Could not share"], ["匹配用户", "Matching users"], ["没有匹配用户。", "No matching users."], ["最近私信", "Recent direct messages"], ["还没有可推荐的私信联系人。", "No direct-message contacts to suggest yet."], ["最近群聊", "Recent group chats"], ["可转发组织", "Organizations to share with"], ["你还没有可转发的协作组织。", "You do not have any organizations to share with yet."], ["正文来源", "Page source"],
+  ["正在读取批注...", "Loading annotations..."], ["批注加载失败", "Could not load annotations"], ["无法创建划词，请重新选择正文后再试。", "Could not create selection. Select page text again and retry."], ["还没有批注", "No annotations yet"], ["提出问题、补充来源或分享你的理解。", "Ask a question, add a source, or share your understanding."], ["划词批注", "Text annotations"], ["正文批注", "Page annotations"], ["添加批注", "Add annotation"], ["发布批注", "Post annotation"], ["登录后可以添加批注或喜欢这段正文。", "Sign in to annotate or like this selected text."], ["已取消喜欢，划词已自动清理", "Like removed and selection cleared automatically"], ["已喜欢", "Liked"], ["批注已发布。", "Annotation posted."], ["登录后继续", "Sign in to continue"], ["登录后可以喜欢、批注或引用这段正文。", "Sign in to like, annotate, or quote this selected text."], ["正在读取协作组织...", "Loading organizations..."], ["引用失败", "Could not quote"], ["选择组织", "Choose organization"], ["暂无可发布的组织", "No organization available to post to"], ["加入协作组织后即可把划词引用到帖子。", "Join an organization to quote selected text in a post."], ["已引用到回答编辑框", "Quoted in answer editor"], ["当前评论区", "Current comments"], ["已引用到评论", "Quoted in comment"], ["剪贴板草稿", "Clipboard draft"], ["引用已复制，可粘贴到评论", "Quote copied. Paste it into a comment."], ["已复制选中文本", "Selected text copied"], ["问答组件尚未加载，请刷新页面后重试。", "The Q&A module has not loaded. Refresh the page and try again."], ["已加入我的划词", "Added to My Selections"], ["划词操作失败", "Selection action failed"],
+  // Page quality, home, forum, and organization surfaces.
+  ["分类标识", "Category identifiers"], ["前置知识", "Prerequisites"], ["相关词条", "Related pages"], ["未说明", "Not specified"], ["知识上下文", "Knowledge context"], ["这个名称可能指向多个概念", "This name may refer to multiple concepts"], ["请选择与当前阅读意图对应的词条。", "Choose the page that matches your current reading intent."], ["尚未添加消歧指向。", "No disambiguation targets have been added."], ["该词条尚未添加结构化来源。", "This page has no structured sources yet."], ["来源质量需要补充", "Source quality needs work"], ["来源记录完整", "Source records complete"], ["管理引用", "Manage sources"], ["词条评分", "Page rating"], ["成为第一个评分者", "Be the first rater"], ["正在加载评分...", "Loading ratings..."], ["关联协作任务", "Related collaboration tasks"], ["进入社区审阅", "Open community review"], ["查看关联任务，或进入组织继续协作。", "View related tasks or enter an organization to continue collaborating."], ["暂无编辑记录。", "No edit history yet."], ["趋势", "Trend"], ["最近七日词条更新趋势", "Page update trend over the last 7 days"], ["等待词条分类。", "Waiting for page categorization."], ["内容成熟度", "Content maturity"], ["实时摘要", "Live summary"], ["更新趋势", "Update trend"], ["较早", "Earlier"], ["最近", "Recent"], ["领域覆盖", "Topic coverage"], ["暂无可推荐词条。", "No pages to recommend yet."], ["知识检索", "Knowledge search"], ["无相关内容", "No related content"], ["请创建词条。", "Create a page."], ["创建首页词条", "Create home page"], ["资讯页尚未创建。", "News page has not been created."], ["国际会议", "International conferences"], ["国际数学家大会将继续作为全球数学共同体的核心交流节点。", "The International Congress of Mathematicians remains a key gathering point for the global mathematics community."], ["形式化数学", "Formal mathematics"], ["定理证明、形式化库与可验证证明正在进入更多数学工作流。", "Theorem proving, formal libraries, and verifiable proofs are entering more mathematical workflows."], ["开放预印本", "Open preprints"], ["数学预印本持续推动公开传播、同行讨论与跨领域引用。", "Mathematics preprints continue to support open dissemination, peer discussion, and cross-disciplinary citation."], ["开始贡献", "Start contributing"], ["查看资讯", "View news"], ["查找词条、参与协作或开始新的贡献。", "Find pages, collaborate, or start a new contribution."], ["活跃领域", "Active areas"], ["最近信号", "Recent signals"], ["暂无特色词条。", "No featured pages yet."], ["暂无稳定词条。", "No stable pages yet."], ["等待分类", "Waiting for categorization"], ["知识发现", "Knowledge discovery"], ["登录通行证", "Sign in to Passport"], ["知识规模", "Knowledge scale"], ["领域索引", "Topic index"], ["活跃分类", "Active categories"], ["近期活动", "Recent activity"], ["更新信号", "Update signals"], ["贡献已同步", "Contributions synced"], ["可自由浏览", "Free to browse"], ["后台已关闭所有首页模块。", "Admin has disabled all home modules."], ["创建资讯页", "Create news page"],
+  ["学术讨论", "Academic discussion"], ["开放讨论", "Open discussion"], ["已形成结论", "Resolved"], ["已锁定", "Locked"], ["该主题暂未提供摘要。", "This topic has no summary yet."], ["置顶", "Pinned"], ["发起主题", "Start topic"], ["关联词条并填写主题内容。", "Link a page and write the topic content."], ["主题类别", "Topic category"], ["搜索主题、回复讨论，并把结论转为协作任务。", "Search topics, reply to discussions, and turn conclusions into collaboration tasks."], ["没有匹配主题", "No matching topics"], ["调整筛选条件，或由组织成员发起第一条学术讨论。", "Adjust filters, or have an organization member start the first academic discussion."], ["论坛主题", "Forum topics"], ["参与讨论", "Join discussion"], ["加入组织后即可发布和回复主题。", "Join the organization to post and reply to topics."], ["发现组织", "Discover organizations"], ["全部类别", "All categories"], ["回复最多", "Most replies"], ["优先未结论", "Unresolved first"], ["从讨论到词条", "From discussion to page"], ["把讨论结论转为任务，并在关联词条中继续协作。", "Turn discussion conclusions into tasks and continue collaborating in linked pages."], ["查看协作任务", "View collaboration tasks"], ["正在发布主题...", "Posting topic..."], ["该讨论主题不属于当前组织。", "This discussion topic does not belong to the current organization."], ["重新开放", "Reopen"], ["置顶主题", "Pin topic"], ["删除主题", "Delete topic"], ["关注讨论", "Follow discussion"], ["已收藏 ·", "Saved ·"], ["收藏讨论", "Save discussion"], ["取消 @ 回复", "Cancel @ reply"], ["该主题已锁定。", "This topic is locked."], ["加入组织后可以参与回复。", "Join the organization to reply."], ["关联词条：", "Related page:"], ["还没有回复。", "No replies yet."], ["主题回复", "Topic replies"], ["论坛", "Forum"], ["发起于", "Started"], ["回复成员以 @ 提及，并同步到站内信。", "Reply to mention members with @ and synchronize to on-site messages."], ["未关联", "Not linked"], ["主题信息", "Topic information"], ["主题状态", "Topic status"], ["讨论类型", "Discussion type"], ["最后更新", "Last updated"], ["关注或收藏此主题后，后续回复与状态更新会进入站内消息。", "Follow or save this topic to receive later replies and status updates in on-site messages."], ["查看主题内容、回复与关联词条。", "View the topic content, replies, and linked pages."], ["正在发布回复...", "Posting reply..."], ["已关注讨论", "Following discussion"], ["已收藏讨论", "Discussion saved"], ["删除讨论主题", "Delete discussion topic"], ["主题及其回复将从公开论坛隐藏。", "The topic and its replies will be hidden from the public forum."], ["讨论主题已删除", "Discussion topic deleted"], ["删除讨论回复", "Delete discussion reply"], ["回复会从公开讨论中隐藏，并保留审计记录。", "The reply will be hidden from the public discussion while retaining an audit record."], ["讨论回复已删除", "Discussion reply deleted"],
+  ["该组织尚未填写简介。", "This organization has no description yet."], ["加入组织", "Join organization"], ["尚无协作任务。", "No collaboration tasks yet."], ["尚无组织讨论。", "No organization discussions yet."], ["发起讨论", "Start discussion"], ["批准", "Approve"], ["协作约定", "Collaboration guidelines"], ["查看贡献规范，并按组织约定推进任务与审阅。", "Review the contribution guidelines and progress tasks and reviews under the organization agreement."], ["主题论坛", "Topic forum"], ["已加入协作组织", "Joined organization"], ["申请已提交，等待协调者批准", "Request submitted; waiting for coordinator approval"], ["无法加入", "Could not join"], ["任务已认领", "Task claimed"], ["正在发布讨论...", "Posting discussion..."], ["组织讨论已发布", "Organization discussion posted"], ["成员角色已更新", "Member role updated"], ["成员申请已批准", "Membership request approved"], ["组织首页", "Organization home"], ["学术论坛", "Academic forum"], ["组织问答", "Organization Q&A"], ["（待批准）", "(pending approval)"], ["公开浏览", "Public browsing"], ["面向可持续维护的知识领域开展协作。", "Collaborate on knowledge areas that can be maintained over time."], ["等待审核", "Awaiting approval"], ["已激活", "Active"], ["认领失败", "Could not claim"], ["已认领协作任务", "Collaboration task claimed"], ["任务状态已更新", "Task status updated"], ["正在发布任务...", "Posting task..."], ["协作任务已发布", "Collaboration task posted"], ["该组织尚未撰写介绍。", "This organization has not written an introduction yet."], ["管理组织资料", "Manage organization profile"], ["编辑名称、图片、研究方向与公开介绍", "Edit the name, image, research focus, and public introduction"], ["展开编辑", "Expand editing"], ["编辑组织首页", "Edit organization home"], ["填写组织资料并保存。", "Enter organization details and save."], ["简短说明", "Short description"], ["组织顶部大图", "Organization hero image"], ["组织介绍 Markdown", "Organization introduction Markdown"], ["保存组织首页", "Save organization home"], ["进入学术论坛", "Enter academic forum"], ["组织介绍、成员身份与协作边界在这里公开维护。", "The organization introduction, member identities, and collaboration boundaries are maintained publicly here."], ["已达到 5 个组织上限", "Reached the 5-organization limit"], ["组织介绍", "Organization introduction"], ["基本信息", "Basic information"], ["共识阈值", "Consensus threshold"], ["创建时间", "Created at"], ["已加入组织", "Joined organization"], ["申请已提交，等待审核", "Request submitted; awaiting approval"], ["加入失败", "Could not join"], ["正在保存组织首页...", "Saving organization home..."], ["组织首页已保存", "Organization home saved"],
+  ["协作任务", "Collaboration tasks"], ["筛选、认领并提交撰写、翻译或审阅任务。", "Filter, claim, and submit writing, translation, or review tasks."], ["暂无匹配任务", "No matching tasks"], ["协调者可在右侧发布首个任务。", "A coordinator can post the first task on the right."], ["任务协作", "Task collaboration"], ["加入组织后即可认领开放任务。", "Join the organization to claim open tasks."], ["筛选任务并跟进认领、审阅与完成状态。", "Filter tasks and track claim, review, and completion status."], ["检索任务", "Find tasks"], ["关联词条", "Related page"], ["发布协作任务", "Post collaboration task"], ["撰写词条", "Write page"], ["翻译词条", "Translate page"], ["优先级", "Priority"], ["高", "High"], ["任务标题", "Task title"], ["任务说明", "Task description"], ["选择词条，填写任务目标并发布。", "Choose a page, define the task goal, and post it."], ["搜索成员、查看申请并调整组织身份。", "Search members, view requests, and adjust organization identities."], ["没有匹配成员", "No matching members"], ["尝试使用用户名、显示名或组织身份重新搜索。", "Try searching by username, display name, or organization identity."], ["成员与申请", "Members and requests"], ["搜索成员并管理申请与身份。", "Search members and manage requests and identities."], ["检索成员", "Find members"], ["成员申请已批准，身份已同步通知", "Membership request approved and identity notification sent"], ["审批失败", "Approval failed"], ["更新失败", "Update failed"], ["组织身份已更新并通知成员", "Organization identity updated and member notified"], ["围绕组织维护的知识领域提问、回答并沉淀结论。", "Ask and answer around knowledge areas maintained by the organization, then preserve conclusions."], ["需要本组织的社区审核权限。", "This requires community review permission in this organization."], ["待审核", "Awaiting moderation"], ["审核类型", "Review type"], ["内容修订", "Content revision"], ["没有符合条件的举报", "No matching reports"], ["没有符合条件的修订", "No matching revisions"], ["处理本组织问答的举报与社区修订。", "Handle reports and community revisions for this organization's Q&A."], ["组织举报", "Organization reports"], ["组织修订", "Organization revisions"], ["填写处理结论并通知举报者。", "Record a resolution and notify the reporter."], ["处理结论", "Resolution"], ["填写审核意见并通知提交者。", "Write review notes and notify the submitter."],
+  ["二级回复", "Replies"], ["回复已发布。", "Reply posted."], ["评论已发布。", "Comment posted."], ["正在展开...", "Expanding..."], ["折叠回复", "Collapse replies"], ["当前权限不允许你发表评论。", "Your current permissions do not allow comments."], ["正在加载回复...", "Loading replies..."], ["暂无回复。", "No replies yet."], ["暂无评论。", "No comments yet."],
+  ["源文保持一致", "Matches source"], ["首次建立译文", "First translation"], ["当前源文与译文一致。", "The current source and translation match."], ["发布译文后可用于术语建议。", "After publishing, this translation can inform terminology suggestions."], ["尚无可用建议；通过审核的译文会在这里逐步积累。", "No suggestions are available yet. Approved translations will accumulate here."], ["已插入建议，请结合上下文校订后保存。", "Suggestion inserted. Review it in context before saving."], ["新建译文", "New translation"], ["源文已变更", "Source changed"], ["需要修改", "Needs changes"], ["已发布版本", "Published version"], ["等待审阅", "Awaiting review"], ["进入工作台", "Open workspace"], ["已发布", "Published"], ["待修改", "Needs changes"], ["当前以审阅身份查看草稿，可提交投票与意见。", "You are viewing this draft as a reviewer and can submit a vote and notes."], ["自动生成初稿", "Generate draft"], ["正在生成初稿...", "Generating draft..."], ["初稿已生成，请校订后保存。", "Draft generated. Review and save it."], ["初稿已生成", "Draft generated"], ["已插入翻译建议", "Translation suggestion inserted"], ["正在保存译文...", "Saving translation..."], ["译文已保存", "Translation saved"], ["通过译文", "Approve translation"], ["可填写简短审核意见。", "You can add a brief review note."], ["通过并发布", "Approve and publish"], ["提交意见", "Submit note"], ["正在提交译文审核...", "Submitting translation review..."], ["译文已审核通过并发布。", "Translation approved and published."], ["已要求译者修改。", "Changes requested from translator."], ["未附加说明。", "No note provided."], ["推荐术语", "Recommended terms"], ["当前生效", "Active now"], ["这个语言方向还没有术语记录。", "There are no terminology records for this language direction yet."], ["术语表", "Glossary"], ["删除术语", "Delete term"], ["术语已删除", "Term deleted"], ["正在保存术语...", "Saving term..."], ["术语已保存", "Term saved"], ["术语已保存。", "Term saved."],
+  ["只读", "Read-only"], ["可管理", "Manageable"], ["仅资深编辑和管理员可修改权限。", "Only senior editors and administrators can change permissions."], ["保存权限", "Save permissions"], ["只有资深编辑和管理员可以移动词条。", "Only senior editors and administrators can move pages."], ["只有资深编辑和管理员可以删除词条。", "Only senior editors and administrators can delete pages."], ["当前删除权限不允许执行此操作。", "Current delete permission does not allow this action."], ["权限已保存。", "Permissions saved."], ["正在归档并删除...", "Archiving and deleting..."], ["词条已归档删除。", "Page archived and deleted."], ["移动词条", "Move page"], ["确认移动", "Confirm move"], ["正在迁移词条与知识链接...", "Moving page and knowledge links..."], ["词条已移动", "Page moved"], ["允许访客", "Allow guests"], ["仅登录用户", "Signed-in users only"], ["资深编辑可删除", "Senior editors can delete"], ["禁止删除", "Do not allow deletion"],
+  ["协作讨论", "Collaboration discussions"], ["协作社区主题", "Community topics"], ["社区知识", "Community knowledge"], ["综合", "Combined"], ["标题优先", "Title first"], ["正文优先", "Body first"], ["草稿", "Draft"], ["不限", "Any"], ["无", "None"], ["词条中没有匹配结果", "No matches in pages"], ["没有匹配结果", "No matches"], ["输入关键词开始搜索", "Enter keywords to start searching"], ["词条搜索结果", "Page search results"], ["没有匹配的社区内容", "No matching community content"], ["可以围绕这个关键词发起新问题。", "You can ask a new question around this keyword."],
+  ["期刊论文", "Journal article"], ["专著", "Monograph"], ["书籍章节", "Book chapter"], ["预印本", "Preprint"], ["会议论文", "Conference paper"], ["学位论文", "Thesis"], ["网页", "Web page"], ["数据集", "Dataset"], ["待补核验信息", "Verification details needed"], ["未命名来源", "Untitled source"], ["请先填写引用键。", "Enter a citation key first."], ["尚未添加结构化来源", "No structured sources yet"], ["添加 DOI、arXiv、出版物或权威网页来源后，可直接插入正文。", "Add DOI, arXiv, publication, or authoritative web sources to insert them directly into the page."], ["入门", "Introductory"], ["本科", "Undergraduate"], ["研究生", "Graduate"], ["专题", "Special topic"],
+  ["不可编辑", "Not editable"], ["该词条已锁定，暂不可编辑。", "This page is locked and cannot be edited now."], ["该词条仅允许登录用户编辑。", "Only signed-in users can edit this page."], ["新词条", "New page"], ["未登录时需要填写访客昵称和邮箱。", "When signed out, enter a guest name and email address."], ["当前没有其他订阅者需要通知。", "There are no other subscribers to notify."], ["开始审阅", "Start review"], ["查看词条", "View page"], ["当前版本已保存", "Current version saved"],
+  ["缺失词条", "Missing pages"], ["没有缺失词条。", "No missing pages."], ["孤立词条", "Orphaned pages"], ["待关联", "Needs linking"], ["没有孤立词条。", "No orphaned pages."], ["暂无摘要。", "No summary yet."], ["未分级", "Unrated"], ["暂无统计", "No statistics yet"], ["主题", "Topic"], ["没有匹配的分类", "No matching categories"], ["调整检索词，或在词条编辑时添加分类。", "Adjust the search query or add categories while editing a page."], ["子分类", "Subcategories"], ["该分类尚无匹配词条", "This category has no matching pages"], ["浏览子分类，或编辑词条并加入此分类。", "Browse subcategories or edit pages to add them to this category."], ["分类词条", "Category pages"], ["暂无主题", "No topics yet"], ["编辑词条并填写主题路径。", "Edit a page and enter its topic path."], ["该主题尚无直接词条", "This topic has no direct pages"], ["在词条编辑器填写主题路径，即可将其加入这里。", "Enter a topic path in the page editor to add it here."], ["还没有关注目标", "No followed targets yet"], ["在词条标题旁点击关注，或进入关注列表管理分类与语言。", "Follow from a page title or manage categories and languages from the Following list."],
+  ["保存准备继续阅读或整理的问答。", "Save Q&A to continue reading or organize later."], ["还没有收藏问答内容。", "No saved Q&A yet."], ["管理社区收藏", "Manage community collections"], ["跟进问题、回答与标签更新。", "Follow updates to questions, answers, and tags."], ["还没有关注问题或标签。", "No followed questions or tags yet."], ["管理社区关注", "Manage community following"], ["请求模式", "Request mode"], ["自动回复已开启", "Auto-reply enabled"], ["自动回复已关闭", "Auto-reply disabled"], ["删除这条批注？", "Delete this annotation?"], ["批注删除后不会再出现在正文和我的划词中。", "After deletion, this annotation no longer appears in the page or My Selections."], ["删除批注", "Delete annotation"], ["批注已删除", "Annotation deleted"], ["删除划词？", "Delete this selection?"], ["你的喜欢和批注会一并移除；其他用户已经参与时，他们的内容仍会保留。", "Your likes and annotations will be removed; other users' contributions remain."], ["你的划词已删除，其他用户的内容仍保留", "Your selection was deleted; other users' content remains"], ["划词已删除", "Selection deleted"],
 ];
+
+const EN_UI_ATTRIBUTE_NAMES = ["placeholder", "title", "aria-label", "alt", "value"];
+const EN_UI_TEXT = new Map(EN_UI_REPLACEMENTS);
+const EN_UI_PATTERNS = [
+  [/^(\d+) 个公开词条$/, (count) => `${count} public pages`],
+  [/^(\d+) 个优质或稳定版本$/, (count) => `${count} high-quality or stable versions`],
+  [/^(\d+) 条近期更新$/, (count) => `${count} recent updates`],
+  [/^(\d+) 条批注$/, (count) => `${count} annotations`],
+  [/^(\d+) 人喜欢$/, (count) => `${count} likes`],
+  [/^(\d+) 项开放任务$/, (count) => `${count} open tasks`],
+  [/^我认领 (\d+) 项$/, (count) => `I claimed ${count}`],
+  [/^查看全部 (\d+)$/, (count) => `View all ${count}`],
+  [/^管理 (.+) 的群聊设置$/, (name) => `${name}'s group chat settings`],
+  [/^调整 (.+) 的群聊身份$/, (name) => `Change ${name}'s group role`],
+  [/^查看 (.+) 的主页$/, (name) => `View ${name}'s profile`],
+  [/^回复 (.+)$/, (name) => `Reply to ${name}`],
+  [/^正在回复 (.+)$/, (name) => `Replying to ${name}`],
+  [/^禁言至 (.+)$/, (date) => `Muted until ${date}`],
+  [/^归档 (.+)$/, (date) => `Archived ${date}`],
+  [/^质量 ([A-D])$/, (grade) => `Quality ${grade}`],
+  [/^第 (\d+) \/ (\d+) 页$/, (page, pages) => `Page ${page} of ${pages}`],
+];
+const API_ERROR_EN = {
+  not_found: "The requested resource was not found.", api_not_migrated: "This API has not been migrated yet.", authentication_required: "Sign in is required.", admin_required: "Administrator permission is required.", system_admin_required: "System administrator permission is required.", step_up_required: "Please sign in again before performing this sensitive action.",
+  invalid_credentials: "Incorrect account or password.", account_disabled: "This account has been disabled.", email_verification_required: "Verify your email address before signing in.", username_invalid: "Username must contain 3-32 letters, numbers, underscores, or hyphens.", display_name_invalid: "Display name is required and must be 80 characters or fewer.", email_invalid: "Enter a valid email address.", password_invalid: "Password must meet the required length and confirmation rules.", identity_exists: "That username or email address is already in use.", install_bootstrap_required: "The one-time installation key shown at server startup is required.",
+  csrf_token_invalid: "Your security token has expired. Refresh the page and try again.", untrusted_origin: "This request origin is not trusted.", origin_required: "This request is missing origin information.", login_rate_limited: "Too many sign-in attempts. Try again later.", captcha_rate_limited: "Too many verification requests. Try again later.", captcha_required: "Complete human verification first.", captcha_invalid: "Verification failed. Complete it again.", captcha_expired: "Verification expired. Refresh and try again.", captcha_unavailable: "Human verification is temporarily unavailable. Try again later.",
+  profile_invalid: "Profile details are invalid.", user_update_invalid: "User details are invalid.", user_not_found: "User not found.", email_exists: "That email address is already in use.", email_missing: "Add an email address first.", current_password_invalid: "Current password is incorrect.", two_factor_invalid: "Two-factor code is incorrect.", two_factor_required: "Enter your two-factor code.", password_unchanged: "New password must differ from the current password.", passport_token_invalid: "This verification link has expired. Request a new one.",
+  community_question_not_found: "Question not found.", community_question_closed: "This question is closed and cannot receive new answers or comments.", community_question_title_invalid: "Question title must be 6 to 150 characters.", community_question_content_invalid: "Add background, known conditions, or an attempted solution.", community_question_tag_required: "Select at least one question tag.", community_answer_not_found: "Answer not found.", community_answer_content_invalid: "Answer must be 6 to 65,535 characters.", community_answer_already_exists: "You have already answered this question; edit your existing answer instead.", community_comment_invalid: "Comment must be 2 to 2,000 characters.", community_comment_not_found: "Comment not found.", community_edit_forbidden: "You do not have permission to edit this content.", community_delete_forbidden: "You do not have permission to delete this content.", community_vote_unavailable: "This content cannot be voted on right now.", community_self_vote_forbidden: "You cannot vote on your own content.", community_moderation_required: "Community moderation permission is required.",
+  community_organization_not_found: "Organization not found or unavailable.", community_organization_membership_required: "Only organization members can participate here.", organization_not_found: "Organization not found.", organization_membership_required: "Only organization members can enter this group chat.", conversation_not_found: "Conversation not found.", message_not_found: "Message not found.", message_empty: "Message content is required.", message_too_long: "Message content is too long.", invalid_direct_recipient: "Choose another user to start a direct conversation.", direct_recipient_deleted: "This user has been deleted and cannot receive direct messages.", direct_recipient_banned: "This user is currently unable to receive direct messages.", direct_request_limit_reached: "Wait for a reply before sending another message in this direct conversation.",
+  selection_not_found: "Selection not found or has been deleted.", selection_comment_empty: "Enter an annotation.", selection_comment_not_found: "Annotation not found.", selection_comment_forbidden: "You can delete only your own annotations.", selection_delete_forbidden: "You can delete only selections you created.", selection_text_empty: "Select text first.", selection_object_type_invalid: "This content type does not support text selection.",
+  attachment_file_invalid: "Attachment file is unavailable.", attachment_storage_full: "Attachment storage is full.", attachment_user_quota_exceeded: "Your attachment storage quota is full.", community_attachment_not_found: "Attachment not found.", community_attachment_access_denied: "You do not have access to this attachment.", community_attachment_too_large: "Attachment exceeds the size limit.", community_attachment_type_not_allowed: "This attachment type is not allowed.",
+  internal_error: "An internal error occurred. Try again later.", legacy_service_unavailable: "Compatibility service is temporarily unavailable. Try again later.", seo_content_unavailable: "Content service is temporarily unavailable. Try again later.",
+};
+const USER_CONTENT_SELECTORS = [
+  "[data-i18n-skip]", ".article-body", ".article-summary[data-user-content]", ".comment-body", ".comment-item",
+  ".qa-prose", ".qa-question-copy", ".qa-answer", ".qa-comment-body", ".qa-tag-grid article p",
+  ".qa-collection-list article a", ".qa-activity-object", ".organization-description", ".organization-content",
+  ".user-profile-body", ".messaging-message", ".messaging-preview-copy", ".messaging-conversation-row",
+  ".admin-comment-cell", ".archived-body", ".selection-annotation-comment",
+].join(",");
+
+function translateEnglishUiText(value) {
+  const original = String(value || "");
+  const leading = original.match(/^\s*/)?.[0] || "";
+  const trailing = original.match(/\s*$/)?.[0] || "";
+  const text = original.trim();
+  const exact = EN_UI_TEXT.get(text);
+  if (exact) return `${leading}${exact}${trailing}`;
+  for (const [pattern, format] of EN_UI_PATTERNS) {
+    const match = text.match(pattern);
+    if (match) return `${leading}${format(...match.slice(1))}${trailing}`;
+  }
+  const count = text.match(/^第\s*(\d+)\s*\/\s*(\d+)\s*页\s*[·・]\s*共\s*(\d+)\s*条$/);
+  if (count) return `${leading}Page ${count[1]} of ${count[2]} · ${count[3]} items${trailing}`;
+  const quantified = text.match(/^(\d+)\s*(个问题|个回答|人关注|次浏览|次编辑|个词条|个组织|人已读)$/);
+  if (!quantified) return original;
+  const units = { "个问题": "questions", "个回答": "answers", "人关注": "followers", "次浏览": "views", "次编辑": "edits", "个词条": "pages", "个组织": "organizations", "人已读": "read" };
+  return `${leading}${quantified[1]} ${units[quantified[2]]}${trailing}`;
+}
+
+function fixedUiText(value) {
+  const text = String(value || "");
+  return state.uiLanguage === "en" ? translateEnglishUiText(text) : text;
+}
+
+// Independent front-end modules load before this file. Expose only the
+// catalog gateway so their UI chrome can share the same reviewed wording.
+globalThis.WikistI18n = {
+  enabled: () => state.uiLanguage === "en",
+  t: (value) => fixedUiText(value),
+  formatDate: (value) => fmtDate(value),
+};
+
+function localizedApiError(payload, status) {
+  const fallback = `Request failed (HTTP ${status})`;
+  if (state.uiLanguage !== "en") return payload?.error || fallback;
+  return API_ERROR_EN[String(payload?.code || "")] || fallback;
+}
 
 function openccSource() {
   return withCdnBase(state.site?.plugins?.openccChinese?.cdn || "/plugins/vendor/opencc-js/full.js");
@@ -860,7 +1084,8 @@ function textNodesUnder(root, options = {}) {
       const parent = node.parentElement;
       if (!parent || !node.nodeValue.trim()) return NodeFilter.FILTER_REJECT;
       if (parent.closest("script,style,textarea,input,select,code,pre,.vditor")) return NodeFilter.FILTER_REJECT;
-      if (options.skipArticle && parent.closest(".article-body,.comment-body,.math-block,.footnotes")) return NodeFilter.FILTER_REJECT;
+      if (parent.closest(USER_CONTENT_SELECTORS)) return NodeFilter.FILTER_REJECT;
+      if (options.skipArticle && parent.closest(".math-block,.footnotes")) return NodeFilter.FILTER_REJECT;
       return NodeFilter.FILTER_ACCEPT;
     },
   });
@@ -872,11 +1097,18 @@ function textNodesUnder(root, options = {}) {
 function hydrateEnglishUi(root = document.body) {
   textNodesUnder(root, { skipArticle: true }).forEach((node) => {
     if (!node._wikistOriginalText) node._wikistOriginalText = node.nodeValue;
-    let text = node._wikistOriginalText;
-    for (const [from, to] of EN_UI_REPLACEMENTS) {
-      text = text.split(from).join(to);
-    }
-    node.nodeValue = text;
+    node.nodeValue = translateEnglishUiText(node._wikistOriginalText);
+  });
+  root.querySelectorAll?.("*").forEach((element) => {
+    if (element.closest(USER_CONTENT_SELECTORS)) return;
+    EN_UI_ATTRIBUTE_NAMES.forEach((name) => {
+      const originalKey = `_wikistOriginal${name[0].toUpperCase()}${name.slice(1)}`;
+      const current = element.getAttribute(name);
+      if (current === null) return;
+      if (!(originalKey in element)) element[originalKey] = current;
+      const translated = translateEnglishUiText(element[originalKey]);
+      if (translated !== element[originalKey]) element.setAttribute(name, translated);
+    });
   });
 }
 
@@ -904,6 +1136,12 @@ async function hydrateLanguageConversion(root = document.body) {
 function restoreLanguageConversion(root = document.body) {
   textNodesUnder(root).forEach((node) => {
     if (node._wikistOriginalText) node.nodeValue = node._wikistOriginalText;
+  });
+  root.querySelectorAll?.("*").forEach((element) => {
+    EN_UI_ATTRIBUTE_NAMES.forEach((name) => {
+      const originalKey = `_wikistOriginal${name[0].toUpperCase()}${name.slice(1)}`;
+      if (originalKey in element) element.setAttribute(name, element[originalKey]);
+    });
   });
 }
 
@@ -1019,8 +1257,9 @@ function readEditorBody(form) {
 }
 function setChromeTitle(title) {
   const siteName = currentSiteName();
-  document.title = title ? `${title} - ${siteName}` : siteName;
-  el.breadcrumbs.textContent = title ? `${siteName} / ${title}` : siteName;
+  const visibleTitle = state.uiLanguage === "en" ? (EN_UI_TEXT.get(String(title || "")) || title) : title;
+  document.title = visibleTitle ? `${visibleTitle} - ${siteName}` : siteName;
+  el.breadcrumbs.textContent = visibleTitle ? `${siteName} / ${visibleTitle}` : siteName;
 }
 
 function renderPassportLink() {
@@ -1028,18 +1267,19 @@ function renderPassportLink() {
   if (state.user) {
     el.passportLink.href = "#/account";
     el.passportText.textContent = state.user.displayName || state.user.username;
-    el.passportLink.setAttribute("aria-label", "账户中心");
-    el.passportLink.setAttribute("title", "进入账户中心");
+    el.passportLink.setAttribute("aria-label", fixedUiText("账户中心"));
+    el.passportLink.setAttribute("title", fixedUiText("进入账户中心"));
     el.passportLink.classList.add("signed-in");
     if (el.passportIcon) el.passportIcon.innerHTML = avatarHtml(state.user, "small");
     if (el.topbarLogout) el.topbarLogout.hidden = false;
     if (el.sidebarPassportLink) {
       el.sidebarPassportLink.href = "#/account";
-      el.sidebarPassportLink.textContent = "账户中心";
+      el.sidebarPassportLink.textContent = fixedUiText("账户中心");
     }
     if (el.sidebarAccount) {
       const group = state.user.groupLabel || GROUP_LABELS[state.user.role] || state.user.role || "成员";
-      el.sidebarAccount.innerHTML = `<a class="sidebar-account-link" href="#/account">${avatarHtml(state.user, "small")}<span><strong>${escapeHtml(state.user.displayName || state.user.username)}</strong><small>${escapeHtml(group)} · ${Number(state.user.stats?.edits || 0)} 次编辑</small></span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg></a>`;
+      const edits = state.uiLanguage === "en" ? `${Number(state.user.stats?.edits || 0)} edits` : `${Number(state.user.stats?.edits || 0)} 次编辑`;
+      el.sidebarAccount.innerHTML = `<a class="sidebar-account-link" href="#/account">${avatarHtml(state.user, "small")}<span><strong>${escapeHtml(state.user.displayName || state.user.username)}</strong><small>${escapeHtml(group)} · ${edits}</small></span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg></a>`;
     }
   } else {
     el.passportLink.href = passportUrl("login");
@@ -1055,7 +1295,7 @@ function renderPassportLink() {
       el.sidebarPassportLink.textContent = currentPassportName();
     }
     if (el.sidebarAccount) {
-      el.sidebarAccount.innerHTML = `<a class="sidebar-account-link guest" href="${passportUrl("login")}"><span class="sidebar-account-guest" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 13a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm-7 7a7 7 0 0 1 14 0"/></svg></span><span><strong>访客模式</strong><small>登录后同步贡献身份</small></span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg></a>`;
+      el.sidebarAccount.innerHTML = `<a class="sidebar-account-link guest" href="${passportUrl("login")}"><span class="sidebar-account-guest" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 13a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm-7 7a7 7 0 0 1 14 0"/></svg></span><span><strong>${fixedUiText("访客模式")}</strong><small>${fixedUiText("登录后同步贡献身份")}</small></span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg></a>`;
     }
   }
 }
@@ -2106,7 +2346,7 @@ function renderTopQuickNav() {
     const current = location.hash.split("?")[0] || "#/page/home";
     const communityActive = item.href === "#/community" && /^#\/(community|organization)(?:\/|$)/.test(current);
     const active = current === item.href || current.startsWith(`${item.href}/`) || communityActive;
-    return `<a class="${active ? "active" : ""}" href="${item.href}" ${active ? 'aria-current="page"' : ""}>${escapeHtml(item.label)}</a>`;
+    return `<a class="${active ? "active" : ""}" href="${item.href}" ${active ? 'aria-current="page"' : ""}>${escapeHtml(fixedUiText(item.label))}</a>`;
   }).join("");
 }
 
@@ -2157,7 +2397,7 @@ function renderNav() {
   el.primaryNav.innerHTML = nav.map((item) => {
     const communityActive = item.href === "#/community" && /^#\/(community|organization)(?:\/|$)/.test(current);
     const active = current === item.href || current.startsWith(`${item.href}/`) || communityActive;
-    return `<a class="nav-link ${active ? "active" : ""}" href="${item.href}" ${active ? 'aria-current="page"' : ""}>${navigationIconSvg(item.icon)}<span>${escapeHtml(item.label)}</span></a>`;
+    return `<a class="nav-link ${active ? "active" : ""}" href="${item.href}" ${active ? 'aria-current="page"' : ""}>${navigationIconSvg(item.icon)}<span>${escapeHtml(fixedUiText(item.label))}</span></a>`;
   }).join("");
 }
 
@@ -2772,10 +3012,10 @@ function articleHeader(page) {
     <header class="article-head article-entry-head ${page.heroImage ? "article-head-with-image" : ""}">
       ${hero}
       <div class="article-title-row">
-        <h1>${escapeHtml(page.title)}</h1>
+        <h1 data-i18n-skip>${escapeHtml(page.title)}</h1>
         <div class="article-title-actions"><div class="article-title-primary-actions"><span class="quality-badge">质量 ${escapeHtml(page.quality || "C")}</span>${favoriteButtonHtml(page)}${pageWatchButtonHtml(page)}${pageShareButtonHtml(page)}</div>${sectionShortcuts}</div>
       </div>
-      <p class="article-summary">${escapeHtml(page.summary || "")}</p>
+      <p class="article-summary" data-i18n-skip>${escapeHtml(page.summary || "")}</p>
       <div class="meta-row">
         <span class="chip">${escapeHtml(page.difficulty || "未分级")}</span>
         <span class="chip">${escapeHtml(page.status || "draft")}</span>
@@ -3648,6 +3888,18 @@ function renderHomePortal(page) {
     ...(state.site?.homeContent || {}),
   };
   const activeLanguage = normalizeLanguageCode(state.uiLanguage || state.site?.language, "zh-CN");
+  if (activeLanguage === "en") {
+    const legacySearch = String(homeText.heroSearch || "").trim();
+    if (/^(搜索|search)?\s*数学概念$/i.test(legacySearch) || legacySearch === "搜索数学概念") homeText.heroSearch = "Search mathematics concepts";
+    if (homeText.heroTitle === "欢迎来到") homeText.heroTitle = "Welcome to";
+    if (homeText.heroSummary === "开放、严谨、可验证的中文数学知识共同体。查找定义、证明与引用，也欢迎参与完善。") {
+      homeText.heroSummary = "An open, rigorous, verifiable mathematics knowledge community. Find definitions, proofs, and references, then help improve them.";
+    }
+    if (homeText.heroContribute === "开始贡献") homeText.heroContribute = "Contribute";
+    if (homeText.heroNews === "查看资讯") homeText.heroNews = "View news";
+    if (homeText.actionsTitle === "协作控制台") homeText.actionsTitle = "Collaboration hub";
+    if (homeText.actionsSummary === "查找词条、参与协作或开始新的贡献。") homeText.actionsSummary = "Find pages, join collaboration, or start a new contribution.";
+  }
   const defaultHeroPrefix = activeLanguage === "en" ? "Welcome to" : (activeLanguage === "zh-TW" ? "歡迎來到" : "欢迎来到");
   const savedHeroTitle = String(homeText.heroTitle || "").trim();
   const legacyHeroTitle = /^(首页|home|欢迎来到\s*wikist|歡迎來到\s*wikist|welcome to\s*wikist)$/i.test(savedHeroTitle);
@@ -9881,6 +10133,7 @@ function siteSettingsForm(site, home, homeContent = {}) {
         <label>协议<input name="license" value="${escapeHtml(site.license || "CC BY-SA 4.0")}" /></label>
         <label class="setting-toggle"><input name="seoEnabled" type="checkbox" ${site.seo?.enabled !== false ? "checked" : ""} /><span><strong>允许搜索引擎收录</strong><small>发布词条、公开问答和公开讨论将生成可抓取页面。</small></span></label>
         <label class="setting-toggle"><input name="seoIndexDrafts" type="checkbox" ${site.seo?.indexDrafts ? "checked" : ""} /><span><strong>收录草稿词条</strong><small>默认关闭，避免未完成内容出现在搜索结果中。</small></span></label>
+        <label class="wide">搜索品牌别名<input name="brandAliases" value="${escapeHtml((site.seo?.brandAliases || []).join(", "))}" placeholder="例如：MathSX, mathsx" /></label>
         <label class="wide">站点语言列表<input name="languages" value="${escapeHtml(settingsLanguages.join(", "))}" placeholder="zh-CN, zh-TW, en, fr, ja" /></label>
         <label class="wide">站点简介<input name="tagline" value="${escapeHtml(site.tagline || "")}" /></label>
         <label class="wide">MathJax CDN<input name="mathCdn" value="${escapeHtml(site.mathCdn || "")}" /></label>
@@ -9896,6 +10149,7 @@ function siteSettingsForm(site, home, homeContent = {}) {
         <label>SMTP &#x5BC6;&#x7801;<input name="smtpPass" type="password" value="" autocomplete="new-password" placeholder="${mail.smtpPassSet ? "&#x5DF2;&#x914D;&#x7F6E;&#xFF0C;&#x7559;&#x7A7A;&#x4E0D;&#x4FEE;&#x6539;" : "&#x672A;&#x914D;&#x7F6E;"}" /></label>
         <label>&#x53D1;&#x4EF6;&#x4EBA;&#x540D;&#x79F0;<input name="fromName" value="${escapeHtml(mail.fromName || site.name || "Wikist")}" /></label>
         <label>&#x53D1;&#x4EF6;&#x90AE;&#x7BB1;<input name="fromAddress" type="email" value="${escapeHtml(mail.fromAddress || "")}" placeholder="no-reply@example.com" /></label>
+        <div class="editor-actions wide"><button class="command-button secondary" type="button" id="sendMailTest" ${mail.enabled ? "" : "disabled"}>发送测试邮件到当前管理员邮箱</button><span class="status-line" id="mailTestStatus"></span></div>
         <label class="setting-toggle wide"><input name="requireEmailVerification" type="checkbox" ${passportSecurity.requireEmailVerification ? "checked" : ""} /><span><strong>&#x6CE8;&#x518C;&#x540E;&#x5FC5;&#x987B;&#x9A8C;&#x8BC1;&#x90AE;&#x7BB1;&#x624D;&#x80FD;&#x767B;&#x5F55;</strong><small>&#x5EFA;&#x8BAE;&#x5728; SMTP &#x6D4B;&#x8BD5;&#x7A33;&#x5B9A;&#x540E;&#x5F00;&#x542F;&#x3002;</small></span></label>
         <label>&#x9A8C;&#x8BC1;&#x90AE;&#x4EF6;&#x6709;&#x6548;&#x671F;&#xFF08;&#x79D2;&#xFF09;<input name="emailVerificationTTLSeconds" type="number" min="60" max="86400" value="${escapeHtml(passportSecurity.emailVerificationTTLSeconds || 1800)}" /></label>
         <label>&#x627E;&#x56DE;&#x5BC6;&#x7801;&#x6709;&#x6548;&#x671F;&#xFF08;&#x79D2;&#xFF09;<input name="passwordResetTTLSeconds" type="number" min="60" max="86400" value="${escapeHtml(passportSecurity.passwordResetTTLSeconds || 1200)}" /></label>
@@ -9933,6 +10187,20 @@ async function renderAdminSettings() {
   state.site = { ...state.site, ...site, home, homeContent };
   const body = `${adminHeader("站点设置", "配置站点信息、首页、邮件与自定义资源。")}${siteSettingsForm(site, home, homeContent)}`;
   el.main.innerHTML = adminShell("settings", body);
+  document.querySelector("#sendMailTest")?.addEventListener("click", async (event) => {
+    const button = event.currentTarget;
+    const status = document.querySelector("#mailTestStatus");
+    button.disabled = true;
+    status.textContent = "正在发送测试邮件...";
+    try {
+      await api("/api/admin/mail/test", { method: "POST", body: JSON.stringify({}) });
+      status.textContent = "SMTP 已接受测试邮件，请检查当前管理员邮箱的收件箱和垃圾邮件。";
+    } catch (error) {
+      status.textContent = error.message;
+    } finally {
+      button.disabled = false;
+    }
+  });
   document.querySelector("#siteSettingsForm")?.addEventListener("submit", async (event) => {
     event.preventDefault();
     const status = document.querySelector("#siteSettingsStatus");
@@ -9971,6 +10239,7 @@ async function renderAdminSettings() {
       applySiteCustomizations();
       el.siteName.textContent = state.site.name;
       el.siteTagline.textContent = state.site.tagline;
+      renderSiteFooter();
       applySiteIcon();
       updateLanguageChrome();
       renderPassportLink();
@@ -10424,7 +10693,7 @@ el.languageSelect?.addEventListener("change", async (event) => {
   }
   const lang = normalizeLanguageCode(value, "");
   if (!lang) {
-    updateLanguageChrome();
+    setUiLanguage(state.uiLanguage, false);
     return;
   }
   setUiLanguage(lang);
@@ -10550,7 +10819,7 @@ async function boot() {
     el.siteTagline.textContent = state.site.tagline;
     renderSiteFooter();
     applySiteIcon();
-    updateLanguageChrome();
+    setUiLanguage(state.uiLanguage, false);
     setupUnifiedMessageMenu();
     await Promise.all([refreshUser(), refreshChrome()]);
     initSelectionInteractions();

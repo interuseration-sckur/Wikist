@@ -133,6 +133,7 @@ try {
     assert.match(serviceSource, /ProtectSystem=strict/);
     assert.match(serviceSource, /NoNewPrivileges=true/);
     assert.match(serviceSource, /ReadWritePaths=/);
+    assert.match(serviceSource, /"\.runtime\/centrifugo"/);
     assert.doesNotMatch(serviceSource, /chmod[^\n]*777/);
   });
   check("the service installer repairs ownership of generated runtime secrets", () => {
@@ -141,6 +142,7 @@ try {
     assert.match(serviceSource, /run\("chmod", \["-R", "u\+rwX"/);
     assert.match(serviceSource, /webman-backend", "\.env/);
     assert.match(serviceSource, /centrifugo", "config\.json/);
+    assert.match(serviceSource, /"-m", "0750", "\/etc\/wikist"/);
     assert.match(serviceSource, /run\("chmod", \["0600", filePath\]\)/);
   });
   const hybridSource = fs.readFileSync(path.join(project, "tools", "start-hybrid.js"), "utf8");
@@ -159,6 +161,8 @@ try {
     assert.match(ubuntuInstaller, /composer-setup\.php/);
     assert.match(ubuntuInstaller, /sha(256|384)sum/);
     assert.doesNotMatch(ubuntuInstaller, /chmod[^\n]*777/);
+    assert.match(ubuntuInstaller, /systemctl is-active --quiet wikist\.service/);
+    assert.match(ubuntuInstaller, /Subject Alternative Name/);
   });
   check("offline Centrifugo installation remains available", () => {
     assert.match(setupSource, /--centrifugo=/);
@@ -175,6 +179,9 @@ try {
     assert.match(productionDoctor, /realtime\.websocket_public/);
     assert.match(productionDoctor, /realtime\.health_endpoint/);
     assert.match(productionDoctor, /nginx\.websocket_route/);
+    assert.match(productionDoctor, /filesystem\.system_env/);
+    assert.match(productionDoctor, /"\.runtime\/centrifugo"/);
+    assert.match(productionDoctor, /certificate does not cover/);
   });
   check("production repair snapshots configuration and rolls back invalid Nginx changes", () => {
     assert.match(productionDoctor, /data", "production-repairs/);

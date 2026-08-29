@@ -262,6 +262,7 @@ function siteIconUrl(config) {
 function serveIndexHtml(req, res, indexPath, config) {
   const icon = siteIconUrl(config);
   const siteName = configuredSiteName(config);
+  const siteTagline = String(config.tagline || "").trim();
   const html = fs.readFileSync(indexPath, "utf8")
     .replace(/href="(\/assets\/styles\.css\?v=[^"]+)"/g, (_match, url) => `href="${escapeHtml(assetUrl(config, url))}"`)
     .replace(/href="(\/assets\/design-system\.css\?v=[^"]+)"/g, (_match, url) => `href="${escapeHtml(assetUrl(config, url))}"`)
@@ -270,6 +271,9 @@ function serveIndexHtml(req, res, indexPath, config) {
     .replace(/src="\/assets\/wikist-(?:emblem\.svg|icon\.png)"/g, `src="${escapeHtml(icon)}"`)
     .replace(/<title>Wikist<\/title>/, `<title>${escapeHtml(siteName)}</title>`)
     .replace(/<strong id="siteName">Wikist<\/strong>/, `<strong id="siteName">${escapeHtml(siteName)}</strong>`)
+    .replace(/<small id="siteTagline">[^<]*<\/small>/, `<small id="siteTagline">${escapeHtml(siteTagline)}</small>`)
+    .replace(/<strong id="footerSiteName">Wikist<\/strong>/, `<strong id="footerSiteName">${escapeHtml(siteName)}</strong>`)
+    .replace(/<span id="footerTagline">[^<]*<\/span>/, `<span id="footerTagline"${siteTagline ? "" : " hidden"}>${escapeHtml(siteTagline)}</span>`)
     .replace(/id="breadcrumbs">Wikist<\//, `id="breadcrumbs">${escapeHtml(siteName)}</`);
   res.writeHead(200, {
     "content-type": "text/html; charset=utf-8",
@@ -445,6 +449,7 @@ function siteSettingsPayload(config) {
       enabled: config.seo?.enabled !== false,
       indexDrafts: config.seo?.indexDrafts === true,
       sitemapPageSize: Math.max(50, Math.min(Number(config.seo?.sitemapPageSize) || 500, 5000)),
+      brandAliases: normalizeBrandAliases(config.seo?.brandAliases || []),
     },
     mathCdn: config.math?.cdn || "",
     cdnBase: config.assets?.cdnBase || "",
@@ -462,6 +467,21 @@ function siteSettingsPayload(config) {
 
 function cleanSettingText(value, max = 500) {
   return String(value || "").trim().slice(0, max);
+}
+
+function normalizeBrandAliases(value) {
+  const values = Array.isArray(value) ? value : String(value || "").split(/[\n,，、]/);
+  const seen = new Set();
+  return values
+    .map((item) => cleanSettingText(item, 80))
+    .filter((item) => /^[\p{L}\p{N}][\p{L}\p{N} ._-]{0,79}$/u.test(item))
+    .filter((item) => {
+      const key = item.toLocaleLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, 8);
 }
 
 function cleanAssetUrl(value, fallback = "") {
@@ -566,6 +586,7 @@ function sanitizeSiteSettings(input, current = {}) {
     enabled: seoSource.seoEnabled !== false && seoSource.enabled !== false,
     indexDrafts: seoSource.seoIndexDrafts === true || seoSource.indexDrafts === true,
     sitemapPageSize: Math.max(50, Math.min(Number(seoSource.sitemapPageSize ?? current.seo?.sitemapPageSize) || 500, 5000)),
+    brandAliases: normalizeBrandAliases(seoSource.brandAliases ?? current.seo?.brandAliases ?? []),
   };
   return {
     name: cleanSettingText(source.name ?? current.name ?? "Wikist", 80) || "Wikist",
@@ -2624,7 +2645,11 @@ function createWikistServer(options) {
 
       if (pathname === "/api/pages" && req.method === "GET") {
         const publicIndexOnly = url.searchParams.get("indexable") === "1";
-        const summaries = pages.listPageSummaries().filter((page) => !publicIndexOnly || (
+        // The Webman Sitemap endpoint uses this internal query after an import
+        // or direct content-file sync. Do not let its response lag behind the
+        // PageStore catalog snapshot.
+        const freshCatalog = publicIndexOnly && url.searchParams.get("fresh") === "1";
+        const summaries = pages.listPageSummaries({ fresh: freshCatalog }).filter((page) => !publicIndexOnly || (
           !page.redirectTarget
           && !["deleted", "archived", "hidden", "private"].includes(String(page.status || "").toLowerCase())
           && (config.seo?.indexDrafts === true || String(page.status || "").toLowerCase() !== "draft")

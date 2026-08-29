@@ -25,6 +25,7 @@ final class FrontendController
             'icon' => (string) ($siteConfig['assets']['siteIcon'] ?? '/assets/wikist-icon.png'),
             'mathCdn' => (string) ($siteConfig['math']['cdn'] ?? ''),
             'defaultPage' => (string) ($siteConfig['defaultPage'] ?? 'home'),
+            'brandAliases' => (array) ($siteConfig['seo']['brandAliases'] ?? []),
         ];
         $html = (new SeoPageRenderer($site))->decorateHomepage((string) file_get_contents($path));
         return new Response(200, ['Content-Type' => 'text/html; charset=utf-8', 'Cache-Control' => 'no-cache, no-store, must-revalidate'], $html);

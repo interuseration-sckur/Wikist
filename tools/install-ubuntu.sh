@@ -93,10 +93,16 @@ else
 fi
 npm run service:install -- --public-url="$PUBLIC_URL" --user="$SERVICE_USER" --apply --yes
 npm run doctor -- --all
+if ! systemctl is-active --quiet wikist.service; then
+  echo "Wikist service did not remain active after installation. Recent service logs:" >&2
+  journalctl -u wikist -n 80 --no-pager -o cat >&2 || true
+  exit 1
+fi
 
 echo "Wikist is running at $PUBLIC_URL"
 echo "Open $PUBLIC_URL/install.html to finish the site profile and create the initial administrator."
 if [[ "$REALTIME" -eq 1 ]]; then
   echo "Before accepting traffic, proxy the exact /connection/websocket path to 127.0.0.1:8902."
+  echo "Ensure the HTTPS certificate presented for the public hostname includes that hostname in its Subject Alternative Name."
   echo "Then run: cd '$ROOT' && sudo npm run doctor:production -- --public-url=$PUBLIC_URL --service=wikist"
 fi

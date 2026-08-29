@@ -176,15 +176,19 @@ final class SeoPageRenderer
 
     public function decorateHomepage(string $html): string
     {
-        $title = $this->e((string) $this->site['name']);
-        $description = $this->e((string) $this->site['tagline']);
+        $siteName = trim((string) $this->site['name']);
+        $tagline = trim((string) $this->site['tagline']);
+        $title = $this->e($tagline !== '' ? $siteName . ' - ' . $tagline : $siteName);
+        $description = $this->e($tagline);
         $canonical = $this->e($this->absolute('/'));
         $meta = '<meta name="description" content="' . $description . '" />'
             . '<link rel="canonical" href="' . $canonical . '" />'
             . '<link rel="sitemap" type="application/xml" href="' . $this->e($this->absolute('/sitemap.xml')) . '" />'
-            . '<meta property="og:type" content="website" /><meta property="og:title" content="' . $title . '" />'
+            . '<meta name="robots" content="index,follow,max-image-preview:large,max-snippet:-1" />'
+            . '<meta property="og:type" content="website" /><meta property="og:site_name" content="' . $this->e($siteName) . '" /><meta property="og:title" content="' . $title . '" />'
             . '<meta property="og:description" content="' . $description . '" /><meta property="og:url" content="' . $canonical . '" />'
-            . $this->jsonLd([$this->websiteSchema()]);
+            . '<meta name="twitter:card" content="summary" />'
+            . $this->jsonLd([$this->websiteSchema(), $this->siteNavigationSchema()]);
         $html = preg_replace('/<title>.*?<\/title>/is', '<title>' . $title . '</title>', $html, 1) ?? $html;
         return str_replace('</head>', $meta . '</head>', $html);
     }
@@ -464,11 +468,53 @@ final class SeoPageRenderer
 
     private function websiteSchema(): array
     {
-        return [
+        $siteName = trim((string) $this->site['name']);
+        $aliases = [];
+        foreach ((array) ($this->site['brandAliases'] ?? []) as $alias) {
+            $alias = trim((string) $alias);
+            if ($alias !== '' && strcasecmp($alias, $siteName) !== 0 && !in_array($alias, $aliases, true)) {
+                $aliases[] = $alias;
+            }
+        }
+        $host = strtolower((string) parse_url((string) ($this->site['publicUrl'] ?? ''), PHP_URL_HOST));
+        $compactHost = preg_replace('/[^a-z0-9]/', '', preg_replace('/^www\./', '', $host)) ?: '';
+        if ($compactHost !== '' && strcasecmp($compactHost, $siteName) !== 0 && !in_array($compactHost, $aliases, true)) {
+            $aliases[] = $compactHost;
+        }
+        $schema = [
             '@context' => 'https://schema.org', '@type' => 'WebSite',
-            'name' => (string) $this->site['name'], 'description' => (string) $this->site['tagline'],
+            '@id' => $this->absolute('/#website'),
+            'name' => $siteName, 'description' => (string) $this->site['tagline'],
             'url' => $this->absolute('/'),
+            'inLanguage' => (string) ($this->site['language'] ?? 'zh-CN'),
             'potentialAction' => ['@type' => 'SearchAction', 'target' => $this->absolute('/#/search/{search_term_string}'), 'query-input' => 'required name=search_term_string'],
+        ];
+        if ($aliases !== []) {
+            $schema['alternateName'] = array_slice($aliases, 0, 3);
+        }
+        return $schema;
+    }
+
+    private function siteNavigationSchema(): array
+    {
+        $items = [
+            ['知识库', $this->absolute('/wiki')],
+            ['站内问答', $this->absolute('/questions')],
+            ['协作社区', $this->absolute('/discussions')],
+        ];
+        return [
+            '@context' => 'https://schema.org',
+            '@type' => 'ItemList',
+            'name' => (string) $this->site['name'] . ' 主要公开入口',
+            'itemListElement' => array_map(
+                static fn (array $item, int $position): array => [
+                    '@type' => 'ListItem',
+                    'position' => $position + 1,
+                    'item' => ['@type' => 'SiteNavigationElement', 'name' => $item[0], 'url' => $item[1]],
+                ],
+                $items,
+                array_keys($items),
+            ),
         ];
     }
 

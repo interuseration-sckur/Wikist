@@ -15,6 +15,7 @@ $renderer = new SeoPageRenderer([
     'icon' => '/assets/wikist-icon.png',
     'mathCdn' => '',
     'defaultPage' => 'home',
+    'brandAliases' => ['MathSX'],
 ]);
 
 $wiki = $renderer->wiki([
@@ -54,6 +55,8 @@ $discussion = $renderer->discussion([
     'items' => [], 'total' => 0, 'pages' => 1,
 ], 1);
 
+$homepage = $renderer->decorateHomepage('<!doctype html><html><head><title>Wikist</title></head><body><footer><a href="/wiki">知识库</a><a href="/questions">站内问答</a><a href="/discussions">协作社区</a></footer></body></html>');
+
 $checks = [
     'wiki canonical' => str_contains($wiki, '<link rel="canonical" href="https://wiki.example.test/wiki/abstract-algebra/group"'),
     'wiki internal link' => str_contains($wiki, 'href="/wiki/abstract-algebra"'),
@@ -70,6 +73,10 @@ $checks = [
     'discussion schema' => str_contains($discussion, '"@type":"DiscussionForumPosting"'),
     'discussion participation link' => str_contains($discussion, '/#/organization/algebra?tab=forum&amp;topic=7'),
     'discussion application route' => str_contains($discussion, 'window.__WIKIST_INITIAL_ROUTE__="#/organization/algebra?tab=forum&topic=7"'),
+    'homepage canonical' => str_contains($homepage, '<link rel="canonical" href="https://wiki.example.test/"'),
+    'homepage primary navigation schema' => str_contains($homepage, 'SiteNavigationElement') && str_contains($homepage, 'https://wiki.example.test/questions'),
+    'homepage brand alias' => str_contains($homepage, 'MathSX'),
+    'homepage crawl directives' => str_contains($homepage, '<meta name="robots" content="index,follow,max-image-preview:large,max-snippet:-1"'),
 ];
 
 if (in_array(false, $checks, true)) {

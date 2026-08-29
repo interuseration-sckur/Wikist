@@ -18,18 +18,19 @@ requireSource("webman-backend/config/route.php", [
   "'/robots.txt'", "'/sitemap.xml'", "'/wiki/{slug:.+}'", "'/questions/{id:", "'/discussions/{organization:",
 ]);
 requireSource("webman-backend/app/controller/SeoController.php", [
-  "X-Robots-Tag", "sitemapIndex", "application/xml", "Cache-Control",
+  "X-Robots-Tag", "sitemapIndex", "application/xml", "no-store, no-cache, must-revalidate, max-age=0",
 ]);
 requireSource("webman-backend/app/service/SeoPageRenderer.php", [
-  "QAPage", "DiscussionForumPosting", "BreadcrumbList", "rel=\"canonical\"", "application/ld+json",
+  "QAPage", "DiscussionForumPosting", "BreadcrumbList", "SiteNavigationElement", "alternateName", "rel=\"canonical\"", "application/ld+json",
   "applicationDocument", "data-seo-prerender", "__WIKIST_INITIAL_ROUTE__",
 ]);
 requireSource("public/assets/app.js", ["__WIKIST_INITIAL_ROUTE__", "__WIKIST_CLEAN_ENTRY__"]);
 requireSource("public/assets/seo-reader.css", [':root[data-theme="dark"]', ".seo-prerender", ".seo-standalone"]);
 requireSource("src/server/app.js", [
-  'pathname === "/api/community/discussions"', 'url.searchParams.get("indexable") === "1"',
+  'pathname === "/api/community/discussions"', 'url.searchParams.get("indexable") === "1"', 'url.searchParams.get("fresh") === "1"', 'normalizeBrandAliases',
 ]);
 requireSource("src/core/passport-store.js", ["listPublicOrganizationPosts(options = {})"]);
+requireSource("public/index.html", ['href="/wiki"', 'href="/questions"', 'href="/discussions"']);
 
 const candidates = [
   process.env.WIKIST_PHP,

@@ -35,7 +35,10 @@ final class SeoContentService
 
     public function sitemapPageSize(): int
     {
-        return max(50, min(5000, (int) $this->siteConfig->get('seo.sitemapPageSize', 500)));
+        // The legacy content list API caps a page at 500 records. Keeping this
+        // bound here guarantees that index page counts and sitemap payloads use
+        // the same page size.
+        return max(50, min(500, (int) $this->siteConfig->get('seo.sitemapPageSize', 500)));
     }
 
     public function site(): array
@@ -54,6 +57,7 @@ final class SeoContentService
             'icon' => (string) ($config['assets']['siteIcon'] ?? '/assets/wikist-icon.png'),
             'mathCdn' => (string) ($config['math']['cdn'] ?? ''),
             'defaultPage' => (string) ($config['defaultPage'] ?? 'home'),
+            'brandAliases' => (array) ($config['seo']['brandAliases'] ?? []),
         ];
     }
 
@@ -64,6 +68,7 @@ final class SeoContentService
             'page' => max(1, $page),
             'limit' => max(1, min(500, $limit)),
             'indexable' => 1,
+            'fresh' => 1,
         ]);
     }
 

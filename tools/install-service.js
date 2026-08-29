@@ -114,7 +114,7 @@ function generate(options) {
   ].join("\n");
   const node = process.execPath.replace(/\\/g, "/");
   const project = root.replace(/\\/g, "/");
-  const writablePaths = ["data", "content", "config", "logs", "plugins/vendor", "public/uploads", "webman-backend/runtime"]
+  const writablePaths = ["data", "content", "config", "logs", "plugins/vendor", "public/uploads", "webman-backend/runtime", ".runtime/centrifugo"]
     .map((relative) => `${project}/${relative}`)
     .join(" ");
   const service = `[Unit]\nDescription=Wikist knowledge platform\nAfter=network-online.target\nWants=network-online.target\nX-Wikist-Service-Version=2\n\n[Service]\nType=simple\nUser=${options.user}\nGroup=${options.user}\nWorkingDirectory=${project}\nEnvironmentFile=/etc/wikist/wikist.env\nExecStart=${node} ${project}/tools/start-hybrid.js\nExecStop=${node} ${project}/tools/start-hybrid.js --stop\nRestart=on-failure\nRestartSec=3\nTimeoutStopSec=30\nLimitNOFILE=65536\nUMask=0027\nNoNewPrivileges=true\nPrivateTmp=true\nProtectHome=read-only\nProtectSystem=strict\nProtectKernelTunables=true\nProtectKernelModules=true\nProtectControlGroups=true\nRestrictSUIDSGID=true\nReadWritePaths=${writablePaths}\n\n[Install]\nWantedBy=multi-user.target\n`;
@@ -144,7 +144,7 @@ function apply(result, options) {
   result.environment = result.environment.replace(/^WEBMAN_GROUP=.*$/m, `WEBMAN_GROUP=${group}`);
   result.service = result.service.replace(/^Group=.*$/m, `Group=${group}`);
 
-  const writable = ["data", "content", "config", "logs", "plugins/vendor", "public/uploads", "webman-backend/runtime"]
+  const writable = ["data", "content", "config", "logs", "plugins/vendor", "public/uploads", "webman-backend/runtime", ".runtime/centrifugo"]
     .map((relative) => path.resolve(root, relative));
   for (const directory of writable) {
     if (directory !== root && !directory.startsWith(root + path.sep)) throw new Error(`Unsafe runtime directory: ${directory}`);
@@ -169,6 +169,7 @@ function apply(result, options) {
     run("chmod", ["0600", filePath]);
   }
   run(process.execPath, [path.join(root, "tools", "migrate-server.js"), `--public-url=${result.publicUrl}`, "--mode=single-production", "--yes"]);
+  run("install", ["-d", "-o", "root", "-g", group, "-m", "0750", "/etc/wikist"]);
   atomicWrite("/etc/wikist/wikist.env", result.environment, 0o640);
   run("chown", [`root:${group}`, "/etc/wikist/wikist.env"]);
   atomicWrite("/etc/systemd/system/wikist.service", result.service, 0o644);

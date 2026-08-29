@@ -12,12 +12,26 @@ process.env.CENTRIFUGO_TOKEN_HMAC_SECRET ||= "wikist-check-token-secret-00000000
 process.env.CENTRIFUGO_API_KEY ||= "wikist-check-api-key-000000000000000000000000";
 const legacyProxySource = fs.readFileSync(path.join(backend, "app", "controller", "LegacyProxyController.php"), "utf8");
 const nodeServerSource = fs.readFileSync(path.join(root, "src", "server", "app.js"), "utf8");
+const passportControllerSource = fs.readFileSync(path.join(backend, "app", "controller", "PassportController.php"), "utf8");
+const passportClientSource = fs.readFileSync(path.join(root, "public", "passport", "passport.js"), "utf8");
+const adminMailControllerSource = fs.readFileSync(path.join(backend, "app", "controller", "AdminMailController.php"), "utf8");
+const mailServiceSource = fs.readFileSync(path.join(backend, "app", "service", "MailService.php"), "utf8");
 
 if (!legacyProxySource.includes("X-Wikist-User-Id") || !legacyProxySource.includes("AuthService")) {
   throw new Error("Webman legacy proxy must bridge the authenticated Passport identity.");
 }
 if (!nodeServerSource.includes('req.headers["x-wikist-user-id"]') || !nodeServerSource.includes("internalRequest")) {
   throw new Error("Node compatibility APIs must only accept the Webman identity bridge on trusted internal requests.");
+}
+if (!passportControllerSource.includes("'emailAvailable' => $email === '' ? null : !$users->emailExists($email),")
+  || !passportClientSource.includes('check("email", email, $("#emailHint"))')) {
+  throw new Error("Passport availability checks must report existing email addresses before registration is submitted.");
+}
+if (!adminMailControllerSource.includes("sendTest($request->identity)")
+  || !adminMailControllerSource.includes("mail.test")
+  || !mailServiceSource.includes("public function sendTest(UserIdentity $user): array")
+  || !mailServiceSource.includes("smtp_account_inactive")) {
+  throw new Error("Admin SMTP test mail must be sent only to the authenticated administrator and audited.");
 }
 
 function resolvePhp() {

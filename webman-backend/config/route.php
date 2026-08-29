@@ -1,6 +1,7 @@
 <?php
 
 use app\controller\HealthController;
+use app\controller\AdminMailController;
 use app\controller\AdminUserController;
 use app\controller\FrontendController;
 use app\controller\LegacyProxyController;
@@ -175,6 +176,9 @@ Route::group('/api/admin/users', static function (): void {
     Route::get('', [AdminUserController::class, 'index']);
     Route::put('/{id:\\d+}', [AdminUserController::class, 'update']);
 })->middleware(RequireAdminMiddleware::class);
+
+Route::post('/api/admin/mail/test', [AdminMailController::class, 'test'])
+    ->middleware(RequireAdminMiddleware::class);
 
 Route::fallback(static function (Request $request) {
     if (str_starts_with($request->path(), '/api/') || str_starts_with($request->path(), '/plugins/')) {

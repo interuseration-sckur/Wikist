@@ -55,7 +55,20 @@ final class MailService
         );
     }
 
-    private function send(string $to, string $subject, string $title, string $message, string $url): array
+    public function sendTest(UserIdentity $user): array
+    {
+        $siteName = $this->siteName();
+        return $this->send(
+            $user->email,
+            $siteName . ' SMTP 测试邮件',
+            $siteName . ' 邮件配置测试成功',
+            '这封邮件由系统管理员手动发送，用于确认 SMTP 认证、加密连接和投递流程正常。',
+            $this->baseUrl(),
+            '打开站点',
+        );
+    }
+
+    private function send(string $to, string $subject, string $title, string $message, string $url, string $actionLabel = '打开验证链接'): array
     {
         if (!$this->site->get('mail.enabled', false)) {
             throw new ApiException('邮件系统尚未启用。', 503, 'mail_disabled');
@@ -95,9 +108,18 @@ final class MailService
         $safeTitle = htmlspecialchars($title, ENT_QUOTES, 'UTF-8');
         $safeMessage = htmlspecialchars($message, ENT_QUOTES, 'UTF-8');
         $safeUrl = htmlspecialchars($url, ENT_QUOTES, 'UTF-8');
-        $mail->Body = "<div style=\"font-family:Segoe UI,Arial,sans-serif;line-height:1.7;color:#15211d\"><h2>{$safeTitle}</h2><p>{$safeMessage}</p><p><a href=\"{$safeUrl}\" style=\"display:inline-block;padding:10px 16px;border-radius:8px;background:#0f8a6c;color:#fff;text-decoration:none;font-weight:700\">打开验证链接</a></p><p style=\"color:#6b7b75;font-size:13px\">{$safeUrl}</p></div>";
+        $safeActionLabel = htmlspecialchars($actionLabel, ENT_QUOTES, 'UTF-8');
+        $mail->Body = "<div style=\"font-family:Segoe UI,Arial,sans-serif;line-height:1.7;color:#15211d\"><h2>{$safeTitle}</h2><p>{$safeMessage}</p><p><a href=\"{$safeUrl}\" style=\"display:inline-block;padding:10px 16px;border-radius:8px;background:#0f8a6c;color:#fff;text-decoration:none;font-weight:700\">{$safeActionLabel}</a></p><p style=\"color:#6b7b75;font-size:13px\">{$safeUrl}</p></div>";
         $mail->AltBody = $title . "\n\n" . $message . "\n" . $url;
-        $mail->send();
+        try {
+            $mail->send();
+        } catch (\Throwable $error) {
+            $detail = (string) $mail->ErrorInfo;
+            if (stripos($detail, 'account is not yet activated') !== false) {
+                throw new ApiException('SMTP 账户尚未激活。请先在 Brevo 完成账户激活后再发送邮件。', 503, 'smtp_account_inactive');
+            }
+            throw new ApiException('SMTP 投递失败。请检查发件人验证状态、SMTP 配置和邮件服务商控制台。', 503, 'mail_delivery_failed');
+        }
         return ['ok' => true, 'messageId' => $mail->getLastMessageID()];
     }
 

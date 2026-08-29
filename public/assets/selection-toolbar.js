@@ -1,6 +1,14 @@
 (function (global) {
   "use strict";
 
+  const EN_LABELS = {
+    "划词工具": "Selection tools", "复制": "Copy", "批注": "Annotate", "提问": "Ask", "搜索": "Search", "喜欢": "Like", "已喜欢": "Liked",
+    "删除划词": "Delete selection", "引用": "Quote", "引用到评论": "Quote in comment", "引用到回答": "Quote in answer", "引用到帖子": "Quote in post", "引用到聊天": "Quote in chat",
+  };
+  const t = (value) => {
+    try { return localStorage.getItem("wikist-language") === "en" ? (EN_LABELS[value] || value) : value; } catch (_) { return value; }
+  };
+
   const DEFAULT_SELECTOR = "[data-selection-content]";
   const BLOCKED_SELECTOR = "[data-selection-ignore],input,textarea,select,button,[contenteditable='true']";
   const HIGHLIGHT_NAME = "wikist-selection-anchors";
@@ -272,21 +280,21 @@
       node.className = "selection-toolbar";
       node.hidden = true;
       node.setAttribute("role", "toolbar");
-      node.setAttribute("aria-label", "划词工具");
+      node.setAttribute("aria-label", t("划词工具"));
       node.innerHTML = `
-        <button type="button" data-selection-action="copy">${toolbarIcon("copy")}<span>复制</span></button>
-        <button type="button" data-selection-action="comment">${toolbarIcon("comment")}<span>批注</span></button>
-        <button type="button" data-selection-action="question">${toolbarIcon("question")}<span>提问</span></button>
-        <button type="button" data-selection-action="search">${toolbarIcon("search")}<span>搜索</span></button>
-        <button type="button" data-selection-action="like" aria-pressed="false">${toolbarIcon("like")}<span>喜欢</span><em data-selection-like-count hidden>0</em></button>
-        <button type="button" data-selection-action="delete" hidden>${toolbarIcon("delete")}<span>删除划词</span></button>
+        <button type="button" data-selection-action="copy">${toolbarIcon("copy")}<span>${t("复制")}</span></button>
+        <button type="button" data-selection-action="comment">${toolbarIcon("comment")}<span>${t("批注")}</span></button>
+        <button type="button" data-selection-action="question">${toolbarIcon("question")}<span>${t("提问")}</span></button>
+        <button type="button" data-selection-action="search">${toolbarIcon("search")}<span>${t("搜索")}</span></button>
+        <button type="button" data-selection-action="like" aria-pressed="false">${toolbarIcon("like")}<span>${t("喜欢")}</span><em data-selection-like-count hidden>0</em></button>
+        <button type="button" data-selection-action="delete" hidden>${toolbarIcon("delete")}<span>${t("删除划词")}</span></button>
         <span class="selection-toolbar-reference">
-          <button type="button" data-selection-action="quote" aria-haspopup="menu" aria-expanded="false">${toolbarIcon("quote")}<span>引用</span></button>
+          <button type="button" data-selection-action="quote" aria-haspopup="menu" aria-expanded="false">${toolbarIcon("quote")}<span>${t("引用")}</span></button>
           <span class="selection-quote-menu" role="menu" hidden>
-            <button type="button" role="menuitem" data-selection-quote="comment">${toolbarIcon("comment")}<span>引用到评论</span></button>
-            <button type="button" role="menuitem" data-selection-quote="answer">${toolbarIcon("answer")}<span>引用到回答</span></button>
-            <button type="button" role="menuitem" data-selection-quote="post">${toolbarIcon("post")}<span>引用到帖子</span></button>
-            <button type="button" role="menuitem" data-selection-quote="chat">${toolbarIcon("chat")}<span>引用到聊天</span></button>
+            <button type="button" role="menuitem" data-selection-quote="comment">${toolbarIcon("comment")}<span>${t("引用到评论")}</span></button>
+            <button type="button" role="menuitem" data-selection-quote="answer">${toolbarIcon("answer")}<span>${t("引用到回答")}</span></button>
+            <button type="button" role="menuitem" data-selection-quote="post">${toolbarIcon("post")}<span>${t("引用到帖子")}</span></button>
+            <button type="button" role="menuitem" data-selection-quote="chat">${toolbarIcon("chat")}<span>${t("引用到聊天")}</span></button>
           </span>
         </span>`;
       node.addEventListener("pointerdown", (event) => event.preventDefault());
@@ -533,7 +541,7 @@
       button.classList.toggle("is-unknown", !known);
       button.setAttribute("aria-pressed", String(Boolean(liked)));
       const label = button.querySelector("span");
-      if (label) label.textContent = liked ? "已喜欢" : "喜欢";
+      if (label) label.textContent = liked ? t("已喜欢") : t("喜欢");
       const countNode = button.querySelector("[data-selection-like-count]");
       if (countNode) {
         countNode.textContent = `${count} 人喜欢`;

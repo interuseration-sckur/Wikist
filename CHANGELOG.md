@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.4 - 2026-08-29
+
+- Completed the built-in English interface across the public application, Passport, installer, Community and selection tools while preserving article, question, answer, organization and other user-authored content without machine translation.
+- Added immediate username and email availability feedback during registration, administrator SMTP test delivery, clearer Brevo activation failures, and production permission repairs for service environment files and Centrifugo runtime directories.
+- Made XML sitemaps read current published content on every request, bypassing catalog snapshots and stale proxy cache windows after imports, edits, restores and deletions.
+- Strengthened homepage discovery with canonical metadata, brand aliases, crawlable links to Wiki, Q&A and collaboration discussions, and structured primary-site navigation for search engines.
+- Added regression coverage for English UI boundaries, sitemap freshness, homepage SEO metadata, deployment hardening and mail administration. Organization profile summaries now use the full available content width. Core browser assets are versioned as `wikist-core-20260829-217`.
+
 ## 1.0.3 - 2026-08-16
 
 - Fixed the pre-update streaming backup path so it automatically creates a short-lived redacted SQLite snapshot when the caller does not provide one, then removes the snapshot after packaging.

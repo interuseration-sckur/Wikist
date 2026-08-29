@@ -14,6 +14,7 @@ const defaults = {
     enabled: true,
     indexDrafts: false,
     sitemapPageSize: 500,
+    brandAliases: [],
   },
   math: {
     provider: "mathjax",
@@ -241,6 +242,7 @@ function createInitialConfig(input = {}) {
       enabled: true,
       indexDrafts: false,
       sitemapPageSize: 500,
+      brandAliases: [],
     },
     assets: {
       cdnBase: cleanText(input.cdnBase, 500),

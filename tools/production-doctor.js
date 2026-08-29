@@ -10,7 +10,7 @@ const net = require("net");
 const path = require("path");
 
 const root = path.resolve(__dirname, "..");
-const runtimeDirectories = ["data", "content", "config", "logs", "plugins/vendor", "public/uploads", "webman-backend/runtime"];
+const runtimeDirectories = ["data", "content", "config", "logs", "plugins/vendor", "public/uploads", "webman-backend/runtime", ".runtime/centrifugo"];
 const sensitiveFiles = ["webman-backend/.env", "data/wikist-stack.json", "data/centrifugo/config.json", "config/site.config.json"];
 
 function parseArgs(argv) {
@@ -320,6 +320,8 @@ function synchronizeConfiguration(context) {
     atomicWrite(centrifugoPath, `${JSON.stringify(config, null, 2)}\n`, 0o600, account.uid, account.gid);
   }
 
+  const environmentDirectory = command("install", ["-d", "-o", "root", "-g", account.group, "-m", "0750", path.dirname(systemEnvPath)]);
+  if (environmentDirectory.status !== 0) throw new Error(`Unable to repair ${path.dirname(systemEnvPath)}: ${output(environmentDirectory)}`);
   if (fs.existsSync(systemEnvPath)) {
     const current = fs.readFileSync(systemEnvPath, "utf8");
     const updates = {
@@ -365,6 +367,7 @@ async function diagnose(options, context) {
     const target = safeRuntimePath(relative);
     record(`filesystem.${relative}`, !fs.existsSync(target) || canAccess(context.account, target, "r"), fs.existsSync(target) ? target : "not present", "warning");
   }
+  record("filesystem.system_env", fs.existsSync(context.systemEnvPath) && canAccess(context.account, context.systemEnvPath, "r"), context.systemEnvPath, "warning");
   record("realtime.enabled", centrifugo.enabled === true && systemEnv.CENTRIFUGO_ENABLED === "true", String(centrifugo.enabled === true));
   record("realtime.health_config", config.health?.enabled === true, config.health?.enabled === true ? "enabled on loopback" : "disabled", "warning");
   record("realtime.token_secret", Boolean(centrifugo.tokenHmacSecret) && centrifugo.tokenHmacSecret === config.client?.token?.hmac_secret_key && centrifugo.tokenHmacSecret === systemEnv.CENTRIFUGO_TOKEN_HMAC_SECRET, "stack/config/systemd match");
@@ -380,7 +383,10 @@ async function diagnose(options, context) {
   const localWebsocket = await websocketProbe(`ws://127.0.0.1:${Number(centrifugo.port || 8902)}/connection/websocket`, context.publicUrl);
   record("realtime.websocket_local", localWebsocket.ok, localWebsocket.detail);
   const publicWebsocket = await websocketProbe(context.realtimeUrl, context.publicUrl);
-  record("realtime.websocket_public", publicWebsocket.ok, publicWebsocket.detail + (publicWebsocket.detail.includes("Wikist backend") ? "; Nginx route is missing or shadowed" : ""));
+  const publicWebsocketDetail = publicWebsocket.detail === "ERR_TLS_CERT_ALTNAME_INVALID"
+    ? `${publicWebsocket.detail}; certificate does not cover ${new URL(context.publicUrl).hostname}`
+    : publicWebsocket.detail + (publicWebsocket.detail.includes("Wikist backend") ? "; Nginx route is missing or shadowed" : "");
+  record("realtime.websocket_public", publicWebsocket.ok, publicWebsocketDetail);
 
   const binary = nginxBinary();
   const nginx = binary ? command(binary, ["-T"]) : { status: 1, stdout: "", stderr: "" };

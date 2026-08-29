@@ -51,6 +51,16 @@ try {
   const updated = pages.listPageSummaries().find((page) => page.slug === "catalog-page-42");
   assert.strictEqual(updated.title, "Catalog Page Forty Two", "a save should invalidate and refresh only the affected catalog entry");
 
+  // Files copied by a bulk importer may bypass this Node process. A Sitemap
+  // request must still be able to force a fresh metadata scan immediately.
+  fs.writeFileSync(path.join(pagesDir, slugToFileName("external-import")), serializeFrontMatter({
+    title: "External Import",
+    summary: "Written outside PageStore",
+    status: "review",
+  }, "Imported content."), "utf8");
+  assert(!pages.listPageSummaries().some((page) => page.slug === "external-import"), "ordinary catalog reads may retain their performance snapshot");
+  assert(pages.listPageSummaries({ fresh: true }).some((page) => page.slug === "external-import"), "fresh catalog reads must include externally imported content immediately");
+
   const appSource = fs.readFileSync(path.join(process.cwd(), "public", "assets", "app.js"), "utf8");
   const serverSource = fs.readFileSync(path.join(process.cwd(), "src", "server", "app.js"), "utf8");
   assert(appSource.includes("wikistRouteLoader"), "route loading must have a native fallback independent of optional plugins");
@@ -61,7 +71,7 @@ try {
   assert(!cosmicSource.includes("wikist-cosmic-nebula-layer"), "cosmic experience must not recreate the removed pointer-follow glow layer");
   assert(!cosmicSource.includes('addEventListener("pointermove"'), "cosmic experience must not register a global pointer-follow listener");
   assert(!appSource.includes("data-wikist-route-loader-provider"), "route loading must have one sitewide provider");
-  assert(serverSource.includes("pages.listPageSummaries()"), "list APIs should use the lightweight metadata catalog");
+  assert(serverSource.includes("pages.listPageSummaries({ fresh: freshCatalog })"), "Sitemap catalog reads should be able to bypass the lightweight metadata snapshot");
 
   console.log(JSON.stringify({
     ok: true,

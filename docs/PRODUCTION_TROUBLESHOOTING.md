@@ -129,6 +129,28 @@ sudo ss -ltnp | grep -E ':(8899|8900|8902)\b'
 sudo journalctl -u wikist -n 100 --no-pager -o cat
 ```
 
+## Centrifugo 运行目录 `EACCES`
+
+```text
+Wikist 实时通信配置刷新失败：EACCES: permission denied, mkdir '/opt/wikist/.runtime/centrifugo/.install-...'
+```
+
+这通常是旧版安装流程以 `root` 创建了 Centrifugo 运行目录，而服务由 `wikist` 账号启动。新版安装器和 `repair:production` 会自动修复该目录；已部署的旧实例先运行：
+
+```bash
+cd /opt/wikist
+sudo npm run repair:production -- \
+  --public-url=https://wiki.example.com \
+  --service=wikist
+```
+
+不要递归修改整个项目的所有权。若服务仍不能启动，只检查该目录和 systemd 限制：
+
+```bash
+namei -l /opt/wikist/.runtime/centrifugo
+sudo systemctl show wikist -p ReadWritePaths --no-pager
+```
+
 ## 浏览器持续“正在恢复实时连接”
 
 先测试 Centrifugo 本地握手：
@@ -156,6 +178,17 @@ curl --http1.1 --max-time 4 -i -N \
 ```
 
 `101 Switching Protocols` 后 curl 超时是正常的，表示 WebSocket 保持打开。
+
+### 公网检测显示 `ERR_TLS_CERT_ALTNAME_INVALID`
+
+这表示公开 HTTPS 端点返回的证书未覆盖当前域名，不是 Centrifugo 或 Nginx WebSocket 路由错误。为站点域名重新部署包含该域名的证书后，检查证书的 SAN：
+
+```bash
+echo | openssl s_client -connect wiki.example.com:443 -servername wiki.example.com 2>/dev/null \
+  | openssl x509 -noout -ext subjectAltName
+```
+
+输出必须包含 `DNS:wiki.example.com`。使用 CDN 代理时，也要检查 CDN 边缘返回的证书。
 
 ### 本地 101，公网 404
 

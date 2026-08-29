@@ -14,7 +14,7 @@ final class LegacyProxyController
 {
     private const MIGRATED_PREFIXES = [
         '/api/messaging', '/api/community/qa', '/api/selections',
-        '/api/achievements', '/api/realtime/events', '/api/health', '/api/admin/users',
+        '/api/achievements', '/api/realtime/events', '/api/health', '/api/admin/users', '/api/admin/mail',
     ];
 
     public function forward(Request $request): Response

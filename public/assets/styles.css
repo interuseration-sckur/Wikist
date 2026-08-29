@@ -12062,6 +12062,12 @@ body.messaging-mode .content-surface {
   max-width: none;
 }
 
+/* Keep the organization profile description aligned with its full workspace. */
+.organization-workspace-title .article-summary {
+  width: 100%;
+  max-width: none;
+}
+
 .organization-workspace-tabs {
   margin-top: 10px;
   padding: 4px;

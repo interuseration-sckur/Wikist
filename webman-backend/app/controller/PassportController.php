@@ -45,8 +45,7 @@ final class PassportController
         $users = new UserRepository();
         return ApiResponse::data([
             'usernameAvailable' => $username === '' ? null : !$users->usernameExists($username),
-            // Email ownership is intentionally not exposed through a public lookup.
-            'emailAvailable' => $email === '' ? null : true,
+            'emailAvailable' => $email === '' ? null : !$users->emailExists($email),
         ]);
     }
 

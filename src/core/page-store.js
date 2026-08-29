@@ -373,9 +373,12 @@ class PageStore {
     return document;
   }
 
-  listPageSummaries() {
+  listPageSummaries(options = {}) {
+    // Public crawlers must be able to request a catalog read that cannot be
+    // satisfied by the short-lived in-memory snapshot.
+    const fresh = options && options.fresh === true;
     const now = Date.now();
-    if (this.summarySnapshot.length && now < this.summaryExpiresAt) return this.summarySnapshot.slice();
+    if (!fresh && this.summarySnapshot.length && now < this.summaryExpiresAt) return this.summarySnapshot.slice();
     const liveSlugs = new Set();
     const summaries = walkMarkdownFiles(this.pagesDir).map((filePath) => {
       const slug = fileNameToSlug(path.relative(this.pagesDir, filePath));
