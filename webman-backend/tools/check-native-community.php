@@ -6,8 +6,14 @@ $database = $testRoot . '/wikist.sqlite';
 @mkdir($testRoot, 0770, true);
 putenv('WIKIST_DB_DRIVER=sqlite');
 putenv('WIKIST_DB_DATABASE=' . $database);
-putenv('WIKIST_CONTENT_ROOT=' . $root);
+putenv('WIKIST_CONTENT_ROOT=' . $testRoot);
 putenv('CENTRIFUGO_ENABLED=false');
+
+$fixturePages = $testRoot . '/content/pages';
+@mkdir($fixturePages, 0770, true);
+foreach (['group-theory' => '群论', 'abstract-algebra' => 'Abstract Algebra'] as $slug => $title) {
+    file_put_contents($fixturePages . '/' . $slug . '.md', "---\ntitle: {$title}\nsummary: Native Community test fixture\n---\n\nTest fixture page.\n");
+}
 
 chdir(dirname(__DIR__));
 require 'vendor/autoload.php';
