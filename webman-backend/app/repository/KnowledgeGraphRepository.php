@@ -190,6 +190,48 @@ final class KnowledgeGraphRepository
                 break;
             }
         }
+        if ($items !== []) {
+            return $items;
+        }
+
+        // Some deployed SQLite builds do not reliably optimize the three-way join above.
+        // Fall back to the same relation traversal one answer at a time.
+        $subjects = $this->incoming(
+            $globalId,
+            [strtolower(trim($incomingPredicate))],
+            $subjectTypes,
+            1,
+            $limit,
+            $allowedOrganizationIds,
+        );
+        foreach ($subjects['items'] as $subjectRelation) {
+            $subjectId = (string) (($subjectRelation['object'] ?? [])['globalId'] ?? '');
+            if ($subjectId === '') {
+                continue;
+            }
+            $references = $this->related(
+                $subjectId,
+                $referencePredicates,
+                1,
+                $limit,
+                $allowedOrganizationIds,
+            );
+            foreach ($references['items'] as $reference) {
+                if (($reference['direction'] ?? '') !== 'outgoing') {
+                    continue;
+                }
+                $object = $reference['object'] ?? [];
+                $key = (string) ($reference['predicate'] ?? '') . '|' . (string) ($object['globalId'] ?? '');
+                if ($key === '|' || isset($seen[$key])) {
+                    continue;
+                }
+                $seen[$key] = true;
+                $items[] = $reference;
+                if (count($items) >= $limit) {
+                    return $items;
+                }
+            }
+        }
         return $items;
     }
 

@@ -7,6 +7,7 @@
 - Made XML sitemaps read current published content on every request, bypassing catalog snapshots and stale proxy cache windows after imports, edits, restores and deletions.
 - Strengthened homepage discovery with canonical metadata, brand aliases, crawlable links to Wiki, Q&A and collaboration discussions, and structured primary-site navigation for search engines.
 - Added regression coverage for English UI boundaries, sitemap freshness, homepage SEO metadata, deployment hardening and mail administration. Organization profile summaries now use the full available content width. Core browser assets are versioned as `wikist-core-20260829-217`.
+- Hardened Native Community knowledge-relation lookup: question pages now retain cited entries from answers even on SQLite deployments where the optimized multi-table relation query returns no rows.
 
 ## 1.0.3 - 2026-08-16
 
