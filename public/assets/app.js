@@ -1,6 +1,6 @@
 const THEME_KEY = "wikist-theme";
 const LANG_KEY = "wikist-language";
-const CORE_ASSET_VERSION = "wikist-core-20260816-206";
+const CORE_ASSET_VERSION = "wikist-core-20260822-208";
 const RAIL_RECOMMENDATION_LIMIT = 5;
 const RAIL_RECENT_LIMIT = 5;
 const PAGE_SHARE_RECENT_DIRECT_LIMIT = 6;
@@ -5513,21 +5513,18 @@ function searchResultHtml(item, index) {
 }
 
 function communitySearchResultHtml(item, index) {
-  const labels = { question: "问题", answer: "回答", user: "用户", organization: "组织" };
   const metadata = item.metadata && typeof item.metadata === "object" ? item.metadata : {};
-  const detail = item.type === "user"
-    ? `@${metadata.username || item.key || ""}`
-    : item.type === "organization"
-      ? metadata.slug || "协作组织"
-      : item.type === "answer"
-        ? (metadata.accepted ? "已采纳回答" : "社区回答")
-        : `${Number(metadata.answerCount || 0)} 个回答`;
+  const isDiscussion = item.type === "question" && item.source === "organization_forum";
+  const label = isDiscussion ? "协作讨论" : "问题";
+  const detail = isDiscussion
+    ? (metadata.organizationSlug ? `来自 ${metadata.organizationSlug}` : "协作社区主题")
+    : `${Number(metadata.answerCount || 0)} 个回答`;
   return `<a class="result-item search-result-card community-search-result" href="${escapeHtml(item.url || "#/questions")}" style="--result-index:${index + 1}">
     <div class="search-result-rank">${index + 1}</div>
     <div class="search-result-body">
       <h2>${escapeHtml(item.title || item.key || "社区知识")}</h2>
       <p>${escapeHtml(item.summary || detail)}</p>
-      <div class="chip-row"><span class="chip">${escapeHtml(labels[item.type] || item.type || "知识对象")}</span><span class="chip">${escapeHtml(detail)}</span></div>
+      <div class="chip-row"><span class="chip">${escapeHtml(label)}</span><span class="chip">${escapeHtml(detail)}</span></div>
     </div>
   </a>`;
 }
@@ -5566,6 +5563,7 @@ async function renderSearch(value) {
   const { items, pagination } = normalizedPaged(payload, searchState.page, 10);
   const qaItems = Array.isArray(qaPayload.items) ? qaPayload.items : [];
   const qaTotal = Math.max(0, Number(qaPayload.total) || 0);
+  const ignoredTerms = Array.isArray(payload.ignoredTerms) ? payload.ignoredTerms.filter(Boolean).slice(0, 12) : [];
   const combinedTotal = Math.max(0, Number(payload.total) || 0) + qaTotal;
   const activeFilters = [searchState.category, searchState.quality, searchState.difficulty].filter(Boolean);
   el.main.innerHTML = `
@@ -5595,12 +5593,13 @@ async function renderSearch(value) {
       <div><strong>${escapeHtml(payload.engine || "wikist-mini")}</strong><span>搜索引擎</span></div>
       <div><strong>${activeFilters.length || "无"}</strong><span>高级筛选</span></div>
     </section>
+    ${ignoredTerms.length ? `<p class="search-query-note" role="status"><strong>已忽略通用词</strong><span>${ignoredTerms.map((term) => `<b>${escapeHtml(term)}</b>`).join("")}</span><small>结果优先匹配具体概念、标题、别名与分类。</small></p>` : ""}
     ${facetLinks(payload.facets, searchState)}
     <section class="search-results refined-search-results">
       ${items.length ? items.map(searchResultHtml).join("") : `<div class="empty-state"><h2>${q || activeFilters.length ? (qaItems.length ? "词条中没有匹配结果" : "没有匹配结果") : "输入关键词开始搜索"}</h2><p class="muted-line">可以尝试标题、英文术语、分类名，或使用 title:、category:、quality: 进行高级搜索。</p></div>`}
     </section>
     ${paginationHtml(pagination, "词条搜索结果")}
-    ${q ? `<section class="search-qa-results"><header class="section-title-row"><div><span class="system-kicker">Wikist Community</span><h2>社区知识</h2><p class="muted-line">问题、回答、用户和协作组织统一检索。</p></div>${qaTotal > qaItems.length ? `<a class="mini-link" href="#/questions?q=${encodeURIComponent(q)}">查看社区问答</a>` : ""}</header><div class="search-results refined-search-results">${qaItems.length ? qaItems.map((item, index) => communitySearchResultHtml(item, index)).join("") : '<div class="qa-empty-state compact"><h2>没有匹配的社区内容</h2><p>可以围绕这个关键词发起新问题。</p></div>'}</div></section>` : ""}`;
+    ${q ? `<section class="search-qa-results"><header class="section-title-row"><div><span class="system-kicker">Wikist Community</span><h2>社区知识</h2><p class="muted-line">仅检索问题本体与协作社区讨论主题。</p></div>${qaTotal > qaItems.length ? `<a class="mini-link" href="#/questions?q=${encodeURIComponent(q)}">查看社区问答</a>` : ""}</header><div class="search-results refined-search-results">${qaItems.length ? qaItems.map((item, index) => communitySearchResultHtml(item, index)).join("") : '<div class="qa-empty-state compact"><h2>没有匹配的社区内容</h2><p>可以围绕这个关键词发起新问题。</p></div>'}</div></section>` : ""}`;
   bindPageSuggestions(document.querySelector("#searchPageForm input[name='q']"), { limit: 10 });
   document.querySelector("#searchPageForm")?.addEventListener("submit", (event) => {
     event.preventDefault();

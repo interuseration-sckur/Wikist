@@ -3,14 +3,14 @@ const path = require("path");
 const { PassportStore } = require("../src/core/passport-store");
 const { PageStore } = require("../src/core/page-store");
 const { PersistentFtsIndex } = require("../src/core/fts-index");
-const { SearchIndex, cleanSearchOptions } = require("../src/core/search-index");
+const { SearchIndex, cleanSearchOptions, analyzeSearchText } = require("../src/core/search-index");
 
 const pages = [
   {
     slug: "abstract-algebra",
     title: "抽象代数",
     summary: "群、环、域等代数结构的系统入口。",
-    body: "抽象代数研究群论、环论、域论、模论以及同态、商结构和作用。",
+    body: "本词条介绍抽象代数研究群论、环论、域论、模论以及同态、商结构和作用。",
     categories: ["代数", "基础"],
     difficulty: "本科",
     quality: "A",
@@ -21,7 +21,7 @@ const pages = [
     slug: "lagrange-theorem",
     title: "Lagrange 定理",
     summary: "有限群中子群阶整除群阶。",
-    body: "Lagrange theorem is a core result in group theory.",
+    body: "本词条介绍 Lagrange theorem is a core result in group theory.",
     categories: ["代数", "群论"],
     aliases: ["Group theorem"],
     canonicalNames: ["Lagrange's theorem"],
@@ -34,7 +34,7 @@ const pages = [
     slug: "measure-theory",
     title: "测度论",
     summary: "积分、可测集与概率论基础。",
-    body: "Lebesgue measure, sigma algebra and integration.",
+    body: "本词条介绍 Lebesgue measure, sigma algebra and integration.",
     categories: ["分析", "概率"],
     difficulty: "研究生",
     quality: "B",
@@ -45,7 +45,7 @@ const pages = [
     slug: "category-theory",
     title: "范畴论",
     summary: "函子、自然变换和抽象结构语言。",
-    body: "Category theory connects algebra, topology and logic.",
+    body: "本词条介绍 Category theory connects algebra, topology and logic.",
     categories: ["基础", "代数"],
     difficulty: "专题",
     quality: "C",
@@ -79,8 +79,16 @@ const qualityFiltered = search.search("群", { quality: "A", page: 1, limit: 10 
 const oneLetterSearch = search.search("g", { page: 1, limit: 10 });
 const oneLetterFiltered = search.search("g", { category: "群论", page: 1, limit: 10 });
 const identitySearch = search.search("Group theorem", { page: 1, limit: 10 });
+const genericTheorem = search.search("定理", { page: 1, limit: 10 });
+const genericDefinition = search.search("定义", { page: 1, limit: 10 });
+const filteredComposition = search.search("群 定义", { page: 1, limit: 10 });
+const noisySingleCharacter = search.search("词", { page: 1, limit: 10 });
+const mathematicalSingleCharacter = search.search("群", { page: 1, limit: 10 });
+const uncertainSingleCharacter = search.search("论", { page: 1, limit: 10 });
+const customGeneric = search.search("structure", { page: 1, limit: 10, stopWords: "structure" });
 const prefixSuggestion = search.suggest("g", { limit: 8 });
 const chineseSuggestion = search.suggest("群", { limit: 8 });
+const noisySingleCharacterSuggestion = search.suggest("词", { limit: 8 });
 const cachedSuggestion = search.suggest("g", { limit: 8 });
 const suggestionCacheHit = search.lastTelemetry.cacheHit;
 search.syncPage({
@@ -105,6 +113,8 @@ let ftsSearch = null;
 let ftsChinese = null;
 let ftsAfterUpdate = null;
 let ftsAfterDelete = null;
+let ftsGenericDefinition = null;
+let ftsGenericThroughSearchIndex = null;
 let changeStreamCreates = 0;
 let changeStreamDeletes = 0;
 let changeStreamFound = null;
@@ -119,6 +129,11 @@ try {
   ftsStatus = persistent.status();
   ftsSearch = persistent.search("Lagrange", ftsOptions);
   ftsChinese = persistent.search("\u7fa4", ftsOptions);
+  ftsGenericDefinition = persistent.search("定义", ftsOptions);
+  const persistentSearchIndex = new SearchIndex(pageStore, () => ({
+    plugins: { advancedSearch: { enabled: true, fts5: true } },
+  }), persistent);
+  ftsGenericThroughSearchIndex = persistentSearchIndex.search("定理", { page: 1, limit: 10 });
   persistent.syncPage({ ...pages[1], title: "Lagrange Group Theorem", updatedAt: "2026-07-05" });
   ftsAfterUpdate = persistent.search("Group", ftsOptions);
   persistent.removePage("lagrange-theorem");
@@ -167,15 +182,41 @@ const checks = {
   oneLetterFormalSearch: oneLetterSearch.items.some((item) => item.slug === "lagrange-theorem") && oneLetterSearch.engine === "wikist-prefix-cache",
   oneLetterFilteredSearch: oneLetterFiltered.items.length === 1 && oneLetterFiltered.items[0].slug === "lagrange-theorem",
   identityFormalSearch: identitySearch.items.some((item) => item.slug === "lagrange-theorem"),
+  genericTermsUseFocusedFields: genericTheorem.total === 1
+    && genericTheorem.items[0]?.slug === "lagrange-theorem"
+    && genericTheorem.engine === "wikist-focused",
+  genericTermsDoNotReturnEveryPage: genericDefinition.total === 0,
+  genericTermsAreRemovedFromSpecificQueries: filteredComposition.total > 0
+    && filteredComposition.total < pages.length
+    && filteredComposition.items.some((item) => item.slug === "abstract-algebra"),
+  noisySingleCharactersDoNotSearchEveryBody: noisySingleCharacter.total === 0
+    && noisySingleCharacter.engine === "wikist-focused"
+    && noisySingleCharacter.ignoredTerms.includes("词"),
+  mathematicalSingleCharactersKeepFullSearch: mathematicalSingleCharacter.total > 0
+    && mathematicalSingleCharacter.items.some((item) => item.slug === "abstract-algebra")
+    && mathematicalSingleCharacter.engine === "wikist-concept",
+  uncertainSingleCharactersUseFocusedFields: uncertainSingleCharacter.total === 3
+    && uncertainSingleCharacter.engine === "wikist-focused"
+    && !uncertainSingleCharacter.items.some((item) => item.slug === "abstract-algebra"),
+  genericAnalysisPreservesMathematicalWords: analyzeSearchText("vector").text === "vector"
+    && analyzeSearchText("定义域").text === "定义域"
+    && analyzeSearchText("群的定义").text === "群",
+  customStopWordsUseFocusedMatching: customGeneric.engine === "wikist-focused" && customGeneric.total === 0,
   facets: categoryFiltered.facets.categories.some((item) => item.name === "代数"),
   oneLetterPrefixSuggestion: prefixSuggestion.items.some((item) => item.slug === "lagrange-theorem"),
   chineseSubstringSuggestion: chineseSuggestion.items.some((item) => item.slug === "lagrange-theorem"),
+  noisySingleCharacterSuggestionIsFiltered: noisySingleCharacterSuggestion.total === 0
+    && noisySingleCharacterSuggestion.ignoredTerms.includes("词"),
   suggestionCache: suggestionCacheHit && cachedSuggestion.engine === "wikist-prefix-cache",
   suggestionIncrementalSync: incrementalSuggestion.items.some((item) => item.slug === "gamma-function"),
   suggestionIncrementalDelete: !removedSuggestion.items.some((item) => item.slug === "gamma-function"),
   ftsReady: ftsStatus?.available && ftsStatus?.ready && ftsStatus?.documents === pages.length,
   ftsFindsEnglish: ftsSearch?.engine === "sqlite-fts5" && ftsSearch.items.some((item) => item.slug === "lagrange-theorem"),
   ftsFindsChineseTokens: ftsChinese?.items.some((item) => item.slug === "abstract-algebra"),
+  ftsSkipsGenericOnlyQueries: ftsGenericDefinition === null,
+  ftsSearchIndexUsesFocusedGenericResults: ftsGenericThroughSearchIndex?.engine === "wikist-focused"
+    && ftsGenericThroughSearchIndex?.total === 1
+    && ftsGenericThroughSearchIndex.items[0]?.slug === "lagrange-theorem",
   ftsSyncsChangedPage: ftsAfterUpdate?.items.some((item) => item.title === "Lagrange Group Theorem"),
   ftsRemovesDeletedPage: ftsAfterDelete?.total === 0,
   ftsUsesPageChangeStream: changeStreamCreates === 1 && changeStreamDeletes === 1 && changeStreamFound?.total === 1 && changeStreamRemoved?.total === 0,

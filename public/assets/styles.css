@@ -1040,6 +1040,40 @@ th {
   color: var(--green);
 }
 
+.search-query-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 16px;
+  border-inline-start: 3px solid var(--cyan);
+  padding: 8px 12px;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--accent-soft) 72%, transparent);
+}
+
+.search-query-note strong {
+  color: var(--text);
+}
+
+.search-query-note span {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.search-query-note b {
+  border-radius: 999px;
+  padding: 2px 8px;
+  color: var(--cyan);
+  background: color-mix(in srgb, var(--cyan) 10%, transparent);
+  font-size: .82rem;
+}
+
+.search-query-note small {
+  font-size: .82rem;
+}
+
 .refined-search-results {
   gap: 13px;
 }

@@ -1,5 +1,6 @@
 const {
   tokenize,
+  analyzeSearchText,
   parseQuery,
   normalizeText,
   snippet,
@@ -25,8 +26,9 @@ function indexedText(value) {
   return [...tokenize(value).keys()].join(" ");
 }
 
-function ftsQuery(value, prefix) {
-  const tokens = [...tokenize(value).keys()].filter(Boolean);
+function ftsQuery(value, prefix, stopWords = [], singleCharacterConcepts = []) {
+  const analyzed = analyzeSearchText(value, stopWords, singleCharacterConcepts);
+  const tokens = [...tokenize(analyzed.text).keys()].filter(Boolean);
   if (!tokens.length) return "";
   return tokens.map((token) => {
     const quoted = `"${String(token).replace(/"/g, '""')}"`;
@@ -383,7 +385,7 @@ class PersistentFtsIndex {
     if (parsed.phrases.length) return null;
     const filters = this.filters(parsed, options);
     const source = parsed.text || "";
-    const match = ftsQuery(source, options.prefix);
+    const match = ftsQuery(source, options.prefix, options.stopWords, options.singleCharacterConcepts);
     if (!match) return null;
     try {
       const { clause, args } = this.where(match, filters);

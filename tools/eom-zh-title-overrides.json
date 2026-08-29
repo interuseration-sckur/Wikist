@@ -1,0 +1,140 @@
+{
+  "format": "wikist-eom-title-overrides",
+  "formatVersion": 1,
+  "description": "Reviewed title corrections applied after title-part consolidation and before collision disambiguation.",
+  "review": {
+    "source": ".codex/title-corrections-reviewed.json",
+    "applyTrue": 18,
+    "accepted": 18,
+    "rejected": 0,
+    "rejectedItems": []
+  },
+  "overrides": [
+    {
+      "sourceId": 340,
+      "sourceTitle": "Function of compact support",
+      "zhTitle": "紧支集函数",
+      "titleConfidence": "high",
+      "reason": "大陆分析教材把 support 译为“支集”，并使用“具紧支集的函数”或“紧支集函数”；“紧支撑函数”不符合这一基础术语。"
+    },
+    {
+      "sourceId": 1285,
+      "sourceTitle": "Diagram(2)",
+      "zhTitle": "图式（2）",
+      "titleConfidence": "high",
+      "reason": "正文把 diagram 定义为有向图之间的态射，并进一步讨论范畴中的 diagram；这是范畴论“图式”而非一般图表。同库 sourceId 3529 的 Diagram 已规范为“图式（范畴论）”。"
+    },
+    {
+      "sourceId": 3046,
+      "sourceTitle": "Support of a function",
+      "zhTitle": "函数的支集",
+      "titleConfidence": "high",
+      "reason": "拓扑与分析教材将函数非零点集的闭包称为“支集”，记作 supp f；“支撑集”不是该基础概念的规范译名。"
+    },
+    {
+      "sourceId": 3091,
+      "sourceTitle": "Pearl-Verhulst logistic process",
+      "zhTitle": "Pearl-Verhulst 逻辑斯谛过程",
+      "titleConfidence": "high",
+      "reason": "logistic 在增长模型语境中的大陆规范译名为“逻辑斯谛”；同名异体 sourceId 8902 已采用“Pearl-Verhulst 逻辑斯谛过程”。"
+    },
+    {
+      "sourceId": 3619,
+      "sourceTitle": "Fermat-Torricelli problem",
+      "zhTitle": "费马-托里拆利问题",
+      "titleConfidence": "high",
+      "reason": "Torricelli 在大陆教材中的通行译名是“托里拆利”；同名异体 sourceId 8667 也采用“费马-托里拆利问题”。"
+    },
+    {
+      "sourceId": 3725,
+      "sourceTitle": "Bézier curve",
+      "zhTitle": "贝塞尔曲线",
+      "titleConfidence": "high",
+      "reason": "北京大学课程讲义、清华大学计算机图形学课程等大陆材料稳定使用“贝塞尔曲线”；同名异体 sourceId 9052 也采用该题名。"
+    },
+    {
+      "sourceId": 5049,
+      "sourceTitle": "Simplicial set",
+      "zhTitle": "单纯集",
+      "titleConfidence": "high",
+      "reason": "代数拓扑标准术语为“单纯集”；清华大学、东北师范大学相关课程及中山大学数学论文均使用该译名。“单纯集合”是对 set 的机械展开。"
+    },
+    {
+      "sourceId": 5480,
+      "sourceTitle": "Absolute Cesàro summability",
+      "zhTitle": "绝对切萨罗可和性",
+      "titleConfidence": "high",
+      "reason": "Cesàro summability 的大陆规范译法为“切萨罗可和性”；项目内 Cesàro curve、summation methods 也已统一使用“切萨罗”。"
+    },
+    {
+      "sourceId": 6469,
+      "sourceTitle": "Chebyshev net",
+      "zhTitle": "切比雪夫网",
+      "titleConfidence": "high",
+      "reason": "Chebyshev 在大陆数学教材中有稳定译名“切比雪夫”，项目其余大量同词根题名也一致；该处保留英文造成无根据的不一致。"
+    },
+    {
+      "sourceId": 6709,
+      "sourceTitle": "Painlevé equation",
+      "zhTitle": "潘勒韦方程",
+      "titleConfidence": "high",
+      "reason": "科学出版社已有《潘勒韦方程解析理论讲义》，大陆高校数学研究介绍也稳定使用“潘勒韦方程”；该译名证据充分。"
+    },
+    {
+      "sourceId": 7828,
+      "sourceTitle": "Kac-Moody algebra",
+      "zhTitle": "卡茨-穆迪代数",
+      "titleConfidence": "high",
+      "reason": "清华大学数学课程、教育部数学资料及科学出版社书名均使用“卡茨-穆迪代数”；同名异体 sourceId 8769 也一致。"
+    },
+    {
+      "sourceId": 8466,
+      "sourceTitle": "Allison–Hein triple system",
+      "zhTitle": "Allison-Hein 三系",
+      "titleConfidence": "high",
+      "reason": "非结合代数文献把 Lie/Jordan triple system 系列稳定译为“李三系”“Jordan-李三系”；本条属于同一代数语境，同名主条目 sourceId 6852 也用“三系”。"
+    },
+    {
+      "sourceId": 8501,
+      "sourceTitle": "Beltrami–Enneper theorem",
+      "zhTitle": "贝尔特拉米-恩内佩尔定理",
+      "titleConfidence": "high",
+      "reason": "高等教育出版社微分几何教材明确写“恩内佩尔定理”，大陆工具书也用“恩内佩尔曲面”；同名主条目 sourceId 1258 采用相同译写。"
+    },
+    {
+      "sourceId": 8596,
+      "sourceTitle": "Cech–Stone compactification of omega",
+      "zhTitle": "ω 的切赫-斯通紧化",
+      "titleConfidence": "high",
+      "reason": "此处 omega 指拓扑学中的序数符号 ω；同名主条目 sourceId 2122 也写作“ω 的切赫-斯通紧化”。应保留数学符号而非英文拼写。"
+    },
+    {
+      "sourceId": 8629,
+      "sourceTitle": "Dempster–Shafer theory",
+      "zhTitle": "登普斯特-谢弗证据理论",
+      "titleConfidence": "high",
+      "reason": "大陆高校学报普遍称 Dempster-Shafer theory 为“D-S 证据理论”；补出“证据”可准确标示该理论，同名主条目 sourceId 6241 也采用完整题名。"
+    },
+    {
+      "sourceId": 8707,
+      "sourceTitle": "Gel'fond–Baker method",
+      "zhTitle": "盖尔丰德-贝克方法",
+      "titleConfidence": "high",
+      "reason": "Gel'fond 的通行译名是“盖尔丰德”，不能与 Gel'fand 的“盖尔范德”混同；同名主条目 sourceId 150 已采用“盖尔丰德-贝克方法”。"
+    },
+    {
+      "sourceId": 9127,
+      "sourceTitle": "Jordan-Holder theorem",
+      "zhTitle": "若尔当-赫尔德定理",
+      "titleConfidence": "high",
+      "reason": "大陆抽象代数教材书目采用“若尔当-赫尔德定理”，同名条目 sourceId 1995、8767 也一致；“约当”不符合该群论定理的通行题名。"
+    },
+    {
+      "sourceId": 10230,
+      "sourceTitle": "Sturm sequence",
+      "zhTitle": "斯图姆序列",
+      "titleConfidence": "high",
+      "reason": "大陆高等代数教材、数学工具书和课程材料均使用“斯图姆序列”；Sturm 在该基础代数术语中已有稳定中文译名。"
+    }
+  ]
+}

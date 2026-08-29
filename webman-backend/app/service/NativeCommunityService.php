@@ -145,7 +145,7 @@ final class NativeCommunityService
         }
         return $this->graph->search(
             $query,
-            ['question', 'answer', 'comment', 'wiki_entry', 'user', 'organization'],
+            ['question'],
             $page,
             $limit,
             $this->community->visibleOrganizationIds($identity),

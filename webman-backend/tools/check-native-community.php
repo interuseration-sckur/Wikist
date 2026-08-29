@@ -238,6 +238,7 @@ MD);
 
     $search = $service->search(['query' => '拉格朗日', 'page' => 1, 'limit' => 20], $outsider);
     $assert($search['total'] >= 1, 'Unified search missed public Community content.');
+    $assert(count(array_filter($search['items'], static fn (array $item): bool => ($item['type'] ?? '') !== 'question')) === 0, 'Community search leaked answers, comments or auxiliary objects.');
     $service->setQuestionOpen($alice, $questionId, false, '回归测试关闭状态');
     $closedItems = $service->questions(['query' => '拉格朗日', 'page' => 1, 'limit' => 20], $outsider)['items'];
     $closedQuestion = array_values(array_filter($closedItems, static fn (array $item): bool => $item['id'] === $questionId))[0] ?? null;

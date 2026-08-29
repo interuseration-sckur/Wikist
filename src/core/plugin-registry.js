@@ -70,6 +70,8 @@ const DEFAULT_PLUGINS = {
     summaryWeight: 4,
     bodyWeight: 1,
     categoryWeight: 6,
+    stopWords: "",
+    singleCharacterConcepts: "",
   },
   openccChinese: {
     enabled: true,
@@ -129,7 +131,7 @@ const PLUGIN_CATALOG = [
       "\"Lagrange theorem\" quality:A",
       "difficulty:本科 群论",
     ],
-    configKeys: ["enabled", "engine", "fts5", "fuzzy", "prefix", "pageSize", "titleWeight", "summaryWeight", "bodyWeight", "categoryWeight"],
+    configKeys: ["enabled", "engine", "fts5", "fuzzy", "prefix", "pageSize", "titleWeight", "summaryWeight", "bodyWeight", "categoryWeight", "stopWords", "singleCharacterConcepts"],
     defaultConfig: {
       enabled: true,
       engine: "wikist-mini",
@@ -141,6 +143,8 @@ const PLUGIN_CATALOG = [
       summaryWeight: 4,
       bodyWeight: 1,
       categoryWeight: 6,
+      stopWords: "",
+      singleCharacterConcepts: "",
     },
     hooks: ["search.enhance"],
     permissions: ["search:enhance"],

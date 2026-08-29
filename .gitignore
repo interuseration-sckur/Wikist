@@ -33,6 +33,10 @@ public/uploads/*
 
 # Local scratch artifacts.
 .agents/
+/.codex/
+/.codex-*
+/codex-tmp-*
+/tmp-part07-*
 output/
 tmp/
 *.tmp
