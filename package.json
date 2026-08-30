@@ -74,7 +74,7 @@
     "node": ">=22.5.0"
   },
   "dependencies": {
-    "centrifuge": "5.7.0",
+    "centrifuge": "5.7.2",
     "nodemailer": "7.0.0"
   }
 }
